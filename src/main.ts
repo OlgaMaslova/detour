@@ -259,9 +259,10 @@ function render(root: HTMLElement) {
   root.innerHTML = `
     <header class="hero">
       <div class="hero-inner">
-        <p class="brand">Ronda</p>
+        <p class="brand">Detour</p>
+        <p class="brand-line" style="margin:0 0 0.6rem;font-size:0.85rem;letter-spacing:0.08em;font-style:italic;opacity:0.85;">Worth a detour.</p>
         <h1>Madrid’s trusted table, mapped.</h1>
-        <p class="tagline">Every place on Ronda holds a current award from a named guide — source first, always linked. This is a verified selection for Madrid right now, not a directory of the whole city.</p>
+        <p class="tagline">Every place on Detour holds a current award from a named guide — source first, always linked. This is a verified selection for Madrid right now, not a directory of the whole city.</p>
         <div class="hero-badges">
           <span class="badge badge-year">Guía Repsol · ${state.guideYear} guide year</span>
           <span class="badge">Source-attributed</span>
@@ -296,7 +297,7 @@ function render(root: HTMLElement) {
       </div>
     </div>
     <footer class="footer">
-      <p>Ronda lists a current, verified selection of awarded Madrid venues. Awards belong to their guides; follow each source link for the official listing.</p>
+      <p>Detour lists a current, verified selection of awarded Madrid venues. Awards belong to their guides; follow each source link for the official listing.</p>
     </footer>
   `;
 
