@@ -696,3 +696,89 @@ select.filter-select {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---------- venue-name search ---------- */
+
+.search-control {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.search-control input[type='search'] {
+  width: 100%;
+  max-width: 340px;
+  padding: 0.45rem 0.8rem;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+}
+
+.search-control input[type='search']::placeholder {
+  color: var(--ink-faint);
+}
+
+.search-control input[type='search']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+/* ---------- empty state ---------- */
+
+.empty-state {
+  padding: 2rem 1.5rem;
+  text-align: center;
+  background: var(--card);
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  color: var(--ink-soft);
+}
+
+.empty-state-title {
+  margin: 0 0 0.4rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.empty-state-body {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+}
+
+.empty-state-reset {
+  padding: 0.5rem 1.1rem;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.empty-state-reset:hover {
+  background: var(--accent-deep);
+}
+
+.empty-state-reset:focus-visible {
+  outline: 2px solid var(--accent-deep);
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  .search-control input[type='search'] {
+    max-width: 100%;
+  }
+
+  .empty-state {
+    padding: 1.4rem 1rem;
+  }
+
+  .empty-state-reset {
+    width: 100%;
+  }
+}

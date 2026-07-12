@@ -19,6 +19,8 @@ interface State {
   filter: Filter;
   /** '' = all sources; otherwise a source name present in the loaded data. */
   sourceFilter: string;
+  /** Free-text venue-name search; matched case-insensitively after trimming. */
+  search: string;
   selectedId: string | null;
   guideYear: number;
   userLocation: UserLocation | null;
@@ -31,6 +33,7 @@ const state: State = {
   venues: [],
   filter: 0,
   sourceFilter: '',
+  search: '',
   selectedId: null,
   guideYear: GUIDE_YEAR,
   userLocation: null,
@@ -218,10 +221,12 @@ function sourceNames(): string[] {
 }
 
 function filteredVenues(): Venue[] {
+  const query = state.search.trim().toLowerCase();
   const list = state.venues.filter(
     (v) =>
       (state.filter === 0 || v.award === state.filter) &&
-      (state.sourceFilter === '' || v.sourceName === state.sourceFilter)
+      (state.sourceFilter === '' || v.sourceName === state.sourceFilter) &&
+      (query === '' || v.name.toLowerCase().includes(query))
   );
   return [...list].sort((a, b) => b.award - a.award || a.name.localeCompare(b.name));
 }
@@ -380,7 +385,7 @@ function mapPanel(list: Venue[]): string {
   const pending = list.length - mappable.length;
   const note =
     list.length === 0
-      ? 'No venues match this filter — no pins to show. The map stays centered on Madrid.'
+      ? 'No venues match your current search or filters — no pins to show. The map stays centered on Madrid.'
       : mappable.length === 0
         ? 'Locations pending verification — no verified venue pins to show yet. The map stays centered on Madrid.'
         : pending > 0
@@ -498,6 +503,15 @@ function render(root: HTMLElement) {
           .join('')}
       </div>
     </section>
+    <section class="controls" aria-label="Search venues by name">
+      <label class="controls-label" for="venue-search">Search by name</label>
+      <div class="search-control">
+        <input type="search" id="venue-search" data-search
+          value="${esc(state.search)}"
+          placeholder="e.g. Casa, DiverXO…"
+          autocomplete="off" spellcheck="false" />
+      </div>
+    </section>
     <section class="controls" aria-label="Your location">
       <span class="controls-label" id="geo-label">Your location</span>
       <div class="filters" role="group" aria-labelledby="geo-label">
@@ -514,7 +528,11 @@ function render(root: HTMLElement) {
             ? '<p class="loading">Loading the current selection…</p>'
             : list.length
               ? `<ul class="card-list">${list.map(venueCard).join('')}</ul>`
-              : '<p class="loading">No venues match this award level.</p>'
+              : `<div class="empty-state" role="status">
+                  <p class="empty-state-title">No matching venues</p>
+                  <p class="empty-state-body">Your current search and filters produced no matches. Try a different venue name, or start over.</p>
+                  <button type="button" class="empty-state-reset" data-reset-filters>Clear search &amp; filters</button>
+                </div>`
         }
       </section>
       <div class="side">
@@ -557,6 +575,29 @@ function render(root: HTMLElement) {
       render(root);
       root.querySelector('.detail')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
+  });
+  const searchInput = root.querySelector<HTMLInputElement>('[data-search]');
+  searchInput?.addEventListener('input', () => {
+    state.search = searchInput.value;
+    const visible = filteredVenues();
+    if (state.selectedId && !visible.some((v) => v.id === state.selectedId)) {
+      state.selectedId = null;
+    }
+    const caret = searchInput.selectionStart;
+    render(root);
+    // Re-rendering replaces the input; restore focus and caret so typing
+    // continues uninterrupted.
+    const next = root.querySelector<HTMLInputElement>('[data-search]');
+    if (next) {
+      next.focus();
+      if (caret !== null) next.setSelectionRange(caret, caret);
+    }
+  });
+  root.querySelector<HTMLButtonElement>('[data-reset-filters]')?.addEventListener('click', () => {
+    state.filter = 0;
+    state.sourceFilter = '';
+    state.search = '';
+    render(root);
   });
   root.querySelector('[data-close]')?.addEventListener('click', () => {
     state.selectedId = null;
