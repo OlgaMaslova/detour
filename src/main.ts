@@ -6,20 +6,34 @@ import type { AwardLevel, Venue } from './data';
 type Filter = 0 | AwardLevel; // 0 = all
 type DataMode = 'loading' | 'live' | 'demo';
 
+interface UserLocation {
+  lat: number;
+  lng: number;
+}
+
 interface State {
   mode: DataMode;
   venues: Venue[];
   filter: Filter;
+  /** '' = all sources; otherwise a source name present in the loaded data. */
+  sourceFilter: string;
   selectedId: string | null;
   guideYear: number;
+  userLocation: UserLocation | null;
+  geoStatus: string;
+  geoBusy: boolean;
 }
 
 const state: State = {
   mode: 'loading',
   venues: [],
   filter: 0,
+  sourceFilter: '',
   selectedId: null,
   guideYear: GUIDE_YEAR,
+  userLocation: null,
+  geoStatus: '',
+  geoBusy: false,
 };
 
 /* ---------- helpers ---------- */
@@ -45,6 +59,28 @@ function str(...candidates: unknown[]): string {
     if (typeof c === 'string' && c.trim()) return c.trim();
   }
   return '';
+}
+
+/**
+ * Parse an award level that may be stored as a number (3) or as a string
+ * label like '1 Sol', '2 Soles', '3 Soles'. Returns null when unrecognized —
+ * never guesses.
+ */
+function parseAwardLevel(...candidates: unknown[]): AwardLevel | null {
+  for (const c of candidates) {
+    if (typeof c === 'number' && Number.isFinite(c)) {
+      const n = Math.round(c);
+      if (n >= 1 && n <= 3) return n as AwardLevel;
+    }
+    if (typeof c === 'string') {
+      const m = c.match(/([123])\s*(?:sol(?:es)?)?/i);
+      if (m) {
+        const n = Number(m[1]);
+        if (n >= 1 && n <= 3) return n as AwardLevel;
+      }
+    }
+  }
+  return null;
 }
 
 function solesLabel(level: AwardLevel): string {
@@ -75,34 +111,51 @@ async function loadLiveVenues(): Promise<Venue[]> {
   const sourceById = new Map<string, Rec>();
   for (const s of sourceRecs) sourceById.set(String(s.id), s);
 
+  // Keep only current awards for the active guide year — Detour only makes
+  // claims backed by the current published listing.
   const awardByVenue = new Map<string, Rec>();
   for (const a of awardRecs) {
     const vid = str(a.venue as string, a.venue_id as string);
     if (!vid) continue;
+    if (a.current === false) continue;
+    const year = num(a.year, a.guide_year);
+    if (year !== null && year !== GUIDE_YEAR) continue;
     const prev = awardByVenue.get(vid);
-    const year = num(a.year, a.guide_year) ?? 0;
     const prevYear = prev ? (num(prev.year, prev.guide_year) ?? 0) : -1;
-    if (!prev || year >= prevYear) awardByVenue.set(vid, a);
+    if (!prev || (year ?? 0) >= prevYear) awardByVenue.set(vid, a);
   }
 
   const venues: Venue[] = [];
   for (const v of venueRecs) {
     const id = String(v.id);
     const award = awardByVenue.get(id);
-    const levelRaw =
-      num(award?.level, award?.soles, v.award_level, v.soles, v.award) ?? 0;
-    const level = Math.min(3, Math.max(1, Math.round(levelRaw))) as AwardLevel;
-    if (levelRaw < 1) continue;
+    if (!award) continue;
+    // Award levels are stored as strings like '1 Sol' / '2 Soles' / '3 Soles'
+    // in the live schema; parse those (and plain numbers) explicitly.
+    const level = parseAwardLevel(
+      award.level,
+      award.soles,
+      v.award_level,
+      v.soles,
+      v.award
+    );
+    if (level === null) continue;
 
     const sourceId = str(
-      award?.source as string,
-      award?.guide_source as string,
+      award.source as string,
+      award.guide_source as string,
       v.source as string,
       v.guide_source as string
     );
     const source = sourceId ? sourceById.get(sourceId) : undefined;
 
-    const note = str(v.coord_verification_note, v.note, v.summary, v.description);
+    const note = str(
+      award.verification_note as string,
+      v.coord_verification_note,
+      v.note,
+      v.summary,
+      v.description
+    );
 
     // The backend stores 0/0 as a neutral "no verified coordinates" sentinel
     // (see the seed migrations). Treat it — and missing values — as unknown
@@ -118,7 +171,7 @@ async function loadLiveVenues(): Promise<Venue[]> {
       id,
       name: str(v.name, v.title) || 'Unnamed venue',
       award: level,
-      awardYear: num(award?.year, award?.guide_year, v.award_year) ?? GUIDE_YEAR,
+      awardYear: num(award.year, award.guide_year, v.award_year) ?? GUIDE_YEAR,
       cuisine: str(v.cuisine, v.category, v.style),
       neighborhood: str(v.neighborhood, v.district, v.area),
       address: str(v.address, v.street_address),
@@ -127,11 +180,11 @@ async function loadLiveVenues(): Promise<Venue[]> {
       sourceName: str(
         source?.name as string,
         source?.title as string,
-        award?.source_name as string,
+        award.source_name as string,
         v.source_name as string
       ) || 'Guía Repsol',
       sourceUrl: str(
-        award?.source_url as string,
+        award.source_url as string,
         source?.official_url as string,
         source?.url as string,
         source?.website as string,
@@ -156,12 +209,35 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: 1, label: '1 Sol' },
 ];
 
+function sourceNames(): string[] {
+  const names = new Set<string>();
+  for (const v of state.venues) if (v.sourceName) names.add(v.sourceName);
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+
 function filteredVenues(): Venue[] {
-  const list =
-    state.filter === 0
-      ? state.venues
-      : state.venues.filter((v) => v.award === state.filter);
+  const list = state.venues.filter(
+    (v) =>
+      (state.filter === 0 || v.award === state.filter) &&
+      (state.sourceFilter === '' || v.sourceName === state.sourceFilter)
+  );
   return [...list].sort((a, b) => b.award - a.award || a.name.localeCompare(b.name));
+}
+
+// Central Madrid frame used when there are no verified venue pins to derive
+// bounds from — the map stays centered on Madrid.
+const MADRID_BOUNDS = { minLat: 40.38, maxLat: 40.48, minLng: -3.76, maxLng: -3.64 };
+
+function userDot(bounds: { minLat: number; maxLat: number; minLng: number; maxLng: number }): string {
+  const u = state.userLocation;
+  if (!u) return '';
+  if (u.lat < bounds.minLat || u.lat > bounds.maxLat || u.lng < bounds.minLng || u.lng > bounds.maxLng) {
+    return '';
+  }
+  const x = ((u.lng - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * 100;
+  const y = ((bounds.maxLat - u.lat) / (bounds.maxLat - bounds.minLat)) * 100;
+  return `<span class="user-dot" role="img" aria-label="Your approximate location"
+    style="position:absolute;left:${x.toFixed(2)}%;top:${y.toFixed(2)}%;transform:translate(-50%,-50%);width:12px;height:12px;border-radius:50%;background:#2563eb;border:2px solid #fff;box-shadow:0 0 0 3px rgba(37,99,235,0.35);z-index:3;"></span>`;
 }
 
 function mapPanel(list: Venue[]): string {
@@ -170,11 +246,20 @@ function mapPanel(list: Venue[]): string {
   );
   const pending = list.length - mappable.length;
   if (mappable.length === 0) {
-    return `<div class="map-panel" aria-hidden="true"><p class="map-empty">${
-      list.length === 0
-        ? 'No pins for this filter.'
-        : 'Locations pending verification — no verified pins to show yet.'
-    }</p></div>`;
+    const dot = userDot(MADRID_BOUNDS);
+    return `<div class="map-panel" role="group" aria-label="Map centered on Madrid" style="position:relative;">
+      <div class="map-grid" aria-hidden="true"></div>
+      <span class="map-compass" aria-hidden="true">N ↑</span>
+      ${dot}
+      <p class="map-empty">${
+        list.length === 0
+          ? 'No pins for this filter.'
+          : 'Locations pending verification — no verified venue pins to show yet.'
+      }${dot ? ' Your location is shown as a blue dot.' : ''}</p>
+      <p class="map-caption">Map centered on Madrid.${
+        state.userLocation && !dot ? ' Your location is outside this Madrid frame.' : ''
+      } Venue distances aren’t shown — venue coordinates are pending verification.</p>
+    </div>`;
   }
   const lats = mappable.map((v) => v.lat);
   const lngs = mappable.map((v) => v.lng);
@@ -204,6 +289,7 @@ function mapPanel(list: Venue[]): string {
     <div class="map-grid" aria-hidden="true"></div>
     <span class="map-compass" aria-hidden="true">N ↑</span>
     ${pins}
+    ${userDot({ minLat, maxLat, minLng, maxLng })}
     <p class="map-caption">Placement sketch — relative positions, not a street map.${
       pending > 0
         ? ` ${pending} venue${pending === 1 ? '' : 's'} not shown — location pending verification.`
@@ -305,6 +391,28 @@ function render(root: HTMLElement) {
       </div>
       <span class="count" aria-live="polite">${loading ? 'Loading…' : `${list.length} venue${list.length === 1 ? '' : 's'}`}</span>
     </section>
+    <section class="controls" aria-label="Filter venues by guide source">
+      <span class="controls-label" id="source-label">Guide source</span>
+      <div class="filters" role="group" aria-labelledby="source-label">
+        <button type="button" class="filter${state.sourceFilter === '' ? ' filter-active' : ''}"
+          data-source="" aria-pressed="${state.sourceFilter === ''}">All</button>
+        ${sourceNames()
+          .map(
+            (name) => `<button type="button" class="filter${state.sourceFilter === name ? ' filter-active' : ''}"
+              data-source="${esc(name)}" aria-pressed="${state.sourceFilter === name}">${esc(name)}</button>`
+          )
+          .join('')}
+      </div>
+    </section>
+    <section class="controls" aria-label="Your location">
+      <span class="controls-label" id="geo-label">Your location</span>
+      <div class="filters" role="group" aria-labelledby="geo-label">
+        <button type="button" class="filter" data-geolocate ${state.geoBusy ? 'disabled' : ''}>
+          ${state.geoBusy ? 'Locating…' : 'Use my location'}
+        </button>
+      </div>
+      ${state.geoStatus ? `<span class="count" role="status">${esc(state.geoStatus)}</span>` : ''}
+    </section>
     <div class="layout">
       <section class="results" aria-label="Venue results">
         ${
@@ -335,6 +443,19 @@ function render(root: HTMLElement) {
       render(root);
     });
   });
+  root.querySelectorAll<HTMLButtonElement>('[data-source]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.sourceFilter = btn.dataset.source ?? '';
+      const visible = filteredVenues();
+      if (state.selectedId && !visible.some((v) => v.id === state.selectedId)) {
+        state.selectedId = null;
+      }
+      render(root);
+    });
+  });
+  root.querySelector<HTMLButtonElement>('[data-geolocate]')?.addEventListener('click', () => {
+    requestUserLocation(root);
+  });
   root.querySelectorAll<HTMLButtonElement>('[data-venue]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.venue ?? null;
@@ -347,6 +468,51 @@ function render(root: HTMLElement) {
     state.selectedId = null;
     render(root);
   });
+}
+
+/* ---------- geolocation (opt-in only) ---------- */
+
+const GEO_FALLBACK =
+  'We couldn’t get your location, so the map stays centered on Madrid — everything else works as usual.';
+
+function requestUserLocation(root: HTMLElement): void {
+  if (state.geoBusy) return;
+  if (!('geolocation' in navigator)) {
+    state.userLocation = null;
+    state.geoStatus = GEO_FALLBACK;
+    render(root);
+    return;
+  }
+  state.geoBusy = true;
+  state.geoStatus = 'Requesting your location…';
+  render(root);
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      state.geoBusy = false;
+      const { latitude, longitude } = pos.coords;
+      // Treat 0/0 (and non-finite values) as unknown — never plot them.
+      if (
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude) ||
+        (latitude === 0 && longitude === 0)
+      ) {
+        state.userLocation = null;
+        state.geoStatus = GEO_FALLBACK;
+      } else {
+        state.userLocation = { lat: latitude, lng: longitude };
+        state.geoStatus =
+          'Your location is shown on the map. Distances to venues aren’t calculated because venue coordinates are pending verification.';
+      }
+      render(root);
+    },
+    () => {
+      state.geoBusy = false;
+      state.userLocation = null;
+      state.geoStatus = GEO_FALLBACK;
+      render(root);
+    },
+    { timeout: 10000, maximumAge: 60000 }
+  );
 }
 
 /* ---------- boot ---------- */
