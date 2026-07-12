@@ -1,0 +1,1813 @@
+{
+  "dataset": "madrid-2026-unified-venues",
+  "description": "Unified 2026 Madrid-city venue entities deduplicated across Guía Repsol and Michelin Guide source CSVs. Deterministic build; regenerate with `npm run build:multi-source-madrid`.",
+  "blocking": {
+    "locality": "Madrid",
+    "country": "Spain",
+    "guide_year": 2026
+  },
+  "matching_policy": "Auto-merge only on exact normalized full-name equality (NFC, trimmed, whitespace-collapsed, case-folded), one-to-one unique across sources. No fuzzy, prefix, or chef-name merging. Rejected near-candidates are recorded in data/madrid-2026-multi-source-match-exceptions.json.",
+  "coordinate_policy": "Repsol source CSVs carry no coordinates (treated as absent; not copied from migrations). Michelin OSM/Nominatim-qualified coordinates are canonical when present, with coord_source and coord_validation_status preserved.",
+  "inputs": [
+    "data/guia-repsol-2026-madrid-new-sol-cohort.csv",
+    "data/guia-repsol-2026-madrid-continuing-sol-selection.csv",
+    "data/michelin-2026-madrid-city-starred.csv"
+  ],
+  "counts": {
+    "source_entries_total": 50,
+    "source_entries_repsol": 20,
+    "source_entries_michelin": 30,
+    "unified_venues": 40,
+    "merged_multi_source": 10,
+    "repsol_only": 10,
+    "michelin_only": 20
+  },
+  "venues": [
+    {
+      "id": "madrid-2026-abarra",
+      "canonical_name": "A'Barra",
+      "normalized_match_key": "a'barra",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4386539,
+        "longitude": -3.6878292,
+        "street_address": "Calle del Pinar 15, 28006 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": {
+        "method": "exact-normalized-full-name",
+        "blocking_key": "Madrid|Spain|2026",
+        "matched_names": {
+          "guia-repsol": "A'Barra",
+          "michelin-guide": "A'Barra"
+        },
+        "evidence": "Normalized full names are identical ('a'barra') and unique one-to-one across both sources within the Madrid/Spain/2026 block."
+      },
+      "source_outcome": "multi-source",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "A'Barra",
+          "year": 2026,
+          "distinction": "1 Sol",
+          "distinction_level": 1,
+          "source_url": "https://www.guiarepsol.com/content/dam/repsol-guia/documentos/es/Cuadernillo%20digital%20Gu%C3%ADa%20Repsol%202026.pdf",
+          "source_type": "digital-booklet",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Exact name; Sol level; Madrid locality checked in the official 2026 booklet (printed listing pages 90-91).",
+          "input_file": "data/guia-repsol-2026-madrid-continuing-sol-selection.csv",
+          "cohort": "continuing-sol-selection",
+          "location_provenance": null
+        },
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "A'Barra",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM restaurant node 5235732371 matches name and Madrid-city address.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4386539,
+            "longitude": -3.6878292,
+            "street_address": "Calle del Pinar 15, 28006 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-alabaster",
+      "canonical_name": "Alabaster",
+      "normalized_match_key": "alabaster",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": null,
+      "match": null,
+      "source_outcome": "repsol-only",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Alabaster",
+          "year": 2026,
+          "distinction": "1 Sol",
+          "distinction_level": 1,
+          "source_url": "https://www.guiarepsol.com/content/dam/repsol-guia/documentos/es/Cuadernillo%20digital%20Gu%C3%ADa%20Repsol%202026.pdf",
+          "source_type": "digital-booklet",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Exact name; Sol level; Madrid locality checked in the official 2026 booklet (printed listing pages 90-91).",
+          "input_file": "data/guia-repsol-2026-madrid-continuing-sol-selection.csv",
+          "cohort": "continuing-sol-selection",
+          "location_provenance": null
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-bancal",
+      "canonical_name": "Bancal",
+      "normalized_match_key": "bancal",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": null,
+      "match": null,
+      "source_outcome": "repsol-only",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Bancal",
+          "year": 2026,
+          "distinction": "1 Sol",
+          "distinction_level": 1,
+          "source_url": "https://www.guiarepsol.com/es/soles-repsol/soles-2026/nuevos-restaurantes-un-sol-guia-repsol/",
+          "source_type": "award-level-page",
+          "source_published_or_updated_at": "2026-02-16",
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Name; Sol level; 2026 year and Madrid locality supported by the official 2026 one-Sol award page.",
+          "input_file": "data/guia-repsol-2026-madrid-new-sol-cohort.csv",
+          "cohort": "new-sol-cohort",
+          "location_provenance": null
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-bascoat",
+      "canonical_name": "Bascoat",
+      "normalized_match_key": "bascoat",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": null,
+      "match": null,
+      "source_outcome": "repsol-only",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Bascoat",
+          "year": 2026,
+          "distinction": "2 Soles",
+          "distinction_level": 2,
+          "source_url": "https://www.guiarepsol.com/es/soles-repsol/soles-2026/nuevos-restaurantes-2-soles-guia-repsol/",
+          "source_type": "award-level-page",
+          "source_published_or_updated_at": "2026-02-16",
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Name; Sol level; 2026 year and Madrid locality supported by the official 2026 two-Sol award page.",
+          "input_file": "data/guia-repsol-2026-madrid-new-sol-cohort.csv",
+          "cohort": "new-sol-cohort",
+          "location_provenance": null
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-cebo",
+      "canonical_name": "CEBO",
+      "normalized_match_key": "cebo",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4164051,
+        "longitude": -3.6985954,
+        "street_address": "Carrera de San Jerónimo 34, 28014 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "CEBO",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM restaurant node 5287401621 (“Cebo”",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4164051,
+            "longitude": -3.6985954,
+            "street_address": "Carrera de San Jerónimo 34, 28014 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-chispa-bistro",
+      "canonical_name": "Chispa Bistró",
+      "normalized_match_key": "chispa bistró",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4201745,
+        "longitude": -3.6955599,
+        "street_address": "Calle del Barquillo 8, 28004 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Chispa Bistró",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM restaurant node 4157495190 (“Chispa”) at Barquillo 8 matches the venue at its published address.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4201745,
+            "longitude": -3.6955599,
+            "street_address": "Calle del Barquillo 8, 28004 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-clos-madrid",
+      "canonical_name": "Clos Madrid",
+      "normalized_match_key": "clos madrid",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4461649,
+        "longitude": -3.6995359,
+        "street_address": "Calle de Raimundo Fernández Villaverde 28, 28003 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Clos Madrid",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM restaurant node 5903073286 (“Clos”) matches the Madrid-city address.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4461649,
+            "longitude": -3.6995359,
+            "street_address": "Calle de Raimundo Fernández Villaverde 28, 28003 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-coque",
+      "canonical_name": "Coque",
+      "normalized_match_key": "coque",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4306865,
+        "longitude": -3.6905135,
+        "street_address": "Calle del Marqués de Riscal 11, 28010 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": {
+        "method": "exact-normalized-full-name",
+        "blocking_key": "Madrid|Spain|2026",
+        "matched_names": {
+          "guia-repsol": "Coque",
+          "michelin-guide": "Coque"
+        },
+        "evidence": "Normalized full names are identical ('coque') and unique one-to-one across both sources within the Madrid/Spain/2026 block."
+      },
+      "source_outcome": "multi-source",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Coque",
+          "year": 2026,
+          "distinction": "3 Soles",
+          "distinction_level": 3,
+          "source_url": "https://www.guiarepsol.com/content/dam/repsol-guia/documentos/es/Cuadernillo%20digital%20Gu%C3%ADa%20Repsol%202026.pdf",
+          "source_type": "digital-booklet",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Exact name; Sol level; Madrid locality checked in the official 2026 booklet (printed listing pages 90-91).",
+          "input_file": "data/guia-repsol-2026-madrid-continuing-sol-selection.csv",
+          "cohort": "continuing-sol-selection",
+          "location_provenance": null
+        },
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Coque",
+          "year": 2026,
+          "distinction": "two-stars",
+          "distinction_level": 2,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/2-estrellas-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM restaurant node 7006949434 matches name and Madrid-city address.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4306865,
+            "longitude": -3.6905135,
+            "street_address": "Calle del Marqués de Riscal 11, 28010 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-corral-de-la-moreria-gastronomico",
+      "canonical_name": "Corral de la Morería Gastronómico",
+      "normalized_match_key": "corral de la morería gastronómico",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4127418,
+        "longitude": -3.7141548,
+        "street_address": "Calle de la Morería 17, Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Corral de la Morería Gastronómico",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM music_venue node 2697521933 (“Corral de la Morería”) locates the venue that houses the gastronomic dining room.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4127418,
+            "longitude": -3.7141548,
+            "street_address": "Calle de la Morería 17, Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-deessa",
+      "canonical_name": "Deessa",
+      "normalized_match_key": "deessa",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4155502,
+        "longitude": -3.6927255,
+        "street_address": "Plaza de la Lealtad 5, 28014 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_address_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": {
+        "method": "exact-normalized-full-name",
+        "blocking_key": "Madrid|Spain|2026",
+        "matched_names": {
+          "guia-repsol": "Deessa",
+          "michelin-guide": "Deessa"
+        },
+        "evidence": "Normalized full names are identical ('deessa') and unique one-to-one across both sources within the Madrid/Spain/2026 block."
+      },
+      "source_outcome": "multi-source",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Deessa",
+          "year": 2026,
+          "distinction": "2 Soles",
+          "distinction_level": 2,
+          "source_url": "https://www.guiarepsol.com/content/dam/repsol-guia/documentos/es/Cuadernillo%20digital%20Gu%C3%ADa%20Repsol%202026.pdf",
+          "source_type": "digital-booklet",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Exact name; Sol level; Madrid locality checked in the official 2026 booklet (printed listing pages 90-91).",
+          "input_file": "data/guia-repsol-2026-madrid-continuing-sol-selection.csv",
+          "cohort": "continuing-sol-selection",
+          "location_provenance": null
+        },
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Deessa",
+          "year": 2026,
+          "distinction": "two-stars",
+          "distinction_level": 2,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/2-estrellas-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_address_verified",
+          "validation_evidence": "Address-level pin: OSM relation 3888654 is the Mandarin Oriental Ritz building that houses Deessa; the restaurant itself is not tagged as a named OSM object.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4155502,
+            "longitude": -3.6927255,
+            "street_address": "Plaza de la Lealtad 5, 28014 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_address_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-desborre",
+      "canonical_name": "Desborre",
+      "normalized_match_key": "desborre",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": null,
+      "match": null,
+      "source_outcome": "repsol-only",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Desborre",
+          "year": 2026,
+          "distinction": "1 Sol",
+          "distinction_level": 1,
+          "source_url": "https://www.guiarepsol.com/es/soles-repsol/soles-2026/nuevos-restaurantes-un-sol-guia-repsol/",
+          "source_type": "award-level-page",
+          "source_published_or_updated_at": "2026-02-16",
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Name; Sol level; 2026 year and Madrid locality supported by the official 2026 one-Sol award page.",
+          "input_file": "data/guia-repsol-2026-madrid-new-sol-cohort.csv",
+          "cohort": "new-sol-cohort",
+          "location_provenance": null
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-desde-1911",
+      "canonical_name": "Desde 1911",
+      "normalized_match_key": "desde 1911",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4484519,
+        "longitude": -3.7099045,
+        "street_address": "Calle del Vivero, 28003 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Desde 1911",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM restaurant node 12444507960 matches name; OSM address lacks a house number so the street-level address is recorded as-is.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4484519,
+            "longitude": -3.7099045,
+            "street_address": "Calle del Vivero, 28003 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-diverxo",
+      "canonical_name": "DiverXO",
+      "normalized_match_key": "diverxo",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4577954,
+        "longitude": -3.6859491,
+        "street_address": "Calle del Padre Damián 23, 28036 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": {
+        "method": "exact-normalized-full-name",
+        "blocking_key": "Madrid|Spain|2026",
+        "matched_names": {
+          "guia-repsol": "DiverXO",
+          "michelin-guide": "DiverXO"
+        },
+        "evidence": "Normalized full names are identical ('diverxo') and unique one-to-one across both sources within the Madrid/Spain/2026 block."
+      },
+      "source_outcome": "multi-source",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "DiverXO",
+          "year": 2026,
+          "distinction": "3 Soles",
+          "distinction_level": 3,
+          "source_url": "https://www.guiarepsol.com/content/dam/repsol-guia/documentos/es/Cuadernillo%20digital%20Gu%C3%ADa%20Repsol%202026.pdf",
+          "source_type": "digital-booklet",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Exact name; Sol level; Madrid locality checked in the official 2026 booklet (printed listing pages 90-91).",
+          "input_file": "data/guia-repsol-2026-madrid-continuing-sol-selection.csv",
+          "cohort": "continuing-sol-selection",
+          "location_provenance": null
+        },
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "DiverXO",
+          "year": 2026,
+          "distinction": "three-stars",
+          "distinction_level": 3,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/3-estrellas-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "Sole 3-star entry on the official 2026 Madrid category page; OSM restaurant node 3415801021 matches name and Madrid-city address.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4577954,
+            "longitude": -3.6859491,
+            "street_address": "Calle del Padre Damián 23, 28036 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-dstage",
+      "canonical_name": "DSTAgE",
+      "normalized_match_key": "dstage",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4245942,
+        "longitude": -3.6963316,
+        "street_address": "Calle de Regueros 8, 28004 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": {
+        "method": "exact-normalized-full-name",
+        "blocking_key": "Madrid|Spain|2026",
+        "matched_names": {
+          "guia-repsol": "DSTAgE",
+          "michelin-guide": "DSTAgE"
+        },
+        "evidence": "Normalized full names are identical ('dstage') and unique one-to-one across both sources within the Madrid/Spain/2026 block."
+      },
+      "source_outcome": "multi-source",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "DSTAgE",
+          "year": 2026,
+          "distinction": "3 Soles",
+          "distinction_level": 3,
+          "source_url": "https://www.guiarepsol.com/content/dam/repsol-guia/documentos/es/Cuadernillo%20digital%20Gu%C3%ADa%20Repsol%202026.pdf",
+          "source_type": "digital-booklet",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Exact name; Sol level; Madrid locality checked in the official 2026 booklet (printed listing pages 90-91).",
+          "input_file": "data/guia-repsol-2026-madrid-continuing-sol-selection.csv",
+          "cohort": "continuing-sol-selection",
+          "location_provenance": null
+        },
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "DSTAgE",
+          "year": 2026,
+          "distinction": "two-stars",
+          "distinction_level": 2,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/2-estrellas-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM restaurant node 5085913644 (“Dstage”",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4245942,
+            "longitude": -3.6963316,
+            "street_address": "Calle de Regueros 8, 28004 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-el-invernadero",
+      "canonical_name": "El Invernadero",
+      "normalized_match_key": "el invernadero",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4445956,
+        "longitude": -3.6989602,
+        "street_address": "Calle de Ponzano 85, 28003 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "El Invernadero",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM restaurant node 10670260205 (“El Invernadero Rodrigo de la Calle”) matches name and Madrid-city address.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4445956,
+            "longitude": -3.6989602,
+            "street_address": "Calle de Ponzano 85, 28003 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-emi",
+      "canonical_name": "EMi",
+      "normalized_match_key": "emi",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4388461,
+        "longitude": -3.7151504,
+        "street_address": "Calle de Gaztambide 64, 28015 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_address_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": {
+        "method": "exact-normalized-full-name",
+        "blocking_key": "Madrid|Spain|2026",
+        "matched_names": {
+          "guia-repsol": "EMi",
+          "michelin-guide": "EMi"
+        },
+        "evidence": "Normalized full names are identical ('emi') and unique one-to-one across both sources within the Madrid/Spain/2026 block."
+      },
+      "source_outcome": "multi-source",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "EMi",
+          "year": 2026,
+          "distinction": "1 Sol",
+          "distinction_level": 1,
+          "source_url": "https://www.guiarepsol.com/es/soles-repsol/soles-2026/nuevos-restaurantes-un-sol-guia-repsol/",
+          "source_type": "award-level-page",
+          "source_published_or_updated_at": "2026-02-16",
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Name; Sol level; 2026 year and Madrid locality supported by the official 2026 one-Sol award page.",
+          "input_file": "data/guia-repsol-2026-madrid-new-sol-cohort.csv",
+          "cohort": "new-sol-cohort",
+          "location_provenance": null
+        },
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "EMi",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_address_verified",
+          "validation_evidence": "Address-level pin: OSM node 4109999608 is the house/address geometry at Gaztambide 64; no named OSM restaurant object exists for EMi (only an unrelated hairdresser matches the short name).",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4388461,
+            "longitude": -3.7151504,
+            "street_address": "Calle de Gaztambide 64, 28015 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_address_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-eter",
+      "canonical_name": "Èter",
+      "normalized_match_key": "èter",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.3932129,
+        "longitude": -3.6916876,
+        "street_address": "Calle Granito 20, 28045 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Èter",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM restaurant node 5362227921 (“Restaurante Èter”) matches name and Madrid-city address.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.3932129,
+            "longitude": -3.6916876,
+            "street_address": "Calle Granito 20, 28045 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-fismuler",
+      "canonical_name": "Fismuler",
+      "normalized_match_key": "fismuler",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": null,
+      "match": null,
+      "source_outcome": "repsol-only",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Fismuler",
+          "year": 2026,
+          "distinction": "1 Sol",
+          "distinction_level": 1,
+          "source_url": "https://www.guiarepsol.com/content/dam/repsol-guia/documentos/es/Cuadernillo%20digital%20Gu%C3%ADa%20Repsol%202026.pdf",
+          "source_type": "digital-booklet",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Exact name; Sol level; Madrid locality checked in the official 2026 booklet (printed listing pages 90-91).",
+          "input_file": "data/guia-repsol-2026-madrid-continuing-sol-selection.csv",
+          "cohort": "continuing-sol-selection",
+          "location_provenance": null
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-gaytan",
+      "canonical_name": "Gaytán",
+      "normalized_match_key": "gaytán",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4498245,
+        "longitude": -3.6783597,
+        "street_address": "Calle del Príncipe de Vergara 205, 28002 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Gaytán",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "Two nearby OSM nodes share this name on the same street; the house-numbered node 4697273417 at Príncipe de Vergara 205 was selected.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4498245,
+            "longitude": -3.6783597,
+            "street_address": "Calle del Príncipe de Vergara 205, 28002 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-gofio",
+      "canonical_name": "Gofio",
+      "normalized_match_key": "gofio",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4193287,
+        "longitude": -3.7001659,
+        "street_address": "Calle del Caballero de Gracia 20, 28013 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Gofio",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM restaurant node 12853998829 (“Gofio”) at Caballero de Gracia 20 identifies the current premises; an older duplicate node on another street was treated as stale.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4193287,
+            "longitude": -3.7001659,
+            "street_address": "Calle del Caballero de Gracia 20, 28013 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-la-catapa",
+      "canonical_name": "La Catapa",
+      "normalized_match_key": "la catapa",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": null,
+      "match": null,
+      "source_outcome": "repsol-only",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "La Catapa",
+          "year": 2026,
+          "distinction": "1 Sol",
+          "distinction_level": 1,
+          "source_url": "https://www.guiarepsol.com/content/dam/repsol-guia/documentos/es/Cuadernillo%20digital%20Gu%C3%ADa%20Repsol%202026.pdf",
+          "source_type": "digital-booklet",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Exact name; Sol level; Madrid locality checked in the official 2026 booklet (printed listing pages 90-91).",
+          "input_file": "data/guia-repsol-2026-madrid-continuing-sol-selection.csv",
+          "cohort": "continuing-sol-selection",
+          "location_provenance": null
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-la-tasqueria",
+      "canonical_name": "La Tasquería",
+      "normalized_match_key": "la tasquería",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4222271,
+        "longitude": -3.6735107,
+        "street_address": "Calle del Duque de Sesto 48, 28009 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "La Tasquería",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "Two OSM nodes share this name; the house-numbered node 6137473887 at Duque de Sesto 48 was selected and the un-numbered node treated as a data-quality duplicate.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4222271,
+            "longitude": -3.6735107,
+            "street_address": "Calle del Duque de Sesto 48, 28009 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-los-33",
+      "canonical_name": "Los 33",
+      "normalized_match_key": "los 33",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": null,
+      "match": null,
+      "source_outcome": "repsol-only",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Los 33",
+          "year": 2026,
+          "distinction": "1 Sol",
+          "distinction_level": 1,
+          "source_url": "https://www.guiarepsol.com/es/soles-repsol/soles-2026/nuevos-restaurantes-un-sol-guia-repsol/",
+          "source_type": "award-level-page",
+          "source_published_or_updated_at": "2026-02-16",
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Name; Sol level; 2026 year and Madrid locality supported by the official 2026 one-Sol award page.",
+          "input_file": "data/guia-repsol-2026-madrid-new-sol-cohort.csv",
+          "cohort": "new-sol-cohort",
+          "location_provenance": null
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-osa",
+      "canonical_name": "OSA",
+      "normalized_match_key": "osa",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": null,
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "OSA",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "needs_review",
+          "validation_evidence": "Listed on the official 2026 one-star category page; Nominatim returns only unrelated street/burger matches for this short name so no pin is asserted.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": null,
+            "longitude": null,
+            "street_address": null,
+            "coord_source": null,
+            "coord_validation_status": "needs_review"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-otoro-jukusei",
+      "canonical_name": "Otoro Jukusei",
+      "normalized_match_key": "otoro jukusei",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": null,
+      "match": null,
+      "source_outcome": "repsol-only",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Otoro Jukusei",
+          "year": 2026,
+          "distinction": "1 Sol",
+          "distinction_level": 1,
+          "source_url": "https://www.guiarepsol.com/es/soles-repsol/soles-2026/nuevos-restaurantes-un-sol-guia-repsol/",
+          "source_type": "award-level-page",
+          "source_published_or_updated_at": "2026-02-16",
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Name; Sol level; 2026 year and Madrid locality supported by the official 2026 one-Sol award page.",
+          "input_file": "data/guia-repsol-2026-madrid-new-sol-cohort.csv",
+          "cohort": "new-sol-cohort",
+          "location_provenance": null
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-pabu",
+      "canonical_name": "Pabú",
+      "normalized_match_key": "pabú",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": null,
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Pabú",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "needs_review",
+          "validation_evidence": "Listed on the official 2026 one-star category page; no matching OSM/Nominatim restaurant object found so coordinates are deliberately left blank.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": null,
+            "longitude": null,
+            "street_address": null,
+            "coord_source": null,
+            "coord_validation_status": "needs_review"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-paco-roncero",
+      "canonical_name": "Paco Roncero",
+      "normalized_match_key": "paco roncero",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4180586,
+        "longitude": -3.7004159,
+        "street_address": "Calle de Alcalá 15, 28014 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_address_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Paco Roncero",
+          "year": 2026,
+          "distinction": "two-stars",
+          "distinction_level": 2,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/2-estrellas-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_address_verified",
+          "validation_evidence": "Address-level pin: OSM relation 19697711 is the Casino de Madrid building that houses the restaurant; no named OSM restaurant object exists for Paco Roncero.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4180586,
+            "longitude": -3.7004159,
+            "street_address": "Calle de Alcalá 15, 28014 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_address_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-quimbaya",
+      "canonical_name": "Quimbaya",
+      "normalized_match_key": "quimbaya",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4361015,
+        "longitude": -3.6931943,
+        "street_address": "Calle de Zurbano 63, 28010 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Quimbaya",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM restaurant node 9760919947 matches name and Madrid-city address.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4361015,
+            "longitude": -3.6931943,
+            "street_address": "Calle de Zurbano 63, 28010 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-ramon-freixa-atelier",
+      "canonical_name": "Ramón Freixa Atelier",
+      "normalized_match_key": "ramón freixa atelier",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4285126,
+        "longitude": -3.6862596,
+        "street_address": "Calle de Claudio Coello 67, 28001 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": {
+        "method": "exact-normalized-full-name",
+        "blocking_key": "Madrid|Spain|2026",
+        "matched_names": {
+          "guia-repsol": "Ramón Freixa Atelier",
+          "michelin-guide": "Ramón Freixa Atelier"
+        },
+        "evidence": "Normalized full names are identical ('ramón freixa atelier') and unique one-to-one across both sources within the Madrid/Spain/2026 block."
+      },
+      "source_outcome": "multi-source",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Ramón Freixa Atelier",
+          "year": 2026,
+          "distinction": "3 Soles",
+          "distinction_level": 3,
+          "source_url": "https://www.guiarepsol.com/es/soles-repsol/soles-2026/nuevo-restaurante-3-soles-guia-repsol/",
+          "source_type": "award-level-page",
+          "source_published_or_updated_at": "2026-02-16",
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Name; Sol level; 2026 year and Madrid locality supported by the official 2026 three-Sol award page.",
+          "input_file": "data/guia-repsol-2026-madrid-new-sol-cohort.csv",
+          "cohort": "new-sol-cohort",
+          "location_provenance": null
+        },
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Ramón Freixa Atelier",
+          "year": 2026,
+          "distinction": "two-stars",
+          "distinction_level": 2,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/2-estrellas-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM restaurant node 5085913649 carries the predecessor spelling “Ramón Freixa” at the same operator address (Claudio Coello 67).",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4285126,
+            "longitude": -3.6862596,
+            "street_address": "Calle de Claudio Coello 67, 28001 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-ramon-freixa-tradicion",
+      "canonical_name": "Ramón Freixa Tradición",
+      "normalized_match_key": "ramón freixa tradición",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": null,
+      "match": null,
+      "source_outcome": "repsol-only",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Ramón Freixa Tradición",
+          "year": 2026,
+          "distinction": "1 Sol",
+          "distinction_level": 1,
+          "source_url": "https://www.guiarepsol.com/es/soles-repsol/soles-2026/nuevos-restaurantes-un-sol-guia-repsol/",
+          "source_type": "award-level-page",
+          "source_published_or_updated_at": "2026-02-16",
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Name; Sol level; 2026 year and Madrid locality supported by the official 2026 one-Sol award page.",
+          "input_file": "data/guia-repsol-2026-madrid-new-sol-cohort.csv",
+          "cohort": "new-sol-cohort",
+          "location_provenance": null
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-ravioxo",
+      "canonical_name": "RavioXO",
+      "normalized_match_key": "ravioxo",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.448202,
+        "longitude": -3.6945471,
+        "street_address": "Plaza de Manuel Gómez-Moreno 5A, 28020 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_approximate",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "RavioXO",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_approximate",
+          "validation_evidence": "Approximate pin: OSM way 891287353 is the plaza footway at Manuel Gómez-Moreno, not the exact venue entrance; treated as a location approximation, not an OSM venue or address match.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.448202,
+            "longitude": -3.6945471,
+            "street_address": "Plaza de Manuel Gómez-Moreno 5A, 28020 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_approximate"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-ricardo-sanz-wellington",
+      "canonical_name": "Ricardo Sanz Wellington",
+      "normalized_match_key": "ricardo sanz wellington",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4217715,
+        "longitude": -3.6841825,
+        "street_address": "Calle de Velázquez 6, 28001 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_address_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Ricardo Sanz Wellington",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_address_verified",
+          "validation_evidence": "Address-level pin: OSM node 3507803788 sits at Velázquez 6 (Hotel Wellington address); no OSM object carries the restaurant’s current name.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4217715,
+            "longitude": -3.6841825,
+            "street_address": "Calle de Velázquez 6, 28001 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_address_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-saddle",
+      "canonical_name": "Saddle",
+      "normalized_match_key": "saddle",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.427537,
+        "longitude": -3.6911125,
+        "street_address": "Calle de Amador de los Ríos, 28004 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": {
+        "method": "exact-normalized-full-name",
+        "blocking_key": "Madrid|Spain|2026",
+        "matched_names": {
+          "guia-repsol": "Saddle",
+          "michelin-guide": "Saddle"
+        },
+        "evidence": "Normalized full names are identical ('saddle') and unique one-to-one across both sources within the Madrid/Spain/2026 block."
+      },
+      "source_outcome": "multi-source",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Saddle",
+          "year": 2026,
+          "distinction": "2 Soles",
+          "distinction_level": 2,
+          "source_url": "https://www.guiarepsol.com/content/dam/repsol-guia/documentos/es/Cuadernillo%20digital%20Gu%C3%ADa%20Repsol%202026.pdf",
+          "source_type": "digital-booklet",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Exact name; Sol level; Madrid locality checked in the official 2026 booklet (printed listing pages 90-91).",
+          "input_file": "data/guia-repsol-2026-madrid-continuing-sol-selection.csv",
+          "cohort": "continuing-sol-selection",
+          "location_provenance": null
+        },
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Saddle",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM restaurant node 5209961484 matches name; OSM address lacks a house number so the street-level address is recorded as-is.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.427537,
+            "longitude": -3.6911125,
+            "street_address": "Calle de Amador de los Ríos, 28004 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-sen-omakase",
+      "canonical_name": "Sen Omakase",
+      "normalized_match_key": "sen omakase",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.462182,
+        "longitude": -3.6701079,
+        "street_address": "Calle de Santa María Magdalena 14, 28016 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_address_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Sen Omakase",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_address_verified",
+          "validation_evidence": "Address-level pin: OSM node 597380752 sits at Santa María Magdalena 14 but is currently tagged as “Popa”, so only the address is verified, not the venue identity.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.462182,
+            "longitude": -3.6701079,
+            "street_address": "Calle de Santa María Magdalena 14, 28016 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_address_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-smoked-room",
+      "canonical_name": "Smoked Room",
+      "normalized_match_key": "smoked room",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4388252,
+        "longitude": -3.6917467,
+        "street_address": "Paseo de la Castellana 57, 28046 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_address_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": {
+        "method": "exact-normalized-full-name",
+        "blocking_key": "Madrid|Spain|2026",
+        "matched_names": {
+          "guia-repsol": "Smoked Room",
+          "michelin-guide": "Smoked Room"
+        },
+        "evidence": "Normalized full names are identical ('smoked room') and unique one-to-one across both sources within the Madrid/Spain/2026 block."
+      },
+      "source_outcome": "multi-source",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Smoked Room",
+          "year": 2026,
+          "distinction": "2 Soles",
+          "distinction_level": 2,
+          "source_url": "https://www.guiarepsol.com/es/soles-repsol/soles-2026/nuevos-restaurantes-2-soles-guia-repsol/",
+          "source_type": "award-level-page",
+          "source_published_or_updated_at": "2026-02-16",
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Name; Sol level; 2026 year and Madrid locality supported by the official 2026 two-Sol award page.",
+          "input_file": "data/guia-repsol-2026-madrid-new-sol-cohort.csv",
+          "cohort": "new-sol-cohort",
+          "location_provenance": null
+        },
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Smoked Room",
+          "year": 2026,
+          "distinction": "two-stars",
+          "distinction_level": 2,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/2-estrellas-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_address_verified",
+          "validation_evidence": "Address-level pin: OSM way 1433222601 is the Hyatt Regency Hesperia building that houses Smoked Room; the restaurant itself is not tagged as a named OSM object.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4388252,
+            "longitude": -3.6917467,
+            "street_address": "Paseo de la Castellana 57, 28046 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_address_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-toki",
+      "canonical_name": "Toki",
+      "normalized_match_key": "toki",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4278666,
+        "longitude": -3.6974121,
+        "street_address": "Calle de Sagasta 28, 28004 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_address_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Toki",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_address_verified",
+          "validation_evidence": "Address-level pin: OSM address node 12921810066 at Sagasta 28; no named OSM restaurant object exists for Toki.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4278666,
+            "longitude": -3.6974121,
+            "street_address": "Calle de Sagasta 28, 28004 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_address_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-tresde",
+      "canonical_name": "Trèsde",
+      "normalized_match_key": "trèsde",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": null,
+      "match": null,
+      "source_outcome": "repsol-only",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Trèsde",
+          "year": 2026,
+          "distinction": "1 Sol",
+          "distinction_level": 1,
+          "source_url": "https://www.guiarepsol.com/es/soles-repsol/soles-2026/nuevos-restaurantes-un-sol-guia-repsol/",
+          "source_type": "award-level-page",
+          "source_published_or_updated_at": "2026-02-16",
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Name; Sol level; 2026 year and Madrid locality supported by the official 2026 one-Sol award page.",
+          "input_file": "data/guia-repsol-2026-madrid-new-sol-cohort.csv",
+          "cohort": "new-sol-cohort",
+          "location_provenance": null
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-ugo-chan",
+      "canonical_name": "Ugo Chan",
+      "normalized_match_key": "ugo chan",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4632356,
+        "longitude": -3.6883724,
+        "street_address": "Calle de Félix Boix 6, 28036 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_address_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": {
+        "method": "exact-normalized-full-name",
+        "blocking_key": "Madrid|Spain|2026",
+        "matched_names": {
+          "guia-repsol": "Ugo Chan",
+          "michelin-guide": "Ugo Chan"
+        },
+        "evidence": "Normalized full names are identical ('ugo chan') and unique one-to-one across both sources within the Madrid/Spain/2026 block."
+      },
+      "source_outcome": "multi-source",
+      "distinctions": [
+        {
+          "source_name": "Guía Repsol",
+          "source_slug": "guia-repsol",
+          "source_venue_name": "Ugo Chan",
+          "year": 2026,
+          "distinction": "2 Soles",
+          "distinction_level": 2,
+          "source_url": "https://www.guiarepsol.com/content/dam/repsol-guia/documentos/es/Cuadernillo%20digital%20Gu%C3%ADa%20Repsol%202026.pdf",
+          "source_type": "digital-booklet",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "verified",
+          "validation_evidence": "Exact name; Sol level; Madrid locality checked in the official 2026 booklet (printed listing pages 90-91).",
+          "input_file": "data/guia-repsol-2026-madrid-continuing-sol-selection.csv",
+          "cohort": "continuing-sol-selection",
+          "location_provenance": null
+        },
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Ugo Chan",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_address_verified",
+          "validation_evidence": "Address-level pin: OSM node 4229665290 is an unnamed generic restaurant at Félix Boix 6 (same address); venue identity is not tagged in OSM so this is not asserted as a named match.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4632356,
+            "longitude": -3.6883724,
+            "street_address": "Calle de Félix Boix 6, 28036 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_address_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-velascoabella",
+      "canonical_name": "VelascoAbellà",
+      "normalized_match_key": "velascoabellà",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4562704,
+        "longitude": -3.6799191,
+        "street_address": "Calle de Víctor Andrés Belaúnde 25, 28016 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_address_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "VelascoAbellà",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_address_verified",
+          "validation_evidence": "Address-level pin: OSM address node 9997833548 at Víctor Andrés Belaúnde 25; no named OSM restaurant object exists for VelascoAbellà.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4562704,
+            "longitude": -3.6799191,
+            "street_address": "Calle de Víctor Andrés Belaúnde 25, 28016 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_address_verified"
+          }
+        }
+      ]
+    },
+    {
+      "id": "madrid-2026-yugo-the-bunker",
+      "canonical_name": "Yugo The Bunker",
+      "normalized_match_key": "yugo the bunker",
+      "locality": "Madrid",
+      "country": "Spain",
+      "canonical_location": {
+        "latitude": 40.4106458,
+        "longitude": -3.6946511,
+        "street_address": "Calle de San Blas 2, 28014 Madrid",
+        "coord_source": "openstreetmap-nominatim",
+        "coord_validation_status": "osm_verified",
+        "provenance_source_slug": "michelin-guide"
+      },
+      "match": null,
+      "source_outcome": "michelin-only",
+      "distinctions": [
+        {
+          "source_name": "Michelin Guide",
+          "source_slug": "michelin-guide",
+          "source_venue_name": "Yugo The Bunker",
+          "year": 2026,
+          "distinction": "one-star",
+          "distinction_level": 1,
+          "source_url": "https://guide.michelin.com/es/es/comunidad-de-madrid/madrid/restaurantes/1-estrella-michelin",
+          "source_type": "official-category-listing",
+          "source_published_or_updated_at": null,
+          "source_accessed_at": "2026-07-12",
+          "validation_status": "osm_verified",
+          "validation_evidence": "OSM restaurant node 12167755757 matches name and Madrid-city address.",
+          "input_file": "data/michelin-2026-madrid-city-starred.csv",
+          "cohort": null,
+          "location_provenance": {
+            "latitude": 40.4106458,
+            "longitude": -3.6946511,
+            "street_address": "Calle de San Blas 2, 28014 Madrid",
+            "coord_source": "openstreetmap-nominatim",
+            "coord_validation_status": "osm_verified"
+          }
+        }
+      ]
+    }
+  ]
+}

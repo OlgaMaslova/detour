@@ -5,7 +5,9 @@
     "preview": "vite preview --host 0.0.0.0",
     "deploy": "npm run build && wrangler deploy",
     "validate:madrid-seed": "node scripts/validate-guia-repsol-2026-madrid-seed.mjs",
-    "validate:michelin-madrid": "node scripts/validate-michelin-2026-madrid-starred.mjs"
+    "validate:michelin-madrid": "node scripts/validate-michelin-2026-madrid-starred.mjs",
+    "build:multi-source-madrid": "node scripts/build-madrid-multi-source-venues.mjs",
+    "validate:multi-source-madrid": "node scripts/validate-madrid-multi-source-venues.mjs"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

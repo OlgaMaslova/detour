@@ -42,14 +42,18 @@ curl -fsS https://sn-pb-repo-1297566350-fd2610.fly.dev/api/supernaut/ready
 - `pb_migrations/` — schema migrations and the idempotent seed:
   `1767970000_create_food_discovery.js` (initial collections + new-Sol cohort
   seed), `1767971000_normalize_guia_repsol_2026_madrid_seed.js` (normalized
-  source and import provenance, enrichment cleanup), and
+  source and import provenance, enrichment cleanup),
   `1767972000_add_guia_repsol_2026_madrid_continuing_cohort.js` (continuing
-  Sol holders verified in the official 2026 booklet).
+  Sol holders verified in the official 2026 booklet),
+  `1767973000_verify_madrid_venue_coordinates.js` (verified coordinates), and
+  `1767974000_add_michelin_2026_madrid_multi_source.js` (Michelin 2026 cohort
+  and the multi-source `venue_source_entries` model).
 - `pb_hooks/` — request-time hooks (readiness route).
 - `pb_public/` — optional static fallback assets served by PocketBase.
 - `src/`, `index.html`, `vite.config.ts`, `wrangler.toml` — the Vite frontend
   and its Cloudflare static Worker config (see "Frontend: build, run, deploy").
-- `data/` — the two seed CSVs (see selection scope below).
+- `data/` — the three seed CSVs and the generated multi-source outputs (see
+  selection scope below).
 - `docs/` — validation report, coverage report, source-rights memo.
 - `scripts/` — deterministic seed validator.
 - Runtime data (`pb_data/`) lives on the persistent Fly volume and is never
@@ -89,35 +93,38 @@ Every CSV row (in both files) carries provenance columns: `source_url` (first-pa
 
 ## Normalized collections and import provenance
 
-Three migrations define the schema and seed:
-`pb_migrations/1767970000_create_food_discovery.js` (initial collections and
-new-cohort seed), `pb_migrations/1767971000_normalize_guia_repsol_2026_madrid_seed.js`
-(normalized source and import provenance), and
-`pb_migrations/1767972000_add_guia_repsol_2026_madrid_continuing_cohort.js`
-(continuing booklet-verified cohort). Together they create five public-read
-(write-locked) collections and seed them:
+The migrations in `pb_migrations/` (see "Repository layout") together create
+**six** public-read (write-locked) collections and seed them. Current counts
+after the multi-source migration
+(`1767974000_add_michelin_2026_madrid_multi_source.js`):
 
 - **`guide_sources`** — the guide registry: name, unique `slug`,
-  `official_url`, `current_year`. Seeded with one row, Guía Repsol
-  (`slug = guia-repsol`, deterministic id `gsrepsol0000001`).
+  `official_url`, `current_year`. **2 rows**: Guía Repsol
+  (`slug = guia-repsol`, deterministic id `gsrepsol0000001`) and the Michelin
+  Guide (`slug = michelin-guide`).
 - **`source_records`** — record-level official source surfaces: relation to
   `source`, `title`, unique `url`, `source_type`, `published_or_updated_at`,
-  `accessed_at`. Seeded with **4** rows: the 3 official 2026 award-level
-  pages (3 Soles, 2 Soles, 1 Sol; `source_type = award-level-page`,
-  deterministic ids `srcrec20260sol3` / `srcrec20260sol2` /
-  `srcrec20260sol1`) plus the official 2026 digital booklet
-  (`source_type = digital-booklet`, deterministic id `srcrec2026book1`),
-  the governing source for the continuing cohort.
+  `accessed_at`. **7 rows**: the 3 official 2026 Repsol award-level pages
+  (3 Soles, 2 Soles, 1 Sol; `source_type = award-level-page`, deterministic
+  ids `srcrec20260sol3` / `srcrec20260sol2` / `srcrec20260sol1`), the
+  official 2026 Repsol digital booklet (`source_type = digital-booklet`,
+  deterministic id `srcrec2026book1`, the governing source for the continuing
+  cohort), and the 3 official 2026 `guide.michelin.com` per-star category
+  listings.
 - **`import_provenance`** — one row per seed import: unique `import_key`,
   `dataset`, `description`, `source` relation, `record_count`,
-  `verification_status`, `imported_at`. Seeded with **2** rows, one per
-  verified CSV import (`import_key = guia-repsol-2026-madrid-new-sol-cohort`
-  and `import_key = guia-repsol-2026-madrid-continuing-sol-selection`, each
-  `record_count = 10`, `verification_status = verified`).
+  `verification_status`, `imported_at`. **3 rows**, one per verified CSV
+  import (`import_key = guia-repsol-2026-madrid-new-sol-cohort` and
+  `import_key = guia-repsol-2026-madrid-continuing-sol-selection`, each
+  `record_count = 10`, plus `import_key = michelin-2026-madrid-city-starred`,
+  `record_count = 30`; all `verification_status = verified`).
 - **`venues`** — normalized venue records: name, city, country, address,
   lat/lng, category, `official_url`, `coord_verification_note`. Unique on
-  (name, city). Seeded with the 20 selection venues under deterministic ids
-  `venueseed000001`–`venueseed000020`.
+  (name, city). **40 canonical venues**: the 20 Repsol selection venues
+  (deterministic ids `venueseed000001`–`venueseed000020`) plus 20
+  Michelin-only venues; 10 of the 30 Michelin entries merged into existing
+  Repsol venues by **exact name only** (no fuzzy/prefix matching). Breakdown:
+  10 exact-name shared venues, 10 Repsol-only, 20 Michelin-only.
 - **`venue_awards`** — the award join: relations to `source` and `venue`,
   `year`, `level` (e.g. `1 Sol`, `2 Soles`, `3 Soles`), `source_url`,
   `current`, `verification_note`, plus provenance links added by the
@@ -125,9 +132,17 @@ new-cohort seed), `pb_migrations/1767971000_normalize_guia_repsol_2026_madrid_se
   award-level page in `source_records`), `import` (relation to the
   `import_provenance` row), and `verification_status`
   (`verified`/`unverified`). Unique on (source, venue, year, level).
-  Deterministic ids `awardseed000001`–`awardseed000020`.
+  **50 rows**: 20 Repsol Sol awards (deterministic ids
+  `awardseed000001`–`awardseed000020`) plus 30 Michelin star awards.
+- **`venue_source_entries`** — the sixth collection: **raw, per-guide source
+  assertions**, one row per guide entry exactly as the guide states it
+  (source venue name, `distinction`/`distinction_level`, `guide_year`,
+  source URL/type/dates, validation and coordinate qualifiers, match
+  method/evidence), each linked to its canonical `venue`, `source`,
+  `source_record`, and `import`. Unique on (source, source_venue_name,
+  guide_year, distinction). **50 rows** (20 Repsol + 30 Michelin).
 
-**All 20 awards link to these provenance records:** each `venue_awards` row
+**All 50 awards link to these provenance records:** each `venue_awards` row
 points at its exact official source (award-level page or booklet) via
 `source_record` (and matching `source_url`) and at its verified CSV import
 via `import`, with
@@ -167,6 +182,26 @@ All collections are list/view public and create/update/delete locked
   regenerated by `npm run validate:michelin-madrid`
   (`scripts/validate-michelin-2026-madrid-starred.mjs`, dependency-free;
   exits nonzero on FAIL).
+
+## Dataset: 2026 Madrid unified multi-source venues
+
+Deterministic, dependency-free deduplication of the 50 source entries
+(20 Guía Repsol + 30 Michelin, from the three CSVs above) into 40 canonical
+venues (10 exact-name auto-merges; no fuzzy/prefix matching):
+
+```
+npm run build:multi-source-madrid      # scripts/build-madrid-multi-source-venues.mjs
+npm run validate:multi-source-madrid   # scripts/validate-madrid-multi-source-venues.mjs (rebuilds + asserts; exits nonzero on FAIL)
+```
+
+Outputs (regenerated; no run timestamps):
+
+- `data/madrid-2026-unified-venues.json` — canonical venues with per-source
+  distinctions, provenance, and Michelin-qualified canonical coordinates.
+- `data/madrid-2026-multi-source-match-exceptions.json` — rejected
+  near-candidates (e.g. Ramón Freixa Tradición vs Ramón Freixa Atelier).
+- `docs/madrid-2026-multi-source-deduplication-report.md` — human-readable
+  deduplication report.
 
 ## Repeatable procedures
 
@@ -217,12 +252,13 @@ read-only PocketBase query capability (`query-pocketbase`) — no diagnostic
 deploys, no shell access needed:
 
 - `list_collections` — confirm `guide_sources`, `source_records`,
-  `import_provenance`, `venues`, `venue_awards` exist with the expected
-  fields/rules (i.e. the migrations actually applied), including the
-  `venue_awards` fields `source_record`, `import`, `verification_status`.
-- `count_records` on `venues` and `venue_awards` — expect 20 each;
-  `guide_sources` — expect 1; `source_records` — expect 4;
-  `import_provenance` — expect 2.
+  `import_provenance`, `venues`, `venue_awards`, `venue_source_entries`
+  exist with the expected fields/rules (i.e. the migrations actually
+  applied), including the `venue_awards` fields `source_record`, `import`,
+  `verification_status`.
+- `count_records` — expect `guide_sources` 2, `source_records` 7,
+  `import_provenance` 3, `venues` 40, `venue_awards` 50,
+  `venue_source_entries` 50.
 - `list_records` with filters (PocketBase filter syntax, e.g.
   `year=2026 && current=true` on `venue_awards`) to spot-check data; expand
   the award link fields (`expand=source_record,import`) and confirm every
