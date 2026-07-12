@@ -3,7 +3,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy",
+    "validate:madrid-seed": "node scripts/validate-guia-repsol-2026-madrid-seed.mjs"
   },
   "dependencies": {
     "pocketbase": "latest"
