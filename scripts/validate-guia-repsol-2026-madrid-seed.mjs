@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 /**
- * Deterministic validator for the Guía Repsol 2026 Madrid new-Sol cohort seed CSV.
+ * Deterministic validator for the Guía Repsol 2026 Madrid seed CSVs.
  *
- * Input:  data/guia-repsol-2026-madrid-new-sol-cohort.csv
+ * Inputs:
+ *   data/guia-repsol-2026-madrid-new-sol-cohort.csv          (new-Sol cohort, 10 rows)
+ *   data/guia-repsol-2026-madrid-continuing-sol-selection.csv (continuing selection, 10 rows)
  * Output: docs/guia-repsol-2026-madrid-seed-validation-report.md (overwritten)
  *
+ * Validates both cohorts together: per-record required fields, award values,
+ * source/verification rules, duplicates within AND across files, and the exact
+ * combined selection shape (20 total; 4 three-Sol, 5 two-Sol, 11 one-Sol).
+ *
  * Dependency-free Node.js ES module. No generated-at timestamp: output depends
- * only on the input CSV, so the report is fully deterministic.
+ * only on the input CSVs, so the report is fully deterministic.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -14,7 +20,20 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const INPUT_CSV = join(REPO_ROOT, "data", "guia-repsol-2026-madrid-new-sol-cohort.csv");
+const INPUTS = [
+  {
+    cohort: "new-2026",
+    label: "New 2026 Madrid Sol cohort",
+    path: join(REPO_ROOT, "data", "guia-repsol-2026-madrid-new-sol-cohort.csv"),
+    rel: "data/guia-repsol-2026-madrid-new-sol-cohort.csv",
+  },
+  {
+    cohort: "continuing-2026",
+    label: "Continuing 2026 Madrid Sol selection",
+    path: join(REPO_ROOT, "data", "guia-repsol-2026-madrid-continuing-sol-selection.csv"),
+    rel: "data/guia-repsol-2026-madrid-continuing-sol-selection.csv",
+  },
+];
 const OUTPUT_REPORT = join(REPO_ROOT, "docs", "guia-repsol-2026-madrid-seed-validation-report.md");
 
 const REQUIRED_FIELDS = [
@@ -35,6 +54,11 @@ const REQUIRED_LOCALITY = "Madrid";
 const ALLOWED_VERIFICATION_STATUS = new Set(["verified"]);
 const OFFICIAL_HOSTS = new Set(["guiarepsol.com", "www.guiarepsol.com"]);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Exact combined selection shape.
+const EXPECTED_TOTAL = 20;
+const EXPECTED_SOL_BREAKDOWN = { 3: 4, 2: 5, 1: 11 };
+const EXPECTED_PER_COHORT = { "new-2026": 10, "continuing-2026": 10 };
 
 // --- RFC-4180-style CSV parsing (handles quoted fields, escaped quotes, newlines in quotes) ---
 function parseCsv(text) {
@@ -110,104 +134,160 @@ function isOfficialHttpsSourceUrl(value) {
   return url.protocol === "https:" && OFFICIAL_HOSTS.has(url.hostname.toLowerCase());
 }
 
-// --- Load and validate ---
-const raw = readFileSync(INPUT_CSV, "utf8");
-const rows = parseCsv(raw);
-if (rows.length === 0) {
-  console.error("CSV is empty.");
-  process.exit(1);
+// --- Load both CSVs ---
+const records = [];
+for (const input of INPUTS) {
+  const raw = readFileSync(input.path, "utf8");
+  const rows = parseCsv(raw);
+  if (rows.length === 0) {
+    console.error(`CSV is empty: ${input.rel}`);
+    process.exit(1);
+  }
+  const header = rows[0].map((h) => h.trim());
+  for (let idx = 0; idx < rows.length - 1; idx++) {
+    const cells = rows[idx + 1];
+    const rec = { __row: idx + 2, __file: input.rel, __cohort: input.cohort }; // 1-based line, after header
+    header.forEach((h, i) => {
+      rec[h] = (cells[i] ?? "").trim();
+    });
+    records.push(rec);
+  }
 }
-const header = rows[0].map((h) => h.trim());
-const records = rows.slice(1).map((cells, idx) => {
-  const rec = { __row: idx + 2 }; // 1-based line, after header
-  header.forEach((h, i) => {
-    rec[h] = (cells[i] ?? "").trim();
-  });
-  return rec;
-});
 
-const missingRequired = []; // { row, venue, fields[] }
-const invalidAward = []; // { row, venue, field, value, reason }
-const sourceFailures = []; // { row, venue, field, value, reason }
-const duplicates = []; // { key, rows[] }
+const missingRequired = []; // { file, row, venue, fields[] }
+const invalidAward = []; // { file, row, venue, field, value, reason }
+const sourceFailures = []; // { file, row, venue, field, value, reason }
+const duplicates = []; // { key, entries[] } — within a file or across files
+const shapeFailures = []; // strings
 
 const solCounts = { 1: 0, 2: 0, 3: 0, other: 0 };
+const cohortSolCounts = {
+  "new-2026": { 1: 0, 2: 0, 3: 0, other: 0, total: 0 },
+  "continuing-2026": { 1: 0, 2: 0, 3: 0, other: 0, total: 0 },
+};
 const dupeMap = new Map();
 
 for (const rec of records) {
   const venue = rec.venue_name || "(missing venue_name)";
   const missing = REQUIRED_FIELDS.filter((f) => !(rec[f] && rec[f].length > 0));
   if (missing.length > 0) {
-    missingRequired.push({ row: rec.__row, venue, fields: missing });
+    missingRequired.push({ file: rec.__file, row: rec.__row, venue, fields: missing });
   }
 
   // Award values
   if (rec.sol_level && !ALLOWED_SOL_LEVELS.has(rec.sol_level)) {
-    invalidAward.push({ row: rec.__row, venue, field: "sol_level", value: rec.sol_level, reason: "must be 1, 2, or 3" });
+    invalidAward.push({ file: rec.__file, row: rec.__row, venue, field: "sol_level", value: rec.sol_level, reason: "must be 1, 2, or 3" });
   }
   if (rec.guide_year && rec.guide_year !== REQUIRED_GUIDE_YEAR) {
-    invalidAward.push({ row: rec.__row, venue, field: "guide_year", value: rec.guide_year, reason: "must be 2026" });
+    invalidAward.push({ file: rec.__file, row: rec.__row, venue, field: "guide_year", value: rec.guide_year, reason: "must be 2026" });
   }
   if (rec.locality && rec.locality !== REQUIRED_LOCALITY) {
-    invalidAward.push({ row: rec.__row, venue, field: "locality", value: rec.locality, reason: "must be Madrid" });
+    invalidAward.push({ file: rec.__file, row: rec.__row, venue, field: "locality", value: rec.locality, reason: "must be Madrid" });
   }
 
-  if (ALLOWED_SOL_LEVELS.has(rec.sol_level)) solCounts[rec.sol_level] += 1;
-  else solCounts.other += 1;
+  const cohortCounts = cohortSolCounts[rec.__cohort];
+  cohortCounts.total += 1;
+  if (ALLOWED_SOL_LEVELS.has(rec.sol_level)) {
+    solCounts[rec.sol_level] += 1;
+    cohortCounts[rec.sol_level] += 1;
+  } else {
+    solCounts.other += 1;
+    cohortCounts.other += 1;
+  }
 
   // Source / verification failures (missing OR invalid values both count)
   if (!rec.source_url) {
-    sourceFailures.push({ row: rec.__row, venue, field: "source_url", value: "(empty)", reason: "missing source URL" });
+    sourceFailures.push({ file: rec.__file, row: rec.__row, venue, field: "source_url", value: "(empty)", reason: "missing source URL" });
   } else if (!isOfficialHttpsSourceUrl(rec.source_url)) {
-    sourceFailures.push({ row: rec.__row, venue, field: "source_url", value: rec.source_url, reason: "must be an HTTPS URL on official guiarepsol.com (or www.guiarepsol.com)" });
+    sourceFailures.push({ file: rec.__file, row: rec.__row, venue, field: "source_url", value: rec.source_url, reason: "must be an HTTPS URL on official guiarepsol.com (or www.guiarepsol.com)" });
   }
   if (!rec.source_type) {
-    sourceFailures.push({ row: rec.__row, venue, field: "source_type", value: "(empty)", reason: "source_type must be nonempty" });
+    sourceFailures.push({ file: rec.__file, row: rec.__row, venue, field: "source_type", value: "(empty)", reason: "source_type must be nonempty" });
   }
   if (!rec.source_accessed_at) {
-    sourceFailures.push({ row: rec.__row, venue, field: "source_accessed_at", value: "(empty)", reason: "missing access date" });
+    sourceFailures.push({ file: rec.__file, row: rec.__row, venue, field: "source_accessed_at", value: "(empty)", reason: "missing access date" });
   } else if (!isValidDate(rec.source_accessed_at)) {
-    sourceFailures.push({ row: rec.__row, venue, field: "source_accessed_at", value: rec.source_accessed_at, reason: "must be a valid YYYY-MM-DD date" });
+    sourceFailures.push({ file: rec.__file, row: rec.__row, venue, field: "source_accessed_at", value: rec.source_accessed_at, reason: "must be a valid YYYY-MM-DD date" });
   }
   if (!rec.verification_status) {
-    sourceFailures.push({ row: rec.__row, venue, field: "verification_status", value: "(empty)", reason: "missing verification status" });
+    sourceFailures.push({ file: rec.__file, row: rec.__row, venue, field: "verification_status", value: "(empty)", reason: "missing verification status" });
   } else if (!ALLOWED_VERIFICATION_STATUS.has(rec.verification_status)) {
-    sourceFailures.push({ row: rec.__row, venue, field: "verification_status", value: rec.verification_status, reason: "must be 'verified'" });
+    sourceFailures.push({ file: rec.__file, row: rec.__row, venue, field: "verification_status", value: rec.verification_status, reason: "must be 'verified'" });
   }
 
-  // Duplicate detection: normalized venue name + guide_year
+  // Duplicate detection across ALL loaded files: normalized venue name + guide_year
   const key = `${normalizeVenueName(rec.venue_name || "")}|${rec.guide_year}`;
   if (!dupeMap.has(key)) dupeMap.set(key, []);
-  dupeMap.get(key).push({ row: rec.__row, venue });
+  dupeMap.get(key).push({ file: rec.__file, row: rec.__row, venue });
 }
 
 for (const [key, entries] of dupeMap) {
   if (entries.length > 1) duplicates.push({ key, entries });
 }
 
+// --- Combined selection shape checks ---
+if (records.length !== EXPECTED_TOTAL) {
+  shapeFailures.push(`Total records must be exactly ${EXPECTED_TOTAL}; found ${records.length}.`);
+}
+for (const lvl of ["3", "2", "1"]) {
+  if (solCounts[lvl] !== EXPECTED_SOL_BREAKDOWN[lvl]) {
+    shapeFailures.push(`Sol level ${lvl} count must be exactly ${EXPECTED_SOL_BREAKDOWN[lvl]}; found ${solCounts[lvl]}.`);
+  }
+}
+for (const input of INPUTS) {
+  const c = cohortSolCounts[input.cohort];
+  if (c.total !== EXPECTED_PER_COHORT[input.cohort]) {
+    shapeFailures.push(`\`${input.rel}\` must contain exactly ${EXPECTED_PER_COHORT[input.cohort]} records; found ${c.total}.`);
+  }
+}
+
 const pass =
   missingRequired.length === 0 &&
   invalidAward.length === 0 &&
   duplicates.length === 0 &&
-  sourceFailures.length === 0;
+  sourceFailures.length === 0 &&
+  shapeFailures.length === 0;
 
 // --- Report (deterministic: no generated-at timestamp) ---
 const lines = [];
 lines.push("# Guía Repsol 2026 Madrid Seed Validation Report");
 lines.push("");
-lines.push("Deterministic validation of `data/guia-repsol-2026-madrid-new-sol-cohort.csv`.");
+lines.push("Deterministic joint validation of both seed cohorts:");
+lines.push("");
+for (const input of INPUTS) lines.push(`- \`${input.rel}\` — ${input.label}`);
+lines.push("");
 lines.push("Generated by `scripts/validate-guia-repsol-2026-madrid-seed.mjs` (`npm run validate:madrid-seed`).");
-lines.push("This report contains no timestamp; its content depends only on the input CSV.");
+lines.push("This report contains no timestamp; its content depends only on the input CSVs.");
 lines.push("");
 lines.push(`## Result: ${pass ? "PASS" : "FAIL"}`);
 lines.push("");
 lines.push("## Totals");
 lines.push("");
-lines.push(`- Total records: ${records.length}`);
-lines.push(`- Sol level 3: ${solCounts["3"]}`);
-lines.push(`- Sol level 2: ${solCounts["2"]}`);
-lines.push(`- Sol level 1: ${solCounts["1"]}`);
+lines.push(`- Total records (both cohorts): ${records.length} (required: exactly ${EXPECTED_TOTAL})`);
+lines.push(`- Sol level 3: ${solCounts["3"]} (required: ${EXPECTED_SOL_BREAKDOWN["3"]})`);
+lines.push(`- Sol level 2: ${solCounts["2"]} (required: ${EXPECTED_SOL_BREAKDOWN["2"]})`);
+lines.push(`- Sol level 1: ${solCounts["1"]} (required: ${EXPECTED_SOL_BREAKDOWN["1"]})`);
 lines.push(`- Other/invalid Sol level: ${solCounts.other}`);
+lines.push("");
+lines.push("### Per-cohort breakdown");
+lines.push("");
+lines.push("| Cohort | File | Records | 3 Soles | 2 Soles | 1 Sol | Other |");
+lines.push("| --- | --- | --- | --- | --- | --- | --- |");
+for (const input of INPUTS) {
+  const c = cohortSolCounts[input.cohort];
+  lines.push(`| ${input.label} | \`${input.rel}\` | ${c.total} | ${c["3"]} | ${c["2"]} | ${c["1"]} | ${c.other} |`);
+}
+lines.push("");
+
+lines.push("## Selection shape failures");
+lines.push("");
+lines.push(`Rules: exactly ${EXPECTED_TOTAL} records overall with a ${EXPECTED_SOL_BREAKDOWN["3"]}/${EXPECTED_SOL_BREAKDOWN["2"]}/${EXPECTED_SOL_BREAKDOWN["1"]} Sol breakdown (3/2/1 Soles), and exactly 10 records per cohort file.`);
+lines.push("");
+if (shapeFailures.length === 0) {
+  lines.push("None.");
+} else {
+  for (const f of shapeFailures) lines.push(`- ${f}`);
+}
 lines.push("");
 
 lines.push("## Missing required fields");
@@ -217,9 +297,9 @@ lines.push("");
 if (missingRequired.length === 0) {
   lines.push("None.");
 } else {
-  lines.push("| CSV line | Venue | Missing fields |");
-  lines.push("| --- | --- | --- |");
-  for (const m of missingRequired) lines.push(`| ${m.row} | ${m.venue} | ${m.fields.join(", ")} |`);
+  lines.push("| File | CSV line | Venue | Missing fields |");
+  lines.push("| --- | --- | --- | --- |");
+  for (const m of missingRequired) lines.push(`| \`${m.file}\` | ${m.row} | ${m.venue} | ${m.fields.join(", ")} |`);
 }
 lines.push("");
 
@@ -230,23 +310,23 @@ lines.push("");
 if (invalidAward.length === 0) {
   lines.push("None.");
 } else {
-  lines.push("| CSV line | Venue | Field | Value | Reason |");
-  lines.push("| --- | --- | --- | --- | --- |");
-  for (const e of invalidAward) lines.push(`| ${e.row} | ${e.venue} | ${e.field} | ${e.value} | ${e.reason} |`);
+  lines.push("| File | CSV line | Venue | Field | Value | Reason |");
+  lines.push("| --- | --- | --- | --- | --- | --- |");
+  for (const e of invalidAward) lines.push(`| \`${e.file}\` | ${e.row} | ${e.venue} | ${e.field} | ${e.value} | ${e.reason} |`);
 }
 lines.push("");
 
 lines.push("## Duplicate candidates");
 lines.push("");
-lines.push("Detected by normalized venue name (case-, accent-, and punctuation-insensitive) + `guide_year`.");
+lines.push("Detected by normalized venue name (case-, accent-, and punctuation-insensitive) + `guide_year`, within a single file AND across both cohort files.");
 lines.push("");
 if (duplicates.length === 0) {
   lines.push("None.");
 } else {
-  lines.push("| Normalized key | CSV lines | Venues |");
+  lines.push("| Normalized key | Occurrences (file:line) | Venues |");
   lines.push("| --- | --- | --- |");
   for (const d of duplicates) {
-    lines.push(`| ${d.key} | ${d.entries.map((e) => e.row).join(", ")} | ${d.entries.map((e) => e.venue).join(", ")} |`);
+    lines.push(`| ${d.key} | ${d.entries.map((e) => `\`${e.file}\`:${e.row}`).join(", ")} | ${d.entries.map((e) => e.venue).join(", ")} |`);
   }
 }
 lines.push("");
@@ -258,14 +338,14 @@ lines.push("");
 if (sourceFailures.length === 0) {
   lines.push("None.");
 } else {
-  lines.push("| CSV line | Venue | Field | Value | Reason |");
-  lines.push("| --- | --- | --- | --- | --- |");
-  for (const e of sourceFailures) lines.push(`| ${e.row} | ${e.venue} | ${e.field} | ${e.value} | ${e.reason} |`);
+  lines.push("| File | CSV line | Venue | Field | Value | Reason |");
+  lines.push("| --- | --- | --- | --- | --- | --- |");
+  for (const e of sourceFailures) lines.push(`| \`${e.file}\` | ${e.row} | ${e.venue} | ${e.field} | ${e.value} | ${e.reason} |`);
 }
 lines.push("");
 
 writeFileSync(OUTPUT_REPORT, lines.join("\n"));
 
-console.log(`Validated ${records.length} records: ${pass ? "PASS" : "FAIL"}`);
+console.log(`Validated ${records.length} records across ${INPUTS.length} cohort files: ${pass ? "PASS" : "FAIL"}`);
 console.log(`Report written to docs/guia-repsol-2026-madrid-seed-validation-report.md`);
 process.exit(pass ? 0 : 1);

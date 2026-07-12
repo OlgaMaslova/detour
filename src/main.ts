@@ -104,9 +104,15 @@ async function loadLiveVenues(): Promise<Venue[]> {
 
     const note = str(v.coord_verification_note, v.note, v.summary, v.description);
 
-    const lat = num(v.lat, v.latitude);
-    const lng = num(v.lng, v.lon, v.longitude);
-    if (lat === null || lng === null) continue;
+    // The backend stores 0/0 as a neutral "no verified coordinates" sentinel
+    // (see the seed migrations). Treat it — and missing values — as unknown
+    // location rather than plotting a fake pin.
+    const rawLat = num(v.lat, v.latitude);
+    const rawLng = num(v.lng, v.lon, v.longitude);
+    const hasCoords =
+      rawLat !== null && rawLng !== null && !(rawLat === 0 && rawLng === 0);
+    const lat = hasCoords ? rawLat : null;
+    const lng = hasCoords ? rawLng : null;
 
     venues.push({
       id,
@@ -159,18 +165,26 @@ function filteredVenues(): Venue[] {
 }
 
 function mapPanel(list: Venue[]): string {
-  if (list.length === 0) {
-    return '<div class="map-panel" aria-hidden="true"><p class="map-empty">No pins for this filter.</p></div>';
+  const mappable = list.filter(
+    (v): v is Venue & { lat: number; lng: number } => v.lat !== null && v.lng !== null
+  );
+  const pending = list.length - mappable.length;
+  if (mappable.length === 0) {
+    return `<div class="map-panel" aria-hidden="true"><p class="map-empty">${
+      list.length === 0
+        ? 'No pins for this filter.'
+        : 'Locations pending verification — no verified pins to show yet.'
+    }</p></div>`;
   }
-  const lats = list.map((v) => v.lat);
-  const lngs = list.map((v) => v.lng);
+  const lats = mappable.map((v) => v.lat);
+  const lngs = mappable.map((v) => v.lng);
   const pad = 0.006;
   const minLat = Math.min(...lats) - pad;
   const maxLat = Math.max(...lats) + pad;
   const minLng = Math.min(...lngs) - pad;
   const maxLng = Math.max(...lngs) + pad;
 
-  const pins = list
+  const pins = mappable
     .map((v) => {
       const x = ((v.lng - minLng) / (maxLng - minLng)) * 100;
       const y = ((maxLat - v.lat) / (maxLat - minLat)) * 100;
@@ -190,7 +204,11 @@ function mapPanel(list: Venue[]): string {
     <div class="map-grid" aria-hidden="true"></div>
     <span class="map-compass" aria-hidden="true">N ↑</span>
     ${pins}
-    <p class="map-caption">Placement sketch — relative positions, not a street map.</p>
+    <p class="map-caption">Placement sketch — relative positions, not a street map.${
+      pending > 0
+        ? ` ${pending} venue${pending === 1 ? '' : 's'} not shown — location pending verification.`
+        : ''
+    }</p>
   </div>`;
 }
 
@@ -206,7 +224,11 @@ function venueCard(v: Venue): string {
           </span>
         </div>
         <p class="card-meta">${esc([v.cuisine, v.neighborhood].filter(Boolean).join(' · '))}</p>
-        <p class="card-address">${esc(v.address)}${v.approxLocation ? ' <span class="approx">approx. location</span>' : ''}</p>
+        <p class="card-address">${
+          v.address
+            ? `${esc(v.address)}${v.approxLocation ? ' <span class="approx">approx. location</span>' : ''}`
+            : '<span class="approx">Location pending verification</span>'
+        }</p>
       </button>
       <p class="card-source">Verified in <strong>${esc(v.sourceName)} ${v.awardYear}</strong>${
         v.sourceUrl
@@ -236,8 +258,10 @@ function detailPanel(): string {
     <dl class="detail-facts">
       ${v.cuisine ? `<div><dt>Cuisine</dt><dd>${esc(v.cuisine)}</dd></div>` : ''}
       ${v.neighborhood ? `<div><dt>Neighborhood</dt><dd>${esc(v.neighborhood)}</dd></div>` : ''}
-      <div><dt>Address</dt><dd>${esc(v.address)}${
-        v.approxLocation ? ' <span class="approx">approximate location</span>' : ''
+      <div><dt>Address</dt><dd>${
+        v.address
+          ? `${esc(v.address)}${v.approxLocation ? ' <span class="approx">approximate location</span>' : ''}`
+          : '<span class="approx">Location pending verification</span>'
       }</dd></div>
       <div><dt>Award source</dt><dd>${
         v.sourceUrl
@@ -260,7 +284,7 @@ function render(root: HTMLElement) {
     <header class="hero">
       <div class="hero-inner">
         <p class="brand">Detour</p>
-        <p class="brand-line" style="margin:0 0 0.6rem;font-size:0.85rem;letter-spacing:0.08em;font-style:italic;opacity:0.85;">Worth a detour.</p>
+        <p class="brand-line" style="margin:0 0 0.6rem;font-size:0.85rem;letter-spacing:0.08em;font-style:italic;opacity:0.85;">The best tables are just off your usual route.</p>
         <h1>Madrid’s trusted table, mapped.</h1>
         <p class="tagline">Every place on Detour holds a current award from a named guide — source first, always linked. This is a verified selection for Madrid right now, not a directory of the whole city.</p>
         <div class="hero-badges">

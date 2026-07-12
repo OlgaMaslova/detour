@@ -1,6 +1,6 @@
 # Guía Repsol 2026 Madrid: official sources and rights-conscious seed-data policy
 
-**Purpose.** This memo defines the evidence and handling rules for a small, normalized Detour seed dataset of Guía Repsol 2026 Sol-awarded venues in Madrid. It is not a licence analysis, a reproduction of the guide, or a substitute for the guide’s own site and app.
+**Purpose.** This memo defines the evidence and handling rules for a small, normalized Detour seed dataset of **20 source-attributed facts** about Guía Repsol 2026 Sol-awarded venues in Madrid city — 10 newly awarded in 2026 (verified against the official award-level pages) and 10 continuing 2026 award holders selected from the official 2026 digital booklet. It is a conservative selection of attributed factual claims, **not a directory**, a licence analysis, a reproduction of the guide, or a substitute for the guide’s own site and app.
 
 **Research access date:** 2026-07-12  
 **Geographic terms:** “Madrid city” means venues whose locality is Madrid. “Comunidad de Madrid” means the autonomous community. The official regional total below must not be treated as a Madrid-city total.
@@ -37,8 +37,9 @@ All URLs in this section are first-party `guiarepsol.com` surfaces. The access d
 
 6. **Digital booklet — [Guía Repsol 2026 digital booklet (PDF)](https://www.guiarepsol.com/content/dam/repsol-guia/documentos/es/Cuadernillo%20digital%20Gu%C3%ADa%20Repsol%202026.pdf)**
    - Linked from the official 2026 hub as the booklet containing 2026 novelties and the complete Soles/Guía Repsol listing.
-   - Retain only the URL and per-record factual checks derived during a documented review. Do not commit the PDF, extracted text, images, page scans, or a repackaged copy.
-   - The PDF was identified as an official complete-list surface, but its Madrid-city enumeration was not programmatically extracted for this memo. Any future extraction must be manual or otherwise authorized, must log page references, and must obey the rules below.
+   - Used as the official source for the **10 continuing 2026 Madrid award holders** in `data/guia-repsol-2026-madrid-continuing-sol-selection.csv`: for each, the exact name, Sol level, and Madrid locality were checked in the booklet's printed listing pages 90–91 (access date 2026-07-12, `source_type` `digital-booklet`).
+   - Retain only the URL and per-record factual checks derived during that documented review. Do not commit the PDF, extracted text, images, page scans, or a repackaged copy; none are retained in this repository.
+   - The booklet was not exhaustively reconciled into a complete Madrid-city enumeration — only the 10 selected continuing records were checked. Any future broader extraction must be manual or otherwise authorized, must log page references, and must obey the rules below.
 
 7. **Official venue profile surface — example: [Restaurante Bancal en Madrid](https://www.guiarepsol.com/es/fichas/restaurante/bancal-331533/)**
    - A first-party venue-page pattern that can provide a canonical venue URL and displayed locality/address where a future record needs a record-specific corroboration.
@@ -101,20 +102,19 @@ Every seed row must carry enough evidence for an independent reviewer to re-chec
 
 ### Evidence established
 
-The official award-level pages establish a **10-venue new-award cohort in Madrid city for 2026**:
+The seed now comprises **20 source-attributed 2026 Madrid-city records**, in two cohorts:
 
-- 1 new three-Sol entry;
-- 2 new two-Sol entries;
-- 7 new one-Sol entries.
+1. **New 2026 award cohort (10 venues)**, established by the official award-level pages: 1 new three-Sol, 2 new two-Sol, and 7 new one-Sol entries.
+2. **Continuing 2026 selection (10 venues)**, verified against the official 2026 digital booklet (printed listing pages 90–91, accessed 2026-07-12): 3 three-Sol (Coque, DiverXO, DSTAgE), 3 two-Sol (Deessa, Saddle, Ugo Chan), and 4 one-Sol (A'Barra, Alabaster, Fismuler, La Catapa).
 
-This is a narrow, named cohort of new 2026 awards, not the complete 2026 Madrid-city Sol catalogue.
+Combined breakdown: 4 three-Sol, 5 two-Sol, 11 one-Sol. This is a narrow, named, conservative selection of attributed facts — **not** the complete 2026 Madrid-city Sol catalogue and not a directory. No coordinates, addresses, categories, or venue URLs were independently verified for the continuing selection; those fields remain blank (with a neutral 0/0 coordinate sentinel where the schema requires a number, explicitly noted as unverified).
 
-The official complete-new-awards listing reports **98 Soles for Comunidad de Madrid**, while the national 2026 total is 808. The 98 figure cannot reconcile a Madrid-city dataset because it includes the wider autonomous community and may include continuing award holders.
+The official complete-new-awards listing reports **98 Soles for Comunidad de Madrid** — the autonomous community, not necessarily Madrid city — while the national 2026 total is 808. The 98 figure cannot reconcile a Madrid-city dataset because it includes the wider autonomous community and includes continuing award holders.
 
 ### Concrete unresolved gaps
 
 1. **Madrid city total:** no official source reviewed here gives a Madrid-city total for all 2026 Sol-awarded venues, by level or in aggregate.
-2. **Continuing award holders:** the award-level news pages enumerate new 2026 awards, not the full carry-over population. The digital booklet is the identified official complete-list surface, but it has not yet been reviewed into a page-referenced Madrid-city enumeration.
+2. **Continuing award holders:** the award-level news pages enumerate new 2026 awards only. Ten continuing holders have now been individually verified against the booklet (pages 90–91), but the full carry-over population has not been reviewed into a complete, page-referenced Madrid-city enumeration; the remaining continuing holders are not represented in the seed.
 3. **Municipality boundary:** a future dataset must declare whether it targets Madrid city or Comunidad de Madrid before comparing its count with the official regional total of 98.
 4. **Addresses and venue profiles:** award announcements principally establish name, level, and locality. Missing or uncertain street addresses must remain blank or separately verified through a cited first-party profile.
 5. **Terms/licensing:** no express reuse licence or current legal-notice analysis was established in this research. Until one is reviewed or permission is obtained, keep use factual, minimal, attributed, non-editorial, and reversible as described above.
@@ -122,4 +122,4 @@ The official complete-new-awards listing reports **98 Soles for Comunidad de Mad
 
 ## Handoff to dataset work
 
-The next dataset deliverable must be versioned separately from this memo and must include each record’s official source URL, access date, status, and a coverage report. It must describe its scope as **“new 2026 Madrid-city award cohort”** unless and until the full booklet/list has been manually and reproducibly reconciled. A count of 10 must never be labeled as the total number of Madrid-city Sol-awarded restaurants in the 2026 edition.
+The dataset deliverables are versioned separately from this memo (`data/guia-repsol-2026-madrid-new-sol-cohort.csv` and `data/guia-repsol-2026-madrid-continuing-sol-selection.csv`) and include each record's official source URL, access date, status, and verification note, with a joint validation report. Their combined scope must be described as **“20 source-attributed 2026 Madrid-city Sol facts (10 new-award cohort + 10 continuing selection)”** unless and until the full booklet/list has been manually and reproducibly reconciled. A count of 20 must never be labeled as the total number of Madrid-city Sol-awarded restaurants in the 2026 edition, and must never be compared directly against the Comunidad de Madrid total of 98.

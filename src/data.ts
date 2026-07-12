@@ -8,8 +8,9 @@ export interface Venue {
   cuisine: string;
   neighborhood: string;
   address: string;
-  lat: number;
-  lng: number;
+  /** Null when no verified coordinate exists — render as "location pending verification", never a fake pin. */
+  lat: number | null;
+  lng: number | null;
   sourceName: string;
   sourceUrl: string;
   note: string;
@@ -19,163 +20,99 @@ export interface Venue {
 export const GUIDE_YEAR = 2026;
 
 const SOURCE_NAME = 'Guía Repsol';
-const SOURCE_URL =
-  'https://www.guiarepsol.com/es/soles-repsol/soles-2026/listado-de-nuevos-restaurantes-con-soles-guia-repsol-2026/';
+// Official per-award-level 2026 announcement pages — the verification sources
+// for the 10 venues newly awarded Soles in Guía Repsol 2026.
+const THREE_SOL_URL =
+  'https://www.guiarepsol.com/es/soles-repsol/soles-2026/nuevo-restaurante-3-soles-guia-repsol/';
+const TWO_SOL_URL =
+  'https://www.guiarepsol.com/es/soles-repsol/soles-2026/nuevos-restaurantes-2-soles-guia-repsol/';
+const ONE_SOL_URL =
+  'https://www.guiarepsol.com/es/soles-repsol/soles-2026/nuevos-restaurantes-un-sol-guia-repsol/';
+// Official Guía Repsol 2026 digital booklet (complete Soles listing) — the
+// verification source for the continuing 2026 Madrid Sol holders below.
+const BOOKLET_URL =
+  'https://www.guiarepsol.com/content/dam/repsol-guia/documentos/es/Cuadernillo%20digital%20Gu%C3%ADa%20Repsol%202026.pdf';
+const NEW_AWARD_NOTE =
+  'Location pending verification; award verified in the official 2026 Guía Repsol award listing.';
+const CONTINUING_NOTE =
+  'Location pending verification; award verified in the official 2026 booklet.';
+
+const AWARD_PAGE_URLS: Record<AwardLevel, string> = {
+  1: ONE_SOL_URL,
+  2: TWO_SOL_URL,
+  3: THREE_SOL_URL,
+};
+
+/** Venues newly awarded Soles in Guía Repsol 2026, verified on the official award-level pages: [id, name, sol level]. */
+const newAwardSeed: Array<[string, string, AwardLevel]> = [
+  ['demo-ramon-freixa-atelier', 'Ramón Freixa Atelier', 3],
+  ['demo-bascoat', 'Bascoat', 2],
+  ['demo-smoked-room', 'Smoked Room', 2],
+  ['demo-bancal', 'Bancal', 1],
+  ['demo-desborre', 'Desborre', 1],
+  ['demo-emi', 'EMi', 1],
+  ['demo-los-33', 'Los 33', 1],
+  ['demo-otoro-jukusei', 'Otoro Jukusei', 1],
+  ['demo-ramon-freixa-tradicion', 'Ramón Freixa Tradición', 1],
+  ['demo-tresde', 'Trèsde', 1],
+];
+
+/** Continuing 2026 Madrid Sol holders verified in the official booklet: [id, name, sol level]. */
+const continuingSeed: Array<[string, string, AwardLevel]> = [
+  ['demo-coque', 'Coque', 3],
+  ['demo-diverxo', 'DiverXO', 3],
+  ['demo-dstage', 'DSTAgE', 3],
+  ['demo-deessa', 'Deessa', 2],
+  ['demo-saddle', 'Saddle', 2],
+  ['demo-ugo-chan', 'Ugo Chan', 2],
+  ['demo-a-barra', "A'Barra", 1],
+  ['demo-alabaster', 'Alabaster', 1],
+  ['demo-fismuler', 'Fismuler', 1],
+  ['demo-la-catapa', 'La Catapa', 1],
+];
 
 /**
  * Local demo selection shown while the live catalogue is unavailable.
- * The 10 verified Madrid venues newly awarded Soles in Guía Repsol 2026 —
- * the same set seeded into the live backend.
+ * The exact 20-record conservative Madrid 2026 selection seeded into the live
+ * backend: the 10 verified venues newly awarded Soles in Guía Repsol 2026
+ * plus the 10 continuing 2026 Sol holders verified in the official booklet.
+ * Only source-verified award facts are stored: no addresses, coordinates,
+ * cuisine categories, or venue URLs were verified for either cohort, so those
+ * fields stay blank/null rather than showing undocumented data.
  */
 export const demoVenues: Venue[] = [
-  {
-    id: 'demo-ramon-freixa-atelier',
-    name: 'Ramón Freixa Atelier',
-    award: 3,
-    awardYear: GUIDE_YEAR,
-    cuisine: 'Fine dining',
-    neighborhood: '',
-    address: 'Calle de Velázquez 24, 28001 Madrid',
-    lat: 40.4242034,
-    lng: -3.6840318,
-    sourceName: SOURCE_NAME,
-    sourceUrl: SOURCE_URL,
-    note: 'Coordinates exact.',
-    approxLocation: false,
-  },
-  {
-    id: 'demo-bascoat',
-    name: 'Bascoat',
-    award: 2,
-    awardYear: GUIDE_YEAR,
-    cuisine: 'Fine dining',
-    neighborhood: '',
-    address: 'Paseo de la Habana 33, 28036 Madrid',
-    lat: 40.4530399,
-    lng: -3.6851204,
-    sourceName: SOURCE_NAME,
-    sourceUrl: SOURCE_URL,
-    note: 'Coordinates exact.',
-    approxLocation: false,
-  },
-  {
-    id: 'demo-smoked-room',
-    name: 'Smoked Room',
-    award: 2,
-    awardYear: GUIDE_YEAR,
-    cuisine: 'Fine dining',
-    neighborhood: '',
-    address: 'Paseo de la Castellana 57, 28046 Madrid',
-    lat: 40.4388252,
-    lng: -3.6917467,
-    sourceName: SOURCE_NAME,
-    sourceUrl: SOURCE_URL,
-    note: 'Coordinates are building centroid.',
-    approxLocation: false,
-  },
-  {
-    id: 'demo-bancal',
-    name: 'Bancal',
-    award: 1,
-    awardYear: GUIDE_YEAR,
-    cuisine: 'Fine dining',
-    neighborhood: '',
-    address: 'Calle de Serrano 95, 28006 Madrid',
-    lat: 40.4381489,
-    lng: -3.6866899,
-    sourceName: SOURCE_NAME,
-    sourceUrl: SOURCE_URL,
-    note: 'Coordinates at building address.',
-    approxLocation: false,
-  },
-  {
-    id: 'demo-desborre',
-    name: 'Desborre',
-    award: 1,
-    awardYear: GUIDE_YEAR,
-    cuisine: 'Fine dining',
-    neighborhood: '',
-    address: 'Calle de la Unión 8, 28013 Madrid',
-    lat: 40.4175734,
-    lng: -3.7104434,
-    sourceName: SOURCE_NAME,
-    sourceUrl: SOURCE_URL,
-    note: 'Coordinates exact address.',
-    approxLocation: false,
-  },
-  {
-    id: 'demo-emi',
-    name: 'EMi',
-    award: 1,
-    awardYear: GUIDE_YEAR,
-    cuisine: 'Fine dining',
-    neighborhood: '',
-    address: 'Calle de Gaztambide 64, 28015 Madrid',
-    lat: 40.4388461,
-    lng: -3.7151504,
-    sourceName: SOURCE_NAME,
-    sourceUrl: SOURCE_URL,
-    note: 'Coordinates exact address; address corroborated by press.',
-    approxLocation: false,
-  },
-  {
-    id: 'demo-los-33',
-    name: 'Los 33',
-    award: 1,
-    awardYear: GUIDE_YEAR,
-    cuisine: 'Fine dining',
-    neighborhood: '',
-    address: 'Plaza de las Salesas 9, 28004 Madrid',
-    lat: 40.4238621,
-    lng: -3.6948322,
-    sourceName: SOURCE_NAME,
-    sourceUrl: SOURCE_URL,
-    note: 'Coordinates exact.',
-    approxLocation: false,
-  },
-  {
-    id: 'demo-otoro-jukusei',
-    name: 'Otoro Jukusei',
-    award: 1,
-    awardYear: GUIDE_YEAR,
-    cuisine: 'Fine dining',
-    neighborhood: '',
-    address: 'Calle de Fernández de la Hoz 35, 28010 Madrid',
-    lat: 40.4339,
-    lng: -3.6949,
-    sourceName: SOURCE_NAME,
-    sourceUrl: SOURCE_URL,
-    note: 'Coordinates approximate street-level; require manual pin verification.',
-    approxLocation: true,
-  },
-  {
-    id: 'demo-ramon-freixa-tradicion',
-    name: 'Ramón Freixa Tradición',
-    award: 1,
-    awardYear: GUIDE_YEAR,
-    cuisine: 'Fine dining',
-    neighborhood: '',
-    address: 'Calle de Velázquez 24, 28001 Madrid',
-    lat: 40.4242034,
-    lng: -3.6840318,
-    sourceName: SOURCE_NAME,
-    sourceUrl: SOURCE_URL,
-    note: 'Coordinates exact; shared location.',
-    approxLocation: false,
-  },
-  {
-    id: 'demo-tresde',
-    name: 'Trèsde',
-    award: 1,
-    awardYear: GUIDE_YEAR,
-    cuisine: 'Fine dining',
-    neighborhood: '',
-    address: 'Calle de la Cava Alta 17, 28005 Madrid',
-    lat: 40.4121178,
-    lng: -3.7092308,
-    sourceName: SOURCE_NAME,
-    sourceUrl: SOURCE_URL,
-    note: 'Coordinates exact.',
-    approxLocation: false,
-  },
+  ...newAwardSeed.map(
+    ([id, name, award]): Venue => ({
+      id,
+      name,
+      award,
+      awardYear: GUIDE_YEAR,
+      cuisine: '',
+      neighborhood: '',
+      address: '',
+      lat: null,
+      lng: null,
+      sourceName: SOURCE_NAME,
+      sourceUrl: AWARD_PAGE_URLS[award],
+      note: NEW_AWARD_NOTE,
+      approxLocation: false,
+    })
+  ),
+  ...continuingSeed.map(
+    ([id, name, award]): Venue => ({
+      id,
+      name,
+      award,
+      awardYear: GUIDE_YEAR,
+      cuisine: '',
+      neighborhood: '',
+      address: '',
+      lat: null,
+      lng: null,
+      sourceName: SOURCE_NAME,
+      sourceUrl: BOOKLET_URL,
+      note: CONTINUING_NOTE,
+      approxLocation: false,
+    })
+  ),
 ];
