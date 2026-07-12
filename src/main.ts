@@ -308,16 +308,27 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
       )} ${v.awardYear}`,
       { closeButton: false, offset: [0, -6] }
     );
-    marker.on('click', () => {
+    const select = () => {
       state.selectedId = state.selectedId === v.id ? null : v.id;
       savedView = { center: map.getCenter(), zoom: map.getZoom() };
       render(root);
-    });
+    };
     const el = marker.getElement();
     if (el) {
       el.setAttribute('role', 'button');
       el.setAttribute('aria-pressed', String(selected));
       el.setAttribute('aria-label', `${v.name}, ${solesLabel(v.award)}`);
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        select();
+      });
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          select();
+        }
+      });
     }
     if (selected) marker.openPopup();
   }
