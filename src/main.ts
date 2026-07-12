@@ -1,4 +1,6 @@
 import './styles.css';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
 import { pb } from './pocketbase';
 import { demoVenues, GUIDE_YEAR } from './data';
 import type { AwardLevel, Venue } from './data';
@@ -224,77 +226,149 @@ function filteredVenues(): Venue[] {
   return [...list].sort((a, b) => b.award - a.award || a.name.localeCompare(b.name));
 }
 
-// Central Madrid frame used when there are no verified venue pins to derive
-// bounds from — the map stays centered on Madrid.
-const MADRID_BOUNDS = { minLat: 40.38, maxLat: 40.48, minLng: -3.76, maxLng: -3.64 };
+/* ---------- interactive map (Leaflet + OpenStreetMap) ---------- */
 
-function userDot(bounds: { minLat: number; maxLat: number; minLng: number; maxLng: number }): string {
-  const u = state.userLocation;
-  if (!u) return '';
-  if (u.lat < bounds.minLat || u.lat > bounds.maxLat || u.lng < bounds.minLng || u.lng > bounds.maxLng) {
-    return '';
+// Central Madrid fallback view used when there are no verified venue pins to
+// derive bounds from, or when browser location is unavailable/denied.
+const MADRID_CENTER: [number, number] = [40.4168, -3.7038];
+const MADRID_ZOOM = 13;
+
+type MappableVenue = Venue & { lat: number; lng: number };
+
+function mappableVenues(list: Venue[]): MappableVenue[] {
+  return list.filter(
+    (v): v is MappableVenue => v.lat !== null && v.lng !== null
+  );
+}
+
+// The whole root is re-rendered on every state change, which destroys the
+// map's DOM node. Keep a single module-level Leaflet instance and tear it
+// down (removing all layers and listeners) before creating the next one so
+// duplicate maps or leaked listeners can never occur.
+let leafletMap: L.Map | null = null;
+// Preserve the user's pan/zoom across re-renders. Cleared (so the map refits)
+// whenever the set of visible pins changes, e.g. after filtering.
+let savedView: { center: L.LatLng; zoom: number } | null = null;
+let savedPinKey = '';
+
+function destroyMap(): void {
+  if (leafletMap) {
+    leafletMap.remove();
+    leafletMap = null;
   }
-  const x = ((u.lng - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * 100;
-  const y = ((bounds.maxLat - u.lat) / (bounds.maxLat - bounds.minLat)) * 100;
-  return `<span class="user-dot" role="img" aria-label="Your approximate location"
-    style="position:absolute;left:${x.toFixed(2)}%;top:${y.toFixed(2)}%;transform:translate(-50%,-50%);width:12px;height:12px;border-radius:50%;background:#2563eb;border:2px solid #fff;box-shadow:0 0 0 3px rgba(37,99,235,0.35);z-index:3;"></span>`;
+}
+
+function mountMap(root: HTMLElement, list: Venue[]): void {
+  destroyMap();
+  const container = root.querySelector<HTMLElement>('#venue-map');
+  if (!container) return;
+
+  const mappable = mappableVenues(list);
+  const pinKey = mappable.map((v) => v.id).join('|');
+  if (pinKey !== savedPinKey) {
+    savedPinKey = pinKey;
+    savedView = null;
+  }
+
+  const map = L.map(container, {
+    center: MADRID_CENTER,
+    zoom: MADRID_ZOOM,
+    scrollWheelZoom: false, // don't hijack page scroll
+    zoomSnap: 0.5,
+  });
+  leafletMap = map;
+
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+  }).addTo(map);
+
+  // Venue pins — only real, verified coordinates are ever plotted.
+  for (const v of mappable) {
+    const selected = v.id === state.selectedId;
+    const icon = L.divIcon({
+      className: '',
+      html: `<span class="map-pin pin-${v.award}${selected ? ' pin-selected' : ''}">
+        <span class="pin-dot"></span>
+        <span class="pin-label">${esc(v.name)}</span>
+      </span>`,
+      iconSize: [0, 0],
+      iconAnchor: [0, 0],
+    });
+    const marker = L.marker([v.lat, v.lng], {
+      icon,
+      keyboard: true,
+      riseOnHover: true,
+      zIndexOffset: selected ? 1000 : v.award * 10,
+    }).addTo(map);
+    marker.bindPopup(
+      `<strong>${esc(v.name)}</strong><br>${solesIcons(v.award)} ${solesLabel(v.award)} · ${esc(
+        v.sourceName
+      )} ${v.awardYear}`,
+      { closeButton: false, offset: [0, -6] }
+    );
+    marker.on('click', () => {
+      state.selectedId = state.selectedId === v.id ? null : v.id;
+      savedView = { center: map.getCenter(), zoom: map.getZoom() };
+      render(root);
+    });
+    const el = marker.getElement();
+    if (el) {
+      el.setAttribute('role', 'button');
+      el.setAttribute('aria-pressed', String(selected));
+      el.setAttribute('aria-label', `${v.name}, ${solesLabel(v.award)}`);
+    }
+    if (selected) marker.openPopup();
+  }
+
+  // User location — shown only when the browser granted a real position.
+  if (state.userLocation) {
+    L.circleMarker([state.userLocation.lat, state.userLocation.lng], {
+      radius: 7,
+      color: '#fdf6ec',
+      weight: 2,
+      fillColor: '#2563eb',
+      fillOpacity: 1,
+    })
+      .addTo(map)
+      .bindTooltip('Your approximate location');
+  }
+
+  // View: restore the user's last view, else fit the real pins, else Madrid.
+  if (savedView) {
+    map.setView(savedView.center, savedView.zoom, { animate: false });
+  } else if (mappable.length > 0) {
+    const bounds = L.latLngBounds(
+      mappable.map((v) => [v.lat, v.lng] as [number, number])
+    );
+    // Include the user's marker in the frame only when it is near Madrid,
+    // so a distant user never zooms the city map out to another region.
+    const u = state.userLocation;
+    if (u && u.lat > 40.2 && u.lat < 40.65 && u.lng > -3.95 && u.lng < -3.45) {
+      bounds.extend([u.lat, u.lng]);
+    }
+    map.fitBounds(bounds, { padding: [36, 36], maxZoom: 16 });
+  }
+  map.on('moveend zoomend', () => {
+    savedView = { center: map.getCenter(), zoom: map.getZoom() };
+  });
 }
 
 function mapPanel(list: Venue[]): string {
-  const mappable = list.filter(
-    (v): v is Venue & { lat: number; lng: number } => v.lat !== null && v.lng !== null
-  );
+  const mappable = mappableVenues(list);
   const pending = list.length - mappable.length;
-  if (mappable.length === 0) {
-    const dot = userDot(MADRID_BOUNDS);
-    return `<div class="map-panel" role="group" aria-label="Map centered on Madrid" style="position:relative;">
-      <div class="map-grid" aria-hidden="true"></div>
-      <span class="map-compass" aria-hidden="true">N ↑</span>
-      ${dot}
-      <p class="map-empty">${
-        list.length === 0
-          ? 'No pins for this filter.'
-          : 'Locations pending verification — no verified venue pins to show yet.'
-      }${dot ? ' Your location is shown as a blue dot.' : ''}</p>
-      <p class="map-caption">Map centered on Madrid.${
-        state.userLocation && !dot ? ' Your location is outside this Madrid frame.' : ''
-      } Venue distances aren’t shown — venue coordinates are pending verification.</p>
-    </div>`;
-  }
-  const lats = mappable.map((v) => v.lat);
-  const lngs = mappable.map((v) => v.lng);
-  const pad = 0.006;
-  const minLat = Math.min(...lats) - pad;
-  const maxLat = Math.max(...lats) + pad;
-  const minLng = Math.min(...lngs) - pad;
-  const maxLng = Math.max(...lngs) + pad;
-
-  const pins = mappable
-    .map((v) => {
-      const x = ((v.lng - minLng) / (maxLng - minLng)) * 100;
-      const y = ((maxLat - v.lat) / (maxLat - minLat)) * 100;
-      const selected = v.id === state.selectedId;
-      return `<button type="button" class="pin pin-${v.award}${selected ? ' pin-selected' : ''}"
-        style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%"
-        data-venue="${esc(v.id)}"
-        aria-pressed="${selected}"
-        aria-label="${esc(v.name)}, ${solesLabel(v.award)}">
-        <span class="pin-dot"></span>
-        <span class="pin-label">${esc(v.name)}</span>
-      </button>`;
-    })
-    .join('');
-
-  return `<div class="map-panel" role="group" aria-label="Approximate placement map of listed venues">
-    <div class="map-grid" aria-hidden="true"></div>
-    <span class="map-compass" aria-hidden="true">N ↑</span>
-    ${pins}
-    ${userDot({ minLat, maxLat, minLng, maxLng })}
-    <p class="map-caption">Placement sketch — relative positions, not a street map.${
-      pending > 0
-        ? ` ${pending} venue${pending === 1 ? '' : 's'} not shown — location pending verification.`
-        : ''
-    }</p>
+  const note =
+    list.length === 0
+      ? 'No venues match this filter — no pins to show. The map stays centered on Madrid.'
+      : mappable.length === 0
+        ? 'Locations pending verification — no verified venue pins to show yet. The map stays centered on Madrid.'
+        : pending > 0
+          ? `${pending} venue${pending === 1 ? '' : 's'} not pinned — location pending verification.`
+          : '';
+  return `<div class="map-panel map-panel-live" role="group" aria-label="Interactive map of listed venues in Madrid">
+    <div id="venue-map" class="venue-map" aria-label="Madrid venue map — OpenStreetMap"></div>
+    ${note ? `<p class="map-note" role="status">${esc(note)}</p>` : ''}
   </div>`;
 }
 
@@ -468,6 +542,9 @@ function render(root: HTMLElement) {
     state.selectedId = null;
     render(root);
   });
+
+  // (Re)create the Leaflet map after the DOM has been replaced.
+  mountMap(root, list);
 }
 
 /* ---------- geolocation (opt-in only) ---------- */
@@ -501,7 +578,8 @@ function requestUserLocation(root: HTMLElement): void {
       } else {
         state.userLocation = { lat: latitude, lng: longitude };
         state.geoStatus =
-          'Your location is shown on the map. Distances to venues aren’t calculated because venue coordinates are pending verification.';
+          'Your location is shown on the map as a blue dot.';
+        savedView = null; // refit / recenter so the user sees their marker context
       }
       render(root);
     },

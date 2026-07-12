@@ -137,12 +137,10 @@ Repsol award rows are demoted to `current = false`.
 **Intentionally cleared unsupported enrichment:** the normalization migration
 blanks fields the verified CSVs do not support on the seed venues —
 `address`, `category`, and venue `official_url` are set to empty strings.
-Because `lat`/`lng` are NOT NULL numeric columns, they are reset to the
-schema's neutral **zero sentinel**: `lat = 0, lng = 0` means "no verified
-coordinates", **not** a map pin at 0/0, and `coord_verification_note` says so
-explicitly (`No coordinates verified in this seed.`). Consumers must not
-render the zero sentinel as a geographic point — see "Coordinates and
-browser location policy" below.
+Coordinates are no longer left as an unverified sentinel: the 2026-07-12
+migration `pb_migrations/1767973000_verify_madrid_venue_coordinates.js`
+re-populates verified addresses and `lat`/`lng` for all 20 seed venues — see
+"Coordinates and browser location policy" below.
 
 All migrations use bulk `INSERT OR IGNORE` with fixed ids plus idempotent
 UPDATEs, so re-running is a converging no-op — safe after partial failures,
@@ -244,10 +242,20 @@ The frontend is a Vite + TypeScript static app (`src/`, `index.html`,
 
 ## Coordinates and browser location policy
 
-Venue coordinates in the seed are **intentionally unverified** and stored as
-the `lat = 0, lng = 0` sentinel (with `coord_verification_note` saying so).
-The frontend therefore does **not** plot venue pins; it must never render the
-0/0 sentinel as a geographic point.
+The 2026-07-12 migration
+(`pb_migrations/1767973000_verify_madrid_venue_coordinates.js`) supplies
+OpenStreetMap/Nominatim-derived street addresses and `lat`/`lng` for all 20
+verified Madrid seed records (`venueseed000001`–`venueseed000020`); each
+row's `coord_verification_note` records the verification date and the OSM
+node/way/relation id used. Map tiles visibly attribute OpenStreetMap
+(© OpenStreetMap contributors, ODbL 1.0).
+
+Per-record caveats:
+
+- **Otoro Jukusei**: street-level only (no OSM house-number node for
+  Fernández de la Hoz 35), so the pin is approximate.
+- **Deessa**: the pin is the Mandarin Oriental Ritz building centroid — the
+  restaurant is inside the hotel.
 
 The user may be offered the option to share their **browser location**
 (geolocation permission prompt). If the user denies the prompt, or

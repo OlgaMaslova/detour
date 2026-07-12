@@ -508,6 +508,98 @@ select.filter-select {
   100% { transform: scale(1.5); opacity: 0; }
 }
 
+/* ------------------------------------------------ Live Leaflet map */
+.map-panel-live {
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  display: flex;
+  flex-direction: column;
+}
+.venue-map {
+  flex: 1;
+  min-height: 320px;
+  width: 100%;
+  z-index: 1;
+  background: #efe9df; /* while tiles load */
+}
+/* Quiet, editorial tile treatment — slightly desaturated warm map */
+.venue-map .leaflet-tile-pane {
+  filter: saturate(0.72) sepia(0.12) contrast(0.97);
+}
+.venue-map .leaflet-control-attribution {
+  background: rgba(250, 246, 239, 0.88);
+  color: var(--ink-soft);
+  font-size: 0.66rem;
+  padding: 0.1rem 0.45rem;
+}
+.venue-map .leaflet-control-attribution a { color: var(--accent-deep); }
+.venue-map .leaflet-control-zoom a {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.venue-map .leaflet-popup-content-wrapper {
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow-soft);
+  font-family: inherit;
+}
+.venue-map .leaflet-popup-content { margin: 0.6rem 0.85rem; font-size: 0.85rem; line-height: 1.4; }
+.venue-map .leaflet-popup-tip { background: var(--paper); }
+
+/* Leaflet divIcon venue pins — anchored at the venue coordinate */
+.map-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  gap: 0.2rem;
+  cursor: pointer;
+}
+.map-pin .pin-dot {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  border: 2px solid #fdf6ec;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+.map-pin.pin-3 .pin-dot { background: #b45309; width: 17px; height: 17px; }
+.map-pin.pin-2 .pin-dot { background: #c2410c; }
+.map-pin.pin-1 .pin-dot { background: #9a3412; width: 12px; height: 12px; }
+.map-pin .pin-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--night);
+  background: rgba(250, 246, 239, 0.92);
+  border: 1px solid var(--line-strong);
+  padding: 0.1rem 0.45rem;
+  border-radius: 6px;
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.map-pin:hover .pin-dot,
+.map-pin.pin-selected .pin-dot { outline: 3px solid rgba(194, 65, 12, 0.4); }
+.map-pin.pin-selected .pin-label { background: var(--accent); border-color: var(--accent); color: #fff; }
+.venue-map .leaflet-marker-icon:focus-visible .map-pin .pin-dot {
+  outline: var(--focus-ring);
+}
+
+/* Status note pinned under the live map (no-results / pending coords) */
+.map-note {
+  margin: 0;
+  padding: 0.55rem 0.9rem;
+  border-top: 1px solid var(--line);
+  background: #fdfaf4;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-style: italic;
+  font-family: var(--serif);
+}
+
 /* ------------------------------------------------ Detail panel */
 .detail {
   background: var(--card);
@@ -557,6 +649,7 @@ select.filter-select {
   .layout { grid-template-columns: 1fr; }
   .side { position: static; order: -1; }
   .map-panel { min-height: 260px; }
+  .venue-map { min-height: 260px; }
   .count { margin-left: 0; width: 100%; }
   .controls select,
   .source-select { flex: 1 1 auto; }

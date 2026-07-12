@@ -7,12 +7,14 @@
     "validate:madrid-seed": "node scripts/validate-guia-repsol-2026-madrid-seed.mjs"
   },
   "dependencies": {
+    "leaflet": "^1.9.4",
     "pocketbase": "latest"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.21",
+    "typescript": "latest",
     "vite": "latest",
-    "wrangler": "latest",
-    "typescript": "latest"
+    "wrangler": "latest"
   },
   "name": "pocketbase-frontend",
   "private": true,
