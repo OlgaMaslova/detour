@@ -370,7 +370,7 @@ function render(root: HTMLElement) {
     <header class="hero">
       <div class="hero-inner">
         <p class="brand">Detour</p>
-        <p class="brand-line" style="margin:0 0 0.6rem;font-size:0.85rem;letter-spacing:0.08em;font-style:italic;opacity:0.85;">The best tables are just off your usual route.</p>
+        <p class="brand-line" style="margin:0 0 0.6rem;font-size:0.85rem;letter-spacing:0.08em;font-style:italic;opacity:0.85;">Trust the experts. Great food is never a straight line.</p>
         <h1>Madrid’s trusted table, mapped.</h1>
         <p class="tagline">Every place on Detour holds a current award from a named guide — source first, always linked. This is a verified selection for Madrid right now, not a directory of the whole city.</p>
         <div class="hero-badges">
