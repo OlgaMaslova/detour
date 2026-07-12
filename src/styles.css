@@ -578,6 +578,15 @@ select.filter-select {
 .map-pin.pin-2 .pin-dot { background: #c2410c; }
 .map-pin.pin-1 .pin-dot { background: #9a3412; width: 12px; height: 12px; }
 .map-pin .pin-label {
+  /* Hidden by default: names are shown in the marker popup on selection.
+     Absolutely positioned below the dot so the label never inflates or
+     overlaps the compact .map-pin hit target. */
+  display: none;
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
   font-size: 0.68rem;
   font-weight: 700;
   color: var(--night);
@@ -589,6 +598,11 @@ select.filter-select {
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* Reveal the label only when the pin is selected or keyboard-focused */
+.map-pin.pin-selected .pin-label,
+.map-pin:focus-visible .pin-label {
+  display: block;
 }
 .map-pin:hover .pin-dot,
 .map-pin.pin-selected .pin-dot { outline: 3px solid rgba(194, 65, 12, 0.4); }
