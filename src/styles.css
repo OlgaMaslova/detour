@@ -556,8 +556,11 @@ select.filter-select {
   gap: 0.2rem;
   cursor: pointer;
 }
-/* The pin span and its decorative children must not intercept clicks meant for the marker root */
-.map-pin,
+/* The .map-pin span is the interactive hit target (the Leaflet marker root is
+   zero-size); its children stay decorative so events land on the pin itself. */
+.map-pin {
+  pointer-events: auto;
+}
 .map-pin .pin-dot,
 .map-pin .pin-label {
   pointer-events: none;
@@ -590,7 +593,7 @@ select.filter-select {
 .map-pin:hover .pin-dot,
 .map-pin.pin-selected .pin-dot { outline: 3px solid rgba(194, 65, 12, 0.4); }
 .map-pin.pin-selected .pin-label { background: var(--accent); border-color: var(--accent); color: #fff; }
-.venue-map .leaflet-marker-icon:focus-visible .map-pin .pin-dot {
+.venue-map .map-pin:focus-visible .pin-dot {
   outline: var(--focus-ring);
 }
 

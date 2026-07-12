@@ -298,7 +298,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
     });
     const marker = L.marker([v.lat, v.lng], {
       icon,
-      keyboard: true,
+      keyboard: false,
       riseOnHover: true,
       zIndexOffset: selected ? 1000 : v.award * 10,
     }).addTo(map);
@@ -315,20 +315,29 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
     };
     const el = marker.getElement();
     if (el) {
-      el.setAttribute('role', 'button');
-      el.setAttribute('aria-pressed', String(selected));
-      el.setAttribute('aria-label', `${v.name}, ${solesLabel(v.award)}`);
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        select();
-      });
-      el.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
+      // The Leaflet marker root is zero-size (iconSize [0,0]); keep it out of
+      // the tab order and make the inner .map-pin the real interactive target.
+      el.setAttribute('tabindex', '-1');
+      el.removeAttribute('role');
+      el.removeAttribute('aria-label');
+      const pin = el.querySelector<HTMLElement>('.map-pin');
+      if (pin) {
+        pin.setAttribute('role', 'button');
+        pin.setAttribute('tabindex', '0');
+        pin.setAttribute('aria-pressed', String(selected));
+        pin.setAttribute('aria-label', `${v.name}, ${solesLabel(v.award)}`);
+        pin.addEventListener('click', (e) => {
           e.stopPropagation();
           select();
-        }
-      });
+        });
+        pin.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            select();
+          }
+        });
+      }
     }
     if (selected) marker.openPopup();
   }
