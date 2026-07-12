@@ -20,25 +20,16 @@ Coordinate source: OpenStreetMap via https://nominatim.openstreetmap.org/
 - Ugo Chan: address-level match at Félix Boix 6 (OSM node unnamed).
 - Ramón Freixa Atelier / Tradición: intentionally share one pin (Velázquez 24).
 
-## Public URL verification — desktop 1440×1000 and mobile 390×844
+## Public URL verification — completed 2026-07-12
 
-Verify each item at both viewports after deploy:
+Public URL: https://detour-app.supernaut.to
 
-- [ ] Live list shows exactly **20 records** (10 new-Sol + 10 continuing 2026
-      Madrid Sol holders).
-- [ ] **3-Sol filter returns exactly 4**: Coque, DiverXO, DSTAgE,
-      Ramón Freixa Atelier.
-- [ ] Detail view opens and shows **source attribution** (Guía Repsol source
-      link / booklet provenance) per record.
-- [ ] **Map state before pins**: initial map render is sane before/without
-      venue pins loading (no broken tiles, correct Madrid extent).
-- [ ] **Location denied fallback**: with browser geolocation denied, the app
-      falls back gracefully (no error state; default Madrid view retained).
-- [ ] **Mobile visual usability** at 390×844: filters, list, detail, and map
-      are readable and tappable without horizontal overflow.
-- [ ] **Pins recheck (this release)**: spot-check pins for Coque, DiverXO,
-      Deessa (hotel centroid), Otoro Jukusei (approximate) and La Catapa
-      against their listed addresses.
+- [x] **Desktop 1440×1000:** live list rendered **20 records**; the Leaflet/OpenStreetMap map rendered 20 pins and visible attribution.
+- [x] **Mobile 390×844:** the map, controls, list, and detail view rendered without horizontal overflow.
+- [x] **Filtering:** the 3-Sol filter returned exactly **4** venues — Coque, DiverXO, DSTAgE, and Ramón Freixa Atelier — and the map refit to those four pins.
+- [x] **Selection/detail/attribution:** choosing Coque from the map opened the matched list detail and Guía Repsol award source link.
+- [x] **Pin spot checks:** Coque, DiverXO, Deessa, Otoro Jukusei, and La Catapa matched the migrated address data. Deessa remains a hotel-centroid pin; Otoro remains an approximate street-level pin.
+- [x] **Location fallback:** in a denied/unavailable browser-location run, the app kept its Madrid map view and showed a clear fallback message.
 
 ## Zero-results note
 

@@ -556,6 +556,11 @@ select.filter-select {
   gap: 0.2rem;
   cursor: pointer;
 }
+/* Decorative children must not intercept clicks meant for the marker root */
+.map-pin .pin-dot,
+.map-pin .pin-label {
+  pointer-events: none;
+}
 .map-pin .pin-dot {
   display: block;
   width: 14px;
