@@ -119,72 +119,68 @@ async function loadLiveVenues(): Promise<Venue[]> {
   const sourceById = new Map<string, Rec>();
   for (const s of sourceRecs) sourceById.set(String(s.id), s);
 
-  // Keep only current awards for the active guide year — Detour only makes
-  // claims backed by the current published listing.
-  const awardByVenue = new Map<string, Rec>();
-  for (const a of awardRecs) {
-    const vid = str(a.venue as string, a.venue_id as string);
-    if (!vid) continue;
-    if (a.current === false) continue;
-    const year = num(a.year, a.guide_year);
-    if (year !== null && year !== GUIDE_YEAR) continue;
-    const prev = awardByVenue.get(vid);
-    const prevYear = prev ? (num(prev.year, prev.guide_year) ?? 0) : -1;
-    if (!prev || (year ?? 0) >= prevYear) awardByVenue.set(vid, a);
-  }
+  const venueById = new Map<string, Rec>();
+  for (const venue of venueRecs) venueById.set(String(venue.id), venue);
 
+  // A venue can be recognised by several independent sources. Keep one display
+  // row per current award so a Michelin Star can never inherit a Repsol Sol
+  // label (or vice versa) from the same venue record.
   const venues: Venue[] = [];
-  for (const v of venueRecs) {
-    const id = String(v.id);
-    const award = awardByVenue.get(id);
-    if (!award) continue;
+  for (const award of awardRecs) {
+    if (award.current === false) continue;
+    const year = num(award.year, award.guide_year);
+    if (year !== null && year !== GUIDE_YEAR) continue;
+
+    const venueId = str(award.venue as string, award.venue_id as string);
+    const venue = venueById.get(venueId);
+    if (!venue) continue;
+
     // Award levels are stored as literal strings like '1 Sol' / '3 Soles'
     // (Guía Repsol) or '1 Star' / '3 Stars' (Michelin Guide); keep the
     // source's exact wording.
     const level = parseAwardLevel(
       award.level,
       award.soles,
-      v.award_level,
-      v.soles,
-      v.award
+      venue.award_level,
+      venue.soles,
+      venue.award
     );
     if (!level) continue;
 
     const sourceId = str(
       award.source as string,
       award.guide_source as string,
-      v.source as string,
-      v.guide_source as string
+      venue.source as string,
+      venue.guide_source as string
     );
     const source = sourceId ? sourceById.get(sourceId) : undefined;
-
     const note = str(
       award.verification_note as string,
-      v.coord_verification_note,
-      v.note,
-      v.summary,
-      v.description
+      venue.coord_verification_note,
+      venue.note,
+      venue.summary,
+      venue.description
     );
 
     // The backend stores 0/0 as a neutral "no verified coordinates" sentinel
     // (see the seed migrations). Treat it — and missing values — as unknown
     // location rather than plotting a fake pin.
-    const rawLat = num(v.lat, v.latitude);
-    const rawLng = num(v.lng, v.lon, v.longitude);
+    const rawLat = num(venue.lat, venue.latitude);
+    const rawLng = num(venue.lng, venue.lon, venue.longitude);
     const hasCoords =
       rawLat !== null && rawLng !== null && !(rawLat === 0 && rawLng === 0);
     const lat = hasCoords ? rawLat : null;
     const lng = hasCoords ? rawLng : null;
 
     venues.push({
-      id,
-      name: str(v.name, v.title) || 'Unnamed venue',
+      id: str(award.id) || `${venueId}-${sourceId}-${level}`,
+      name: str(venue.name, venue.title) || 'Unnamed venue',
       awardLevel: level,
       awardRank: awardRankOf(level),
-      awardYear: num(award.year, award.guide_year, v.award_year) ?? GUIDE_YEAR,
-      cuisine: str(v.cuisine, v.category, v.style),
-      neighborhood: str(v.neighborhood, v.district, v.area),
-      address: str(v.address, v.street_address),
+      awardYear: year ?? GUIDE_YEAR,
+      cuisine: str(venue.cuisine, venue.category, venue.style),
+      neighborhood: str(venue.neighborhood, venue.district, venue.area),
+      address: str(venue.address, venue.street_address),
       lat,
       lng,
       sourceName:
@@ -192,19 +188,19 @@ async function loadLiveVenues(): Promise<Venue[]> {
           source?.name as string,
           source?.title as string,
           award.source_name as string,
-          v.source_name as string
-        ) || (source ? 'Unknown guide' : 'Guía Repsol'),
+          venue.source_name as string
+        ) || (source ? 'Unknown guide' : 'Unknown source'),
       sourceUrl: str(
         award.source_url as string,
         source?.official_url as string,
         source?.url as string,
         source?.website as string,
-        v.source_url as string,
-        v.website as string
+        venue.source_url as string,
+        venue.website as string
       ),
       note,
       approxLocation:
-        Boolean(v.approx_location ?? v.location_approximate) ||
+        Boolean(venue.approx_location ?? venue.location_approximate) ||
         /approx|street-level/i.test(note),
     });
   }
