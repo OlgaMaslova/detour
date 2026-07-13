@@ -3,9 +3,10 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { pb } from './pocketbase';
 import { demoVenues, GUIDE_YEAR } from './data';
-import type { AwardLevel, Venue } from './data';
+import type { Venue } from './data';
 
-type Filter = 0 | AwardLevel; // 0 = all
+/** '' = all award levels; otherwise a literal level label present in the loaded data. */
+type Filter = string;
 type DataMode = 'loading' | 'live' | 'demo';
 
 interface UserLocation {
@@ -31,7 +32,7 @@ interface State {
 const state: State = {
   mode: 'loading',
   venues: [],
-  filter: 0,
+  filter: '',
   sourceFilter: '',
   search: '',
   selectedId: null,
@@ -67,33 +68,35 @@ function str(...candidates: unknown[]): string {
 }
 
 /**
- * Parse an award level that may be stored as a number (3) or as a string
- * label like '1 Sol', '2 Soles', '3 Soles'. Returns null when unrecognized —
- * never guesses.
+ * Extract the literal award-level label exactly as stored by the source
+ * (e.g. '1 Sol', '3 Soles', '2 Stars'). Numbers are rendered as-is (e.g. '3').
+ * Returns '' when no level is present — never guesses a wording.
  */
-function parseAwardLevel(...candidates: unknown[]): AwardLevel | null {
+function parseAwardLevel(...candidates: unknown[]): string {
   for (const c of candidates) {
-    if (typeof c === 'number' && Number.isFinite(c)) {
-      const n = Math.round(c);
-      if (n >= 1 && n <= 3) return n as AwardLevel;
-    }
-    if (typeof c === 'string') {
-      const m = c.match(/([123])\s*(?:sol(?:es)?)?/i);
-      if (m) {
-        const n = Number(m[1]);
-        if (n >= 1 && n <= 3) return n as AwardLevel;
-      }
-    }
+    if (typeof c === 'string' && c.trim()) return c.trim();
+    if (typeof c === 'number' && Number.isFinite(c)) return String(c);
   }
-  return null;
+  return '';
 }
 
-function solesLabel(level: AwardLevel): string {
-  return `${level} ${level === 1 ? 'Sol' : 'Soles'}`;
+/** Numeric rank derived from a literal level label ('3 Soles' → 3); null when absent. */
+function awardRankOf(level: string): number | null {
+  const m = level.match(/\d+/);
+  if (!m) return null;
+  const n = Number(m[0]);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function solesIcons(level: AwardLevel): string {
-  return '☀'.repeat(level);
+/**
+ * Icons matching the source's own wording only: suns for Soles, stars for
+ * Michelin-style Stars. No icon when the wording is unknown.
+ */
+function awardIcons(v: Pick<Venue, 'awardLevel' | 'awardRank'>): string {
+  if (v.awardRank === null) return '';
+  if (/\bsol(es)?\b/i.test(v.awardLevel)) return '☀'.repeat(v.awardRank);
+  if (/\bstars?\b/i.test(v.awardLevel)) return '★'.repeat(v.awardRank);
+  return '';
 }
 
 /* ---------- live data loading ---------- */
@@ -135,8 +138,9 @@ async function loadLiveVenues(): Promise<Venue[]> {
     const id = String(v.id);
     const award = awardByVenue.get(id);
     if (!award) continue;
-    // Award levels are stored as strings like '1 Sol' / '2 Soles' / '3 Soles'
-    // in the live schema; parse those (and plain numbers) explicitly.
+    // Award levels are stored as literal strings like '1 Sol' / '3 Soles'
+    // (Guía Repsol) or '1 Star' / '3 Stars' (Michelin Guide); keep the
+    // source's exact wording.
     const level = parseAwardLevel(
       award.level,
       award.soles,
@@ -144,7 +148,7 @@ async function loadLiveVenues(): Promise<Venue[]> {
       v.soles,
       v.award
     );
-    if (level === null) continue;
+    if (!level) continue;
 
     const sourceId = str(
       award.source as string,
@@ -175,19 +179,21 @@ async function loadLiveVenues(): Promise<Venue[]> {
     venues.push({
       id,
       name: str(v.name, v.title) || 'Unnamed venue',
-      award: level,
+      awardLevel: level,
+      awardRank: awardRankOf(level),
       awardYear: num(award.year, award.guide_year, v.award_year) ?? GUIDE_YEAR,
       cuisine: str(v.cuisine, v.category, v.style),
       neighborhood: str(v.neighborhood, v.district, v.area),
       address: str(v.address, v.street_address),
       lat,
       lng,
-      sourceName: str(
-        source?.name as string,
-        source?.title as string,
-        award.source_name as string,
-        v.source_name as string
-      ) || 'Guía Repsol',
+      sourceName:
+        str(
+          source?.name as string,
+          source?.title as string,
+          award.source_name as string,
+          v.source_name as string
+        ) || (source ? 'Unknown guide' : 'Guía Repsol'),
       sourceUrl: str(
         award.source_url as string,
         source?.official_url as string,
@@ -207,12 +213,20 @@ async function loadLiveVenues(): Promise<Venue[]> {
 
 /* ---------- rendering ---------- */
 
-const FILTERS: { value: Filter; label: string }[] = [
-  { value: 0, label: 'All' },
-  { value: 3, label: '3 Soles' },
-  { value: 2, label: '2 Soles' },
-  { value: 1, label: '1 Sol' },
-];
+/** Award-level filter options derived from the loaded data's literal labels. */
+function awardFilters(): { value: Filter; label: string }[] {
+  const seen = new Map<string, number | null>();
+  for (const v of state.venues) {
+    if (!seen.has(v.awardLevel)) seen.set(v.awardLevel, v.awardRank);
+  }
+  const levels = [...seen.entries()].sort(
+    (a, b) => (b[1] ?? -1) - (a[1] ?? -1) || a[0].localeCompare(b[0])
+  );
+  return [
+    { value: '' as Filter, label: 'All' },
+    ...levels.map(([level]) => ({ value: level as Filter, label: level })),
+  ];
+}
 
 function sourceNames(): string[] {
   const names = new Set<string>();
@@ -224,11 +238,16 @@ function filteredVenues(): Venue[] {
   const query = state.search.trim().toLowerCase();
   const list = state.venues.filter(
     (v) =>
-      (state.filter === 0 || v.award === state.filter) &&
+      (state.filter === '' || v.awardLevel === state.filter) &&
       (state.sourceFilter === '' || v.sourceName === state.sourceFilter) &&
       (query === '' || v.name.toLowerCase().includes(query))
   );
-  return [...list].sort((a, b) => b.award - a.award || a.name.localeCompare(b.name));
+  return [...list].sort(
+    (a, b) =>
+      (b.awardRank ?? -1) - (a.awardRank ?? -1) ||
+      a.awardLevel.localeCompare(b.awardLevel) ||
+      a.name.localeCompare(b.name)
+  );
 }
 
 /* ---------- interactive map (Leaflet + OpenStreetMap) ---------- */
@@ -294,7 +313,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
     const selected = v.id === state.selectedId;
     const icon = L.divIcon({
       className: '',
-      html: `<span class="map-pin pin-${v.award}${selected ? ' pin-selected' : ''}">
+      html: `<span class="map-pin pin-${v.awardRank ?? 0}${selected ? ' pin-selected' : ''}">
         <span class="pin-dot"></span>
         <span class="pin-label">${esc(v.name)}</span>
       </span>`,
@@ -305,10 +324,10 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
       icon,
       keyboard: false,
       riseOnHover: true,
-      zIndexOffset: selected ? 1000 : v.award * 10,
+      zIndexOffset: selected ? 1000 : (v.awardRank ?? 0) * 10,
     }).addTo(map);
     marker.bindPopup(
-      `<strong>${esc(v.name)}</strong><br>${solesIcons(v.award)} ${solesLabel(v.award)} · ${esc(
+      `<strong>${esc(v.name)}</strong><br>${awardIcons(v)} ${esc(v.awardLevel)} · ${esc(
         v.sourceName
       )} ${v.awardYear}`,
       { closeButton: false, offset: [0, -6] }
@@ -330,7 +349,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
         pin.setAttribute('role', 'button');
         pin.setAttribute('tabindex', '0');
         pin.setAttribute('aria-pressed', String(selected));
-        pin.setAttribute('aria-label', `${v.name}, ${solesLabel(v.award)}`);
+        pin.setAttribute('aria-label', `${v.name}, ${v.awardLevel}`);
         pin.addEventListener('click', (e) => {
           e.stopPropagation();
           select();
@@ -404,8 +423,8 @@ function venueCard(v: Venue): string {
       <button type="button" class="card-main" data-venue="${esc(v.id)}" aria-expanded="${selected}">
         <div class="card-top">
           <h3>${esc(v.name)}</h3>
-          <span class="award award-${v.award}" title="${solesLabel(v.award)} — Guía Repsol ${v.awardYear}">
-            <span aria-hidden="true">${solesIcons(v.award)}</span> ${solesLabel(v.award)}
+          <span class="award award-${v.awardRank ?? 0}" title="${esc(v.awardLevel)} — ${esc(v.sourceName)} ${v.awardYear}">
+            <span aria-hidden="true">${awardIcons(v)}</span> ${esc(v.awardLevel)}
           </span>
         </div>
         <p class="card-meta">${esc([v.cuisine, v.neighborhood].filter(Boolean).join(' · '))}</p>
@@ -436,8 +455,8 @@ function detailPanel(): string {
       <h2>${esc(v.name)}</h2>
       <button type="button" class="detail-close" data-close aria-label="Close details">✕</button>
     </div>
-    <p class="detail-award award-${v.award}"><span aria-hidden="true">${solesIcons(v.award)}</span> ${solesLabel(
-      v.award
+    <p class="detail-award award-${v.awardRank ?? 0}"><span aria-hidden="true">${awardIcons(v)}</span> ${esc(
+      v.awardLevel
     )} · ${esc(v.sourceName)} ${v.awardYear}</p>
     ${v.note ? `<p class="detail-note">${esc(v.note)}</p>` : ''}
     <dl class="detail-facts">
@@ -473,7 +492,7 @@ function render(root: HTMLElement) {
         <h1>Madrid’s trusted table, mapped.</h1>
         <p class="tagline">Every place on Detour holds a current award from a named guide — source first, always linked. This is a verified selection for Madrid right now, not a directory of the whole city.</p>
         <div class="hero-badges">
-          <span class="badge badge-year">Guía Repsol · ${state.guideYear} guide year</span>
+          <span class="badge badge-year">${esc(sourceNames().join(' · ') || 'Guía Repsol')} · ${state.guideYear} guide year</span>
           <span class="badge">Source-attributed</span>
           <span class="badge">Madrid, Spain</span>
         </div>
@@ -483,10 +502,12 @@ function render(root: HTMLElement) {
     <section class="controls" aria-label="Filter venues by award level">
       <span class="controls-label" id="filter-label">Award level</span>
       <div class="filters" role="group" aria-labelledby="filter-label">
-        ${FILTERS.map(
-          (f) => `<button type="button" class="filter${state.filter === f.value ? ' filter-active' : ''}"
-            data-filter="${f.value}" aria-pressed="${state.filter === f.value}">${f.label}</button>`
-        ).join('')}
+        ${awardFilters()
+          .map(
+            (f) => `<button type="button" class="filter${state.filter === f.value ? ' filter-active' : ''}"
+            data-filter="${esc(f.value)}" aria-pressed="${state.filter === f.value}">${esc(f.label) || 'All'}</button>`
+          )
+          .join('')}
       </div>
       <span class="count" aria-live="polite">${loading ? 'Loading…' : `${list.length} venue${list.length === 1 ? '' : 's'}`}</span>
     </section>
@@ -547,7 +568,7 @@ function render(root: HTMLElement) {
 
   root.querySelectorAll<HTMLButtonElement>('[data-filter]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      state.filter = Number(btn.dataset.filter) as Filter;
+      state.filter = btn.dataset.filter ?? '';
       const visible = filteredVenues();
       if (state.selectedId && !visible.some((v) => v.id === state.selectedId)) {
         state.selectedId = null;
@@ -594,7 +615,7 @@ function render(root: HTMLElement) {
     }
   });
   root.querySelector<HTMLButtonElement>('[data-reset-filters]')?.addEventListener('click', () => {
-    state.filter = 0;
+    state.filter = '';
     state.sourceFilter = '';
     state.search = '';
     render(root);

@@ -3,7 +3,10 @@ export type AwardLevel = 1 | 2 | 3;
 export interface Venue {
   id: string;
   name: string;
-  award: AwardLevel;
+  /** Literal award-level label exactly as published by the guide, e.g. '1 Sol', '3 Soles', '2 Stars'. */
+  awardLevel: string;
+  /** Numeric rank parsed from the level when available (1–3), used only for ordering/styling. */
+  awardRank: number | null;
   awardYear: number;
   cuisine: string;
   neighborhood: string;
@@ -36,6 +39,10 @@ const COORD_NOTE =
   'Address and coordinates verified 2026-07-12 via OpenStreetMap/Nominatim (© OpenStreetMap contributors, ODbL).';
 const NEW_AWARD_NOTE = `Award verified in the official 2026 Guía Repsol award listing. ${COORD_NOTE}`;
 const CONTINUING_NOTE = `Award verified in the official 2026 booklet. ${COORD_NOTE}`;
+
+function solLabel(level: AwardLevel): string {
+  return `${level} ${level === 1 ? 'Sol' : 'Soles'}`;
+}
 
 const AWARD_PAGE_URLS: Record<AwardLevel, string> = {
   1: ONE_SOL_URL,
@@ -96,7 +103,8 @@ export const demoVenues: Venue[] = [
     ([id, name, award, address, lat, lng, approxLocation]): Venue => ({
       id,
       name,
-      award,
+      awardLevel: solLabel(award),
+      awardRank: award,
       awardYear: GUIDE_YEAR,
       cuisine: '',
       neighborhood: '',
@@ -113,7 +121,8 @@ export const demoVenues: Venue[] = [
     ([id, name, award, address, lat, lng, approxLocation]): Venue => ({
       id,
       name,
-      award,
+      awardLevel: solLabel(award),
+      awardRank: award,
       awardYear: GUIDE_YEAR,
       cuisine: '',
       neighborhood: '',
