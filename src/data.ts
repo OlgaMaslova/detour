@@ -1,22 +1,31 @@
 export type AwardLevel = 1 | 2 | 3;
 
-export interface Venue {
-  id: string;
-  name: string;
+/** One guide award held by a venue, with its own source attribution. */
+export interface VenueAward {
   /** Literal award-level label exactly as published by the guide, e.g. '1 Sol', '3 Soles', '2 Stars'. */
   awardLevel: string;
   /** Numeric rank parsed from the level when available (1–3), used only for ordering/styling. */
   awardRank: number | null;
   awardYear: number;
+  sourceName: string;
+  sourceUrl: string;
+  note: string;
+}
+
+export interface Venue {
+  id: string;
+  name: string;
+  /**
+   * Every current award this canonical venue holds, one entry per guide.
+   * Sorted highest rank first; always at least one entry.
+   */
+  awards: VenueAward[];
   cuisine: string;
   neighborhood: string;
   address: string;
   /** Null when no verified coordinate exists — render as "location pending verification", never a fake pin. */
   lat: number | null;
   lng: number | null;
-  sourceName: string;
-  sourceUrl: string;
-  note: string;
   approxLocation: boolean;
 }
 
@@ -96,24 +105,29 @@ const continuingSeed: Array<[string, string, AwardLevel, string, number, number,
  * Addresses and coordinates are the OSM/Nominatim-verified values from the
  * production coordinate migration. Cuisine categories and neighborhoods were
  * not source-verified, so those fields stay blank rather than showing
- * undocumented data.
+ * undocumented data. Each demo venue holds exactly one verified award, so
+ * every awards list has a single element.
  */
 export const demoVenues: Venue[] = [
   ...newAwardSeed.map(
     ([id, name, award, address, lat, lng, approxLocation]): Venue => ({
       id,
       name,
-      awardLevel: solLabel(award),
-      awardRank: award,
-      awardYear: GUIDE_YEAR,
+      awards: [
+        {
+          awardLevel: solLabel(award),
+          awardRank: award,
+          awardYear: GUIDE_YEAR,
+          sourceName: SOURCE_NAME,
+          sourceUrl: AWARD_PAGE_URLS[award],
+          note: NEW_AWARD_NOTE,
+        },
+      ],
       cuisine: '',
       neighborhood: '',
       address,
       lat,
       lng,
-      sourceName: SOURCE_NAME,
-      sourceUrl: AWARD_PAGE_URLS[award],
-      note: NEW_AWARD_NOTE,
       approxLocation,
     })
   ),
@@ -121,17 +135,21 @@ export const demoVenues: Venue[] = [
     ([id, name, award, address, lat, lng, approxLocation]): Venue => ({
       id,
       name,
-      awardLevel: solLabel(award),
-      awardRank: award,
-      awardYear: GUIDE_YEAR,
+      awards: [
+        {
+          awardLevel: solLabel(award),
+          awardRank: award,
+          awardYear: GUIDE_YEAR,
+          sourceName: SOURCE_NAME,
+          sourceUrl: BOOKLET_URL,
+          note: CONTINUING_NOTE,
+        },
+      ],
       cuisine: '',
       neighborhood: '',
       address,
       lat,
       lng,
-      sourceName: SOURCE_NAME,
-      sourceUrl: BOOKLET_URL,
-      note: CONTINUING_NOTE,
       approxLocation,
     })
   ),

@@ -3,7 +3,7 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { pb } from './pocketbase';
 import { demoVenues, GUIDE_YEAR } from './data';
-import type { Venue } from './data';
+import type { Venue, VenueAward } from './data';
 
 /** '' = all award levels; otherwise a literal level label present in the loaded data. */
 type Filter = string;
@@ -92,11 +92,38 @@ function awardRankOf(level: string): number | null {
  * Icons matching the source's own wording only: suns for Soles, stars for
  * Michelin-style Stars. No icon when the wording is unknown.
  */
-function awardIcons(v: Pick<Venue, 'awardLevel' | 'awardRank'>): string {
-  if (v.awardRank === null) return '';
-  if (/\bsol(es)?\b/i.test(v.awardLevel)) return '☀'.repeat(v.awardRank);
-  if (/\bstars?\b/i.test(v.awardLevel)) return '★'.repeat(v.awardRank);
+function awardIcons(a: Pick<VenueAward, 'awardLevel' | 'awardRank'>): string {
+  if (a.awardRank === null) return '';
+  if (/\bsol(es)?\b/i.test(a.awardLevel)) return '☀'.repeat(a.awardRank);
+  if (/\bstars?\b/i.test(a.awardLevel)) return '★'.repeat(a.awardRank);
   return '';
+}
+
+/** Awards sorted highest rank first, then by label and guide name for stability. */
+function sortAwards(awards: VenueAward[]): VenueAward[] {
+  return [...awards].sort(
+    (a, b) =>
+      (b.awardRank ?? -1) - (a.awardRank ?? -1) ||
+      a.awardLevel.localeCompare(b.awardLevel) ||
+      a.sourceName.localeCompare(b.sourceName)
+  );
+}
+
+/** The venue's highest-ranked award (awards lists are never empty). */
+function topAward(v: Venue): VenueAward {
+  return v.awards[0];
+}
+
+/** Highest numeric rank across a venue's awards; -1 when none is parseable. */
+function maxAwardRank(v: Venue): number {
+  return v.awards.reduce((m, a) => Math.max(m, a.awardRank ?? -1), -1);
+}
+
+/** Plain-text summary of every award, keeping each guide's own wording. */
+function awardSummary(v: Venue): string {
+  return v.awards
+    .map((a) => `${a.awardLevel} — ${a.sourceName} ${a.awardYear}`)
+    .join('; ');
 }
 
 /* ---------- live data loading ---------- */
@@ -122,10 +149,11 @@ async function loadLiveVenues(): Promise<Venue[]> {
   const venueById = new Map<string, Rec>();
   for (const venue of venueRecs) venueById.set(String(venue.id), venue);
 
-  // A venue can be recognised by several independent sources. Keep one display
-  // row per current award so a Michelin Star can never inherit a Repsol Sol
-  // label (or vice versa) from the same venue record.
-  const venues: Venue[] = [];
+  // A venue can be recognised by several independent sources. Render one card
+  // per canonical venue, collecting every current award into its awards list so
+  // a Michelin Star can never inherit a Repsol Sol label (or vice versa) and a
+  // multi-guide venue never appears twice.
+  const venuesById = new Map<string, Venue>();
   for (const award of awardRecs) {
     if (award.current === false) continue;
     const year = num(award.year, award.guide_year);
@@ -172,17 +200,10 @@ async function loadLiveVenues(): Promise<Venue[]> {
     const lat = hasCoords ? rawLat : null;
     const lng = hasCoords ? rawLng : null;
 
-    venues.push({
-      id: str(award.id) || `${venueId}-${sourceId}-${level}`,
-      name: str(venue.name, venue.title) || 'Unnamed venue',
+    const venueAward: VenueAward = {
       awardLevel: level,
       awardRank: awardRankOf(level),
       awardYear: year ?? GUIDE_YEAR,
-      cuisine: str(venue.cuisine, venue.category, venue.style),
-      neighborhood: str(venue.neighborhood, venue.district, venue.area),
-      address: str(venue.address, venue.street_address),
-      lat,
-      lng,
       sourceName:
         str(
           source?.name as string,
@@ -199,11 +220,32 @@ async function loadLiveVenues(): Promise<Venue[]> {
         venue.website as string
       ),
       note,
+    };
+
+    const existing = venuesById.get(venueId);
+    if (existing) {
+      existing.awards.push(venueAward);
+      existing.approxLocation =
+        existing.approxLocation || /approx|street-level/i.test(note);
+      continue;
+    }
+
+    venuesById.set(venueId, {
+      id: venueId,
+      name: str(venue.name, venue.title) || 'Unnamed venue',
+      awards: [venueAward],
+      cuisine: str(venue.cuisine, venue.category, venue.style),
+      neighborhood: str(venue.neighborhood, venue.district, venue.area),
+      address: str(venue.address, venue.street_address),
+      lat,
+      lng,
       approxLocation:
         Boolean(venue.approx_location ?? venue.location_approximate) ||
         /approx|street-level/i.test(note),
     });
   }
+  const venues = [...venuesById.values()];
+  for (const v of venues) v.awards = sortAwards(v.awards);
   return venues;
 }
 
@@ -213,7 +255,9 @@ async function loadLiveVenues(): Promise<Venue[]> {
 function awardFilters(): { value: Filter; label: string }[] {
   const seen = new Map<string, number | null>();
   for (const v of state.venues) {
-    if (!seen.has(v.awardLevel)) seen.set(v.awardLevel, v.awardRank);
+    for (const a of v.awards) {
+      if (!seen.has(a.awardLevel)) seen.set(a.awardLevel, a.awardRank);
+    }
   }
   const levels = [...seen.entries()].sort(
     (a, b) => (b[1] ?? -1) - (a[1] ?? -1) || a[0].localeCompare(b[0])
@@ -226,22 +270,26 @@ function awardFilters(): { value: Filter; label: string }[] {
 
 function sourceNames(): string[] {
   const names = new Set<string>();
-  for (const v of state.venues) if (v.sourceName) names.add(v.sourceName);
+  for (const v of state.venues)
+    for (const a of v.awards) if (a.sourceName) names.add(a.sourceName);
   return [...names].sort((a, b) => a.localeCompare(b));
 }
 
 function filteredVenues(): Venue[] {
   const query = state.search.trim().toLowerCase();
+  // A filter matches when ANY of the venue's awards matches, so a venue
+  // recognised by several guides stays visible under each guide's filter.
   const list = state.venues.filter(
     (v) =>
-      (state.filter === '' || v.awardLevel === state.filter) &&
-      (state.sourceFilter === '' || v.sourceName === state.sourceFilter) &&
+      (state.filter === '' || v.awards.some((a) => a.awardLevel === state.filter)) &&
+      (state.sourceFilter === '' ||
+        v.awards.some((a) => a.sourceName === state.sourceFilter)) &&
       (query === '' || v.name.toLowerCase().includes(query))
   );
   return [...list].sort(
     (a, b) =>
-      (b.awardRank ?? -1) - (a.awardRank ?? -1) ||
-      a.awardLevel.localeCompare(b.awardLevel) ||
+      maxAwardRank(b) - maxAwardRank(a) ||
+      topAward(a).awardLevel.localeCompare(topAward(b).awardLevel) ||
       a.name.localeCompare(b.name)
   );
 }
@@ -309,7 +357,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
     const selected = v.id === state.selectedId;
     const icon = L.divIcon({
       className: '',
-      html: `<span class="map-pin pin-${v.awardRank ?? 0}${selected ? ' pin-selected' : ''}">
+      html: `<span class="map-pin pin-${Math.max(maxAwardRank(v), 0)}${selected ? ' pin-selected' : ''}">
         <span class="pin-dot"></span>
         <span class="pin-label">${esc(v.name)}</span>
       </span>`,
@@ -320,12 +368,15 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
       icon,
       keyboard: false,
       riseOnHover: true,
-      zIndexOffset: selected ? 1000 : (v.awardRank ?? 0) * 10,
+      zIndexOffset: selected ? 1000 : Math.max(maxAwardRank(v), 0) * 10,
     }).addTo(map);
     marker.bindPopup(
-      `<strong>${esc(v.name)}</strong><br>${awardIcons(v)} ${esc(v.awardLevel)} · ${esc(
-        v.sourceName
-      )} ${v.awardYear}`,
+      `<strong>${esc(v.name)}</strong>${v.awards
+        .map(
+          (a) =>
+            `<br>${awardIcons(a)} ${esc(a.awardLevel)} · ${esc(a.sourceName)} ${a.awardYear}`
+        )
+        .join('')}`,
       { closeButton: false, offset: [0, -6] }
     );
     const select = () => {
@@ -345,7 +396,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
         pin.setAttribute('role', 'button');
         pin.setAttribute('tabindex', '0');
         pin.setAttribute('aria-pressed', String(selected));
-        pin.setAttribute('aria-label', `${v.name}, ${v.awardLevel}`);
+        pin.setAttribute('aria-label', `${v.name}, ${awardSummary(v)}`);
         pin.addEventListener('click', (e) => {
           e.stopPropagation();
           select();
@@ -419,8 +470,15 @@ function venueCard(v: Venue): string {
       <button type="button" class="card-main" data-venue="${esc(v.id)}" aria-expanded="${selected}">
         <div class="card-top">
           <h3>${esc(v.name)}</h3>
-          <span class="award award-${v.awardRank ?? 0}" title="${esc(v.awardLevel)} — ${esc(v.sourceName)} ${v.awardYear}">
-            <span aria-hidden="true">${awardIcons(v)}</span> ${esc(v.awardLevel)}
+          <span class="card-awards" role="list" aria-label="${esc(awardSummary(v))}">
+            ${v.awards
+              .map(
+                (a) => `<span role="listitem" class="award award-${a.awardRank ?? 0}" title="${esc(a.awardLevel)} — ${esc(a.sourceName)} ${a.awardYear}">
+                  <span aria-hidden="true">${awardIcons(a)}</span> ${esc(a.awardLevel)}
+                  <span class="award-guide">${esc(a.sourceName)}</span>
+                </span>`
+              )
+              .join('')}
           </span>
         </div>
         <p class="card-meta">${esc([v.cuisine, v.neighborhood].filter(Boolean).join(' · '))}</p>
@@ -430,11 +488,17 @@ function venueCard(v: Venue): string {
             : '<span class="approx">Location pending verification</span>'
         }</p>
       </button>
-      <p class="card-source">Verified in <strong>${esc(v.sourceName)} ${v.awardYear}</strong>${
-        v.sourceUrl
-          ? ` · <a href="${esc(v.sourceUrl)}" target="_blank" rel="noopener noreferrer">view source ↗</a>`
-          : ''
-      }</p>
+      <div class="card-sources">
+        ${v.awards
+          .map(
+            (a) => `<p class="card-source">${esc(a.awardLevel)} verified in <strong>${esc(a.sourceName)} ${a.awardYear}</strong>${
+              a.sourceUrl
+                ? ` · <a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">view source ↗</a>`
+                : ''
+            }</p>`
+          )
+          .join('')}
+      </div>
     </article>
   </li>`;
 }
@@ -451,10 +515,18 @@ function detailPanel(): string {
       <h2>${esc(v.name)}</h2>
       <button type="button" class="detail-close" data-close aria-label="Close details">✕</button>
     </div>
-    <p class="detail-award award-${v.awardRank ?? 0}"><span aria-hidden="true">${awardIcons(v)}</span> ${esc(
-      v.awardLevel
-    )} · ${esc(v.sourceName)} ${v.awardYear}</p>
-    ${v.note ? `<p class="detail-note">${esc(v.note)}</p>` : ''}
+    <ul class="detail-awards" aria-label="Awards">
+      ${v.awards
+        .map(
+          (a) => `<li class="detail-award award-${a.awardRank ?? 0}"><span aria-hidden="true">${awardIcons(a)}</span> ${esc(
+            a.awardLevel
+          )} · ${esc(a.sourceName)} ${a.awardYear}</li>`
+        )
+        .join('')}
+    </ul>
+    ${[...new Set(v.awards.map((a) => a.note).filter(Boolean))]
+      .map((note) => `<p class="detail-note">${esc(note)}</p>`)
+      .join('')}
     <dl class="detail-facts">
       ${v.cuisine ? `<div><dt>Cuisine</dt><dd>${esc(v.cuisine)}</dd></div>` : ''}
       ${v.neighborhood ? `<div><dt>Neighborhood</dt><dd>${esc(v.neighborhood)}</dd></div>` : ''}
@@ -463,11 +535,16 @@ function detailPanel(): string {
           ? `${esc(v.address)}${v.approxLocation ? ' <span class="approx">approximate location</span>' : ''}`
           : '<span class="approx">Location pending verification</span>'
       }</dd></div>
-      <div><dt>Award source</dt><dd>${
-        v.sourceUrl
-          ? `<a href="${esc(v.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(v.sourceName)} ↗</a>`
-          : esc(v.sourceName)
-      }</dd></div>
+      <div><dt>Award source${v.awards.length === 1 ? '' : 's'}</dt><dd>${v.awards
+        .map(
+          (a) =>
+            `${esc(a.awardLevel)}: ${
+              a.sourceUrl
+                ? `<a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(a.sourceName)} ${a.awardYear} ↗</a>`
+                : `${esc(a.sourceName)} ${a.awardYear}`
+            }`
+        )
+        .join('<br>')}</dd></div>
     </dl>
   </aside>`;
 }
@@ -681,7 +758,11 @@ if (root instanceof HTMLElement) {
       if (venues.length > 0) {
         state.mode = 'live';
         state.venues = venues;
-        state.guideYear = venues.reduce((y, v) => Math.max(y, v.awardYear), 0) || GUIDE_YEAR;
+        state.guideYear =
+          venues.reduce(
+            (y, v) => v.awards.reduce((yy, a) => Math.max(yy, a.awardYear), y),
+            0
+          ) || GUIDE_YEAR;
       } else {
         state.mode = 'demo';
         state.venues = demoVenues;
