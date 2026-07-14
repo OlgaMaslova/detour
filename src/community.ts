@@ -21,6 +21,17 @@ interface EvidenceRecord {
   expand?: { venue?: { name?: string; city?: string } };
 }
 
+interface SubmissionRecord {
+  id: string;
+  venue_name?: string;
+  city?: string;
+  address?: string;
+  detour_note?: string;
+  source_url?: string;
+  status?: 'pending' | 'approved' | 'rejected';
+  created?: string;
+}
+
 interface Notice {
   kind: NoticeKind;
   text: string;
@@ -32,6 +43,9 @@ let notice: Notice | null = null;
 let evidence: EvidenceRecord[] = [];
 let evidenceLoaded = false;
 let loadingEvidence = false;
+let submissions: SubmissionRecord[] = [];
+let submissionsLoaded = false;
+let loadingSubmissions = false;
 let submitting = false;
 
 function esc(value: string | undefined | null): string {
@@ -80,6 +94,11 @@ function evidenceCounts(): { approved: number; pending: number; rejected: number
 
 function evidenceName(item: EvidenceRecord): string {
   return item.expand?.venue?.name || 'A catalogued place';
+}
+
+function submissionPlace(item: SubmissionRecord): string {
+  const place = item.venue_name?.trim() || 'Untitled detour';
+  return item.city?.trim() ? `${place} — ${item.city.trim()}` : place;
 }
 
 function noticeMarkup(): string {
@@ -191,6 +210,39 @@ function signedInPanel(venues: Venue[]): string {
             : '<p class="community-empty">No visits on file yet. Your first three approved visits begin your verification.</p>'
       }
     </section>
+    <section class="community-submission-area" aria-labelledby="detour-submission-title">
+      <div class="community-section-heading">
+        <div><p class="community-kicker">A detour worth making</p><h3 id="detour-submission-title">Recommend a place</h3></div>
+        <p>Every recommendation is considered privately before it can become part of Detour.</p>
+      </div>
+      ${
+        verified
+          ? `<div class="community-submission-grid">
+              <form class="community-form community-submission-form" data-community-submission>
+                <label>Place name<input name="venue_name" maxlength="200" required placeholder="The place you would send someone"></label>
+                <div class="community-form-grid">
+                  <label>City<input name="city" maxlength="120" required placeholder="Madrid"></label>
+                  <label>Address <span class="community-optional">Optional</span><input name="address" maxlength="300" placeholder="A neighbourhood or address"></label>
+                </div>
+                <label>Why take the detour?<textarea name="detour_note" rows="5" maxlength="2400" required placeholder="What makes this place worth seeking out?"></textarea></label>
+                <label>Supporting link <span class="community-optional">Optional</span><input name="source_url" type="url" inputmode="url" placeholder="https://"></label>
+                <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sending…' : 'Send recommendation'}</button>
+              </form>
+              <div class="community-submission-guidance"><strong>Editorial curation</strong><p>Your recommendation enters a private review queue as pending. It never appears on the map or in the guide unless an editor chooses to add it.</p></div>
+            </div>
+            <div class="community-submission-list" aria-labelledby="your-recommendations-title">
+              <div class="community-section-heading"><div><p class="community-kicker">Your recommendations</p><h3 id="your-recommendations-title">In the editorial room</h3></div></div>
+              ${
+                !submissionsLoaded || loadingSubmissions
+                  ? '<p class="community-loading" role="status">Gathering your recommendations…</p>'
+                  : submissions.length
+                    ? `<ul>${submissions.map((item) => `<li><div><strong>${esc(submissionPlace(item))}</strong><span>${esc(item.detour_note || '')}</span></div><p class="community-submission-status is-${esc(item.status || 'pending')}">${esc(item.status || 'pending')}</p></li>`).join('')}</ul>`
+                    : '<p class="community-empty">Nothing in the editorial room yet. Send the place you keep returning to.</p>'
+              }
+            </div>`
+          : `<div class="community-submission-locked"><p class="community-kicker">Verified membership</p><h4>Keep recording the places that stayed with you.</h4><p>Three approved visits unlock recommendations. Until then, your visit notes are the way into the editorial conversation.</p></div>`
+      }
+    </section>
   </section>`;
 }
 
@@ -220,6 +272,21 @@ async function loadEvidence(render: () => void): Promise<void> {
   }
 }
 
+async function loadSubmissions(render: () => void): Promise<void> {
+  if (!member() || loadingSubmissions) return;
+  loadingSubmissions = true;
+  render();
+  try {
+    submissions = await pb.collection('detour_submissions').getFullList<SubmissionRecord>({ sort: '-created', requestKey: null });
+    submissionsLoaded = true;
+  } catch (error) {
+    notice = { kind: 'error', text: readableError(error, 'Your recommendations could not be loaded. Please try again.') };
+  } finally {
+    loadingSubmissions = false;
+    render();
+  }
+}
+
 async function refreshMember(render: () => void): Promise<void> {
   if (!member()) return;
   try {
@@ -237,6 +304,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     notice = null;
     render();
     if (panelOpen && member() && !evidenceLoaded) void loadEvidence(render);
+    if (panelOpen && member()?.community_status === 'verified' && !submissionsLoaded) void loadSubmissions(render);
   });
 
   root.querySelectorAll<HTMLButtonElement>('[data-community-mode]').forEach((button) => {
@@ -289,9 +357,12 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
       await pb.collection('members').authWithPassword(String(values.get('email') || '').trim(), String(values.get('password') || ''));
       panelOpen = true;
       evidenceLoaded = false;
+      submissions = [];
+      submissionsLoaded = false;
       notice = { kind: 'success', text: 'Welcome back. Your visits are ready when you are.' };
       await refreshMember(render);
       void loadEvidence(render);
+      if (member()?.community_status === 'verified') void loadSubmissions(render);
     } catch (error) {
       notice = { kind: 'error', text: readableError(error, 'Those sign-in details were not recognised.') };
       render();
@@ -304,6 +375,8 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     pb.authStore.clear();
     evidence = [];
     evidenceLoaded = false;
+    submissions = [];
+    submissionsLoaded = false;
     notice = { kind: 'info', text: 'You have signed out of Detour.' };
     render();
   });
@@ -331,10 +404,43 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     }
   });
 
+  root.querySelector<HTMLFormElement>('[data-community-submission]')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (member()?.community_status !== 'verified') {
+      notice = { kind: 'error', text: 'Three approved visits are required before submitting a detour.' };
+      render();
+      return;
+    }
+    const values = new FormData(event.currentTarget as HTMLFormElement);
+    submitting = true;
+    notice = null;
+    render();
+    try {
+      await pb.collection('detour_submissions').create({
+        venue_name: String(values.get('venue_name') || '').trim(),
+        city: String(values.get('city') || '').trim(),
+        address: String(values.get('address') || '').trim(),
+        detour_note: String(values.get('detour_note') || '').trim(),
+        source_url: String(values.get('source_url') || '').trim(),
+      });
+      notice = { kind: 'success', text: 'Your recommendation is now with the editorial team.' };
+      submissionsLoaded = false;
+      await loadSubmissions(render);
+    } catch (error) {
+      notice = { kind: 'error', text: readableError(error, 'That recommendation could not be sent. Please check the details and try again.') };
+    } finally {
+      submitting = false;
+      render();
+    }
+  });
+
   // Keep the current member record fresh after a normal map re-render, without
   // adding a global auth-store listener that could duplicate across renders.
   if (panelOpen && member() && !evidenceLoaded && !loadingEvidence) {
     void loadEvidence(render);
+  }
+  if (panelOpen && member()?.community_status === 'verified' && !submissionsLoaded && !loadingSubmissions) {
+    void loadSubmissions(render);
   }
 
   // `venues` is intentionally accepted so the caller's current catalogue is
