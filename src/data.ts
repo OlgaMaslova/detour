@@ -4,8 +4,20 @@ export type AwardLevel = 1 | 2 | 3;
 export interface VenueAward {
   /** Literal award-level label exactly as published by the guide, e.g. '1 Sol', '3 Soles', '2 Stars'. */
   awardLevel: string;
-  /** Numeric rank parsed from the level when available (1–3), used only for ordering/styling. */
+  /**
+   * Numeric star/sole count parsed from a level-style label (1–3), used only
+   * for ordering/styling. Always null for ranked-list awards — a list position
+   * is never a star count.
+   */
   awardRank: number | null;
+  /**
+   * Position on an ordered ranking list (e.g. 2 for 'No. 2') when the source
+   * publishes one; taken from the backend's explicit rank field when present.
+   * Null for level awards (Stars/Soles).
+   */
+  listRank: number | null;
+  /** Exact edition/list name for ranked awards, e.g. '50 Top Pizza Europa 2026'; '' for level awards. */
+  edition: string;
   awardYear: number;
   sourceName: string;
   sourceUrl: string;
@@ -20,7 +32,8 @@ export interface Venue {
    * Sorted highest rank first; always at least one entry.
    */
   awards: VenueAward[];
-  cuisine: string;
+  /** Stable venue category from the catalogue (e.g. 'Pizza', 'Coffee'); '' when unspecified. */
+  category: string;
   neighborhood: string;
   address: string;
   /** Null when no verified coordinate exists — render as "location pending verification", never a fake pin. */
@@ -48,6 +61,17 @@ const COORD_NOTE =
   'Address and coordinates verified 2026-07-12 via OpenStreetMap/Nominatim (© OpenStreetMap contributors, ODbL).';
 const NEW_AWARD_NOTE = `Award verified in the official 2026 Guía Repsol award listing. ${COORD_NOTE}`;
 const CONTINUING_NOTE = `Award verified in the official 2026 booklet. ${COORD_NOTE}`;
+
+// Official ranking/venue-record pages for the two ranked-list guides — the
+// verification sources documented in
+// pb_migrations/1767975000_add_pizza_coffee_2026_madrid.js.
+const PIZZA_SOURCE_NAME = '50 Top Pizza';
+const PIZZA_EDITION = '50 Top Pizza Europa 2026';
+const PIZZA_RANKING_URL = 'https://www.50toppizza.it/50-top-pizza-europa-2026/';
+const COFFEE_SOURCE_NAME = "The World's 100 Best Coffee Shops";
+const COFFEE_EDITION = "The World's 100 Best Coffee Shops 2026";
+const COFFEE_RECORD_URL =
+  'https://theworlds100bestcoffeeshops.com/locales/hola-coffee-lagasca/';
 
 function solLabel(level: AwardLevel): string {
   return `${level} ${level === 1 ? 'Sol' : 'Soles'}`;
@@ -117,13 +141,15 @@ export const demoVenues: Venue[] = [
         {
           awardLevel: solLabel(award),
           awardRank: award,
+          listRank: null,
+          edition: '',
           awardYear: GUIDE_YEAR,
           sourceName: SOURCE_NAME,
           sourceUrl: AWARD_PAGE_URLS[award],
           note: NEW_AWARD_NOTE,
         },
       ],
-      cuisine: '',
+      category: '',
       neighborhood: '',
       address,
       lat,
@@ -139,13 +165,15 @@ export const demoVenues: Venue[] = [
         {
           awardLevel: solLabel(award),
           awardRank: award,
+          listRank: null,
+          edition: '',
           awardYear: GUIDE_YEAR,
           sourceName: SOURCE_NAME,
           sourceUrl: BOOKLET_URL,
           note: CONTINUING_NOTE,
         },
       ],
-      cuisine: '',
+      category: '',
       neighborhood: '',
       address,
       lat,
@@ -153,4 +181,74 @@ export const demoVenues: Venue[] = [
       approxLocation,
     })
   ),
+  // The three verified ranked-list venues documented by
+  // pb_migrations/1767975000_add_pizza_coffee_2026_madrid.js — the only
+  // canonical Pizza/Coffee rows; addresses and coordinates are the
+  // OSM-verified values from that migration.
+  {
+    id: 'demo-baldoria',
+    name: 'Baldoria',
+    awards: [
+      {
+        awardLevel: `${PIZZA_EDITION} — No. 2`,
+        awardRank: null,
+        listRank: 2,
+        edition: PIZZA_EDITION,
+        awardYear: GUIDE_YEAR,
+        sourceName: PIZZA_SOURCE_NAME,
+        sourceUrl: PIZZA_RANKING_URL,
+        note: 'Rank verified on the official 50 Top Pizza Europa 2026 ranking page. Coordinates are OpenStreetMap-sourced (© OpenStreetMap contributors, ODbL), not taken from the guide.',
+      },
+    ],
+    category: 'Pizza',
+    neighborhood: '',
+    address: 'C. de José Ortega y Gasset, 100, 28006 Madrid',
+    lat: 40.4294985,
+    lng: -3.6707425,
+    approxLocation: false,
+  },
+  {
+    id: 'demo-fratelli-figurato',
+    name: 'Fratelli Figurato',
+    awards: [
+      {
+        awardLevel: `${PIZZA_EDITION} — No. 11`,
+        awardRank: null,
+        listRank: 11,
+        edition: PIZZA_EDITION,
+        awardYear: GUIDE_YEAR,
+        sourceName: PIZZA_SOURCE_NAME,
+        sourceUrl: PIZZA_RANKING_URL,
+        note: 'Rank verified on the official 50 Top Pizza Europa 2026 ranking page; the ranking names the venue without a specific branch. Shown location is the operator’s primary pizzeria, corroborated via the official site and OpenStreetMap (© OpenStreetMap contributors, ODbL).',
+      },
+    ],
+    category: 'Pizza',
+    neighborhood: '',
+    address: 'Calle Alonso Cano, 37, 28003 Madrid',
+    lat: 40.438991,
+    lng: -3.6978429,
+    approxLocation: false,
+  },
+  {
+    id: 'demo-hola-coffee-lagasca',
+    name: 'Hola Coffee Lagasca',
+    awards: [
+      {
+        awardLevel: `${COFFEE_EDITION} — No. 19`,
+        awardRank: null,
+        listRank: 19,
+        edition: COFFEE_EDITION,
+        awardYear: GUIDE_YEAR,
+        sourceName: COFFEE_SOURCE_NAME,
+        sourceUrl: COFFEE_RECORD_URL,
+        note: 'Rank verified on the official global top-100 ranking page and the official venue record. Coordinates are OpenStreetMap/Nominatim-sourced (© OpenStreetMap contributors, ODbL), not taken from the guide.',
+      },
+    ],
+    category: 'Coffee',
+    neighborhood: '',
+    address: 'Calle Lagasca, 42, 28001, Madrid, Spain',
+    lat: 40.4248823,
+    lng: -3.6853284,
+    approxLocation: false,
+  },
 ];

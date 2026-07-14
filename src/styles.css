@@ -254,6 +254,31 @@ select.filter-select {
   letter-spacing: 0.03em;
   color: var(--ink-soft);
 }
+/* Ranked-list awards (e.g. 'No. 2 · 50 Top Pizza Europa 2026'): the position
+   is the headline, visually distinct from star/sole level pills, and the pill
+   may wrap so long edition names stay readable on small screens. */
+.award-ranked {
+  background: #e8eef6;
+  color: #1e3a5f;
+  white-space: normal;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+.award-rank-no {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.detail-award-ranked { color: #1e3a5f; }
+.detail-award-ranked .award-rank-no {
+  background: #e8eef6;
+  border-radius: 6px;
+  padding: 0.05rem 0.45rem;
+  margin-right: 0.15rem;
+}
+.card-source-rank { font-weight: 800; font-variant-numeric: tabular-nums; }
 .award-3 { color: var(--sun-3); }
 .award-2 { color: var(--sun-2); }
 .award-1 { color: var(--sun-1); }
@@ -585,6 +610,9 @@ select.filter-select {
 .map-pin.pin-3 .pin-dot { background: #b45309; width: 17px; height: 17px; }
 .map-pin.pin-2 .pin-dot { background: #c2410c; }
 .map-pin.pin-1 .pin-dot { background: #9a3412; width: 12px; height: 12px; }
+/* Ordered-list recognition has no star/sole level. Give those verified venues
+   a distinct visible pin rather than treating a list rank as an award count. */
+.map-pin.pin-ranked .pin-dot { background: #2563eb; }
 .map-pin .pin-label {
   /* Hidden by default: names are shown in the marker popup on selection.
      Absolutely positioned below the dot so the label never inflates or

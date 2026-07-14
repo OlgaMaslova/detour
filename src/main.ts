@@ -20,6 +20,8 @@ interface State {
   filter: Filter;
   /** '' = all sources; otherwise a source name present in the loaded data. */
   sourceFilter: string;
+  /** '' = all categories; otherwise a venue category present in the loaded data (e.g. 'Pizza', 'Coffee'). */
+  categoryFilter: string;
   /** Free-text venue-name search; matched case-insensitively after trimming. */
   search: string;
   selectedId: string | null;
@@ -34,6 +36,7 @@ const state: State = {
   venues: [],
   filter: '',
   sourceFilter: '',
+  categoryFilter: '',
   search: '',
   selectedId: null,
   guideYear: GUIDE_YEAR,
@@ -88,6 +91,24 @@ function awardRankOf(level: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// Ranked-list awards (e.g. '50 Top Pizza Europa 2026 — No. 2') carry an
+// ordered position, not a star/sole count. Detect them by the source's own
+// 'No. N' wording so level awards are never reinterpreted as rankings.
+const LIST_RANK_RE = /\bNo\.\s*(\d+)\b/i;
+
+/** List position parsed from a ranked-list level label; null for level awards. */
+function listRankOf(level: string): number | null {
+  const m = level.match(LIST_RANK_RE);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Edition/list name from a ranked-list label: the part before the '— No. N' suffix. */
+function editionOf(level: string): string {
+  return level.split(/\s*—\s*No\.\s*\d+/i)[0].trim() || level.trim();
+}
+
 /**
  * Icons matching the source's own wording only: suns for Soles, stars for
  * Michelin-style Stars. No icon when the wording is unknown.
@@ -99,11 +120,15 @@ function awardIcons(a: Pick<VenueAward, 'awardLevel' | 'awardRank'>): string {
   return '';
 }
 
-/** Awards sorted highest rank first, then by label and guide name for stability. */
+/**
+ * Awards sorted highest star/sole rank first, then ranked-list awards by best
+ * (lowest) position, then by label and guide name for stability.
+ */
 function sortAwards(awards: VenueAward[]): VenueAward[] {
   return [...awards].sort(
     (a, b) =>
       (b.awardRank ?? -1) - (a.awardRank ?? -1) ||
+      (a.listRank ?? Number.MAX_SAFE_INTEGER) - (b.listRank ?? Number.MAX_SAFE_INTEGER) ||
       a.awardLevel.localeCompare(b.awardLevel) ||
       a.sourceName.localeCompare(b.sourceName)
   );
@@ -119,10 +144,23 @@ function maxAwardRank(v: Venue): number {
   return v.awards.reduce((m, a) => Math.max(m, a.awardRank ?? -1), -1);
 }
 
+/** Best (lowest) ranked-list position across a venue's awards; MAX when none. */
+function bestListRank(v: Venue): number {
+  return v.awards.reduce(
+    (m, a) => Math.min(m, a.listRank ?? Number.MAX_SAFE_INTEGER),
+    Number.MAX_SAFE_INTEGER
+  );
+}
+
+/** Plain-text award label: 'No. N — edition' for ranked awards, else the literal level. */
+function awardText(a: VenueAward): string {
+  return a.listRank !== null ? `No. ${a.listRank} — ${a.edition}` : a.awardLevel;
+}
+
 /** Plain-text summary of every award, keeping each guide's own wording. */
 function awardSummary(v: Venue): string {
   return v.awards
-    .map((a) => `${a.awardLevel} — ${a.sourceName} ${a.awardYear}`)
+    .map((a) => `${awardText(a)} — ${a.sourceName} ${a.awardYear}`)
     .join('; ');
 }
 
@@ -175,6 +213,17 @@ async function loadLiveVenues(): Promise<Venue[]> {
     );
     if (!level) continue;
 
+    // The backend stores an explicit numeric rank for ranked-list awards
+    // (venue_awards.rank, e.g. 2 for '… — No. 2'); prefer it over parsing.
+    const explicitRank = num(award.rank);
+    const parsedListRank = listRankOf(level);
+    const isRankedList = parsedListRank !== null;
+    // Legacy Stars/Soles rows use 0 as the unset-rank sentinel. Only a
+    // positive explicit rank is meaningful; otherwise preserve the literal
+    // level's star/sole count.
+    const positiveExplicitRank =
+      explicitRank !== null && explicitRank > 0 ? explicitRank : null;
+
     const sourceId = str(
       award.source as string,
       award.guide_source as string,
@@ -202,7 +251,11 @@ async function loadLiveVenues(): Promise<Venue[]> {
 
     const venueAward: VenueAward = {
       awardLevel: level,
-      awardRank: awardRankOf(level),
+      // A ranked-list position is never a star/sole count — keep the two
+      // notions strictly separate so icons/ordering stay faithful.
+      awardRank: isRankedList ? null : (positiveExplicitRank ?? awardRankOf(level)),
+      listRank: isRankedList ? (positiveExplicitRank ?? parsedListRank) : null,
+      edition: isRankedList ? editionOf(level) : '',
       awardYear: year ?? GUIDE_YEAR,
       sourceName:
         str(
@@ -234,7 +287,7 @@ async function loadLiveVenues(): Promise<Venue[]> {
       id: venueId,
       name: str(venue.name, venue.title) || 'Unnamed venue',
       awards: [venueAward],
-      cuisine: str(venue.cuisine, venue.category, venue.style),
+      category: str(venue.category, venue.cuisine, venue.style),
       neighborhood: str(venue.neighborhood, venue.district, venue.area),
       address: str(venue.address, venue.street_address),
       lat,
@@ -251,11 +304,16 @@ async function loadLiveVenues(): Promise<Venue[]> {
 
 /* ---------- rendering ---------- */
 
-/** Award-level filter options derived from the loaded data's literal labels. */
+/**
+ * Award-level filter options derived from the loaded data's literal labels.
+ * Ranked-list awards (per-venue 'No. N' labels) are excluded — they are
+ * discovered through the category and guide-source controls instead.
+ */
 function awardFilters(): { value: Filter; label: string }[] {
   const seen = new Map<string, number | null>();
   for (const v of state.venues) {
     for (const a of v.awards) {
+      if (a.listRank !== null) continue;
       if (!seen.has(a.awardLevel)) seen.set(a.awardLevel, a.awardRank);
     }
   }
@@ -266,6 +324,13 @@ function awardFilters(): { value: Filter; label: string }[] {
     { value: '' as Filter, label: 'All' },
     ...levels.map(([level]) => ({ value: level as Filter, label: level })),
   ];
+}
+
+/** Stable category options present in the loaded data (e.g. 'Coffee', 'Pizza'). */
+function categoryNames(): string[] {
+  const names = new Set<string>();
+  for (const v of state.venues) if (v.category) names.add(v.category);
+  return [...names].sort((a, b) => a.localeCompare(b));
 }
 
 function sourceNames(): string[] {
@@ -284,11 +349,13 @@ function filteredVenues(): Venue[] {
       (state.filter === '' || v.awards.some((a) => a.awardLevel === state.filter)) &&
       (state.sourceFilter === '' ||
         v.awards.some((a) => a.sourceName === state.sourceFilter)) &&
+      (state.categoryFilter === '' || v.category === state.categoryFilter) &&
       (query === '' || v.name.toLowerCase().includes(query))
   );
   return [...list].sort(
     (a, b) =>
       maxAwardRank(b) - maxAwardRank(a) ||
+      bestListRank(a) - bestListRank(b) ||
       topAward(a).awardLevel.localeCompare(topAward(b).awardLevel) ||
       a.name.localeCompare(b.name)
   );
@@ -355,9 +422,11 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
   // Venue pins — only real, verified coordinates are ever plotted.
   for (const v of mappable) {
     const selected = v.id === state.selectedId;
+    const markerRank = maxAwardRank(v);
+    const markerClass = markerRank > 0 ? `pin-${markerRank}` : 'pin-ranked';
     const icon = L.divIcon({
       className: '',
-      html: `<span class="map-pin pin-${Math.max(maxAwardRank(v), 0)}${selected ? ' pin-selected' : ''}">
+      html: `<span class="map-pin ${markerClass}${selected ? ' pin-selected' : ''}">
         <span class="pin-dot"></span>
         <span class="pin-label">${esc(v.name)}</span>
       </span>`,
@@ -368,13 +437,13 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
       icon,
       keyboard: false,
       riseOnHover: true,
-      zIndexOffset: selected ? 1000 : Math.max(maxAwardRank(v), 0) * 10,
+      zIndexOffset: selected ? 1000 : Math.max(markerRank, 0) * 10,
     }).addTo(map);
     marker.bindPopup(
       `<strong>${esc(v.name)}</strong>${v.awards
         .map(
           (a) =>
-            `<br>${awardIcons(a)} ${esc(a.awardLevel)} · ${esc(a.sourceName)} ${a.awardYear}`
+            `<br>${awardIcons(a)} ${esc(awardText(a))} · ${esc(a.sourceName)} ${a.awardYear}`
         )
         .join('')}`,
       { closeButton: false, offset: [0, -6] }
@@ -472,8 +541,13 @@ function venueCard(v: Venue): string {
           <h3>${esc(v.name)}</h3>
           <span class="card-awards" role="list" aria-label="${esc(awardSummary(v))}">
             ${v.awards
-              .map(
-                (a) => `<span role="listitem" class="award award-${a.awardRank ?? 0}" title="${esc(a.awardLevel)} — ${esc(a.sourceName)} ${a.awardYear}">
+              .map((a) =>
+                a.listRank !== null
+                  ? `<span role="listitem" class="award award-ranked" title="${esc(awardText(a))} — ${esc(a.sourceName)} ${a.awardYear}">
+                  <span class="award-rank-no">No. ${a.listRank}</span> ${esc(a.edition)}
+                  <span class="award-guide">${esc(a.sourceName)}</span>
+                </span>`
+                  : `<span role="listitem" class="award award-${a.awardRank ?? 0}" title="${esc(a.awardLevel)} — ${esc(a.sourceName)} ${a.awardYear}">
                   <span aria-hidden="true">${awardIcons(a)}</span> ${esc(a.awardLevel)}
                   <span class="award-guide">${esc(a.sourceName)}</span>
                 </span>`
@@ -481,7 +555,7 @@ function venueCard(v: Venue): string {
               .join('')}
           </span>
         </div>
-        <p class="card-meta">${esc([v.cuisine, v.neighborhood].filter(Boolean).join(' · '))}</p>
+        <p class="card-meta">${esc([v.category, v.neighborhood].filter(Boolean).join(' · '))}</p>
         <p class="card-address">${
           v.address
             ? `${esc(v.address)}${v.approxLocation ? ' <span class="approx">approx. location</span>' : ''}`
@@ -490,13 +564,17 @@ function venueCard(v: Venue): string {
       </button>
       <div class="card-sources">
         ${v.awards
-          .map(
-            (a) => `<p class="card-source">${esc(a.awardLevel)} verified in <strong>${esc(a.sourceName)} ${a.awardYear}</strong>${
+          .map((a) => {
+            const claim =
+              a.listRank !== null
+                ? `<span class="card-source-rank">No. ${a.listRank}</span> in <strong>${esc(a.edition)}</strong> · ${esc(a.sourceName)}`
+                : `${esc(a.awardLevel)} verified in <strong>${esc(a.sourceName)} ${a.awardYear}</strong>`;
+            return `<p class="card-source">${claim}${
               a.sourceUrl
-                ? ` · <a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">view source ↗</a>`
+                ? ` · <a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">official listing ↗</a>`
                 : ''
-            }</p>`
-          )
+            }</p>`;
+          })
           .join('')}
       </div>
     </article>
@@ -517,10 +595,14 @@ function detailPanel(): string {
     </div>
     <ul class="detail-awards" aria-label="Awards">
       ${v.awards
-        .map(
-          (a) => `<li class="detail-award award-${a.awardRank ?? 0}"><span aria-hidden="true">${awardIcons(a)}</span> ${esc(
-            a.awardLevel
-          )} · ${esc(a.sourceName)} ${a.awardYear}</li>`
+        .map((a) =>
+          a.listRank !== null
+            ? `<li class="detail-award detail-award-ranked"><span class="award-rank-no">No. ${a.listRank}</span> ${esc(
+                a.edition
+              )} · ${esc(a.sourceName)}</li>`
+            : `<li class="detail-award award-${a.awardRank ?? 0}"><span aria-hidden="true">${awardIcons(a)}</span> ${esc(
+                a.awardLevel
+              )} · ${esc(a.sourceName)} ${a.awardYear}</li>`
         )
         .join('')}
     </ul>
@@ -528,7 +610,7 @@ function detailPanel(): string {
       .map((note) => `<p class="detail-note">${esc(note)}</p>`)
       .join('')}
     <dl class="detail-facts">
-      ${v.cuisine ? `<div><dt>Cuisine</dt><dd>${esc(v.cuisine)}</dd></div>` : ''}
+      ${v.category ? `<div><dt>Category</dt><dd>${esc(v.category)}</dd></div>` : ''}
       ${v.neighborhood ? `<div><dt>Neighborhood</dt><dd>${esc(v.neighborhood)}</dd></div>` : ''}
       <div><dt>Address</dt><dd>${
         v.address
@@ -538,7 +620,7 @@ function detailPanel(): string {
       <div><dt>Award source${v.awards.length === 1 ? '' : 's'}</dt><dd>${v.awards
         .map(
           (a) =>
-            `${esc(a.awardLevel)}: ${
+            `${esc(awardText(a))}: ${
               a.sourceUrl
                 ? `<a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(a.sourceName)} ${a.awardYear} ↗</a>`
                 : `${esc(a.sourceName)} ${a.awardYear}`
@@ -583,6 +665,19 @@ function render(root: HTMLElement) {
           .join('')}
       </div>
       <span class="count" aria-live="polite">${loading ? 'Loading…' : `${list.length} venue${list.length === 1 ? '' : 's'}`}</span>
+    </section>
+    <section class="controls" aria-label="Filter venues by category">
+      <span class="controls-label" id="category-label">Category</span>
+      <div class="filters" role="group" aria-labelledby="category-label">
+        <button type="button" class="filter${state.categoryFilter === '' ? ' filter-active' : ''}"
+          data-category="" aria-pressed="${state.categoryFilter === ''}">All</button>
+        ${categoryNames()
+          .map(
+            (name) => `<button type="button" class="filter${state.categoryFilter === name ? ' filter-active' : ''}"
+              data-category="${esc(name)}" aria-pressed="${state.categoryFilter === name}">${esc(name)}</button>`
+          )
+          .join('')}
+      </div>
     </section>
     <section class="controls" aria-label="Filter venues by guide source">
       <span class="controls-label" id="source-label">Guide source</span>
@@ -649,6 +744,16 @@ function render(root: HTMLElement) {
       render(root);
     });
   });
+  root.querySelectorAll<HTMLButtonElement>('[data-category]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.categoryFilter = btn.dataset.category ?? '';
+      const visible = filteredVenues();
+      if (state.selectedId && !visible.some((v) => v.id === state.selectedId)) {
+        state.selectedId = null;
+      }
+      render(root);
+    });
+  });
   root.querySelectorAll<HTMLButtonElement>('[data-source]').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.sourceFilter = btn.dataset.source ?? '';
@@ -690,6 +795,7 @@ function render(root: HTMLElement) {
   root.querySelector<HTMLButtonElement>('[data-reset-filters]')?.addEventListener('click', () => {
     state.filter = '';
     state.sourceFilter = '';
+    state.categoryFilter = '';
     state.search = '';
     render(root);
   });
