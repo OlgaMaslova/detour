@@ -9,7 +9,8 @@
     "build:multi-source-madrid": "node scripts/build-madrid-multi-source-venues.mjs",
     "validate:multi-source-madrid": "node scripts/validate-madrid-multi-source-venues.mjs",
     "validate:coffee-madrid": "node scripts/validate-worlds-100-best-coffee-shops-2026-madrid.mjs",
-    "validate:pizza-madrid": "node scripts/validate-50-top-pizza-europa-2026-madrid.mjs"
+    "validate:pizza-madrid": "node scripts/validate-50-top-pizza-europa-2026-madrid.mjs",
+    "validate:pizza-coffee-integration": "node scripts/validate-pizza-coffee-integration.mjs"
   },
   "dependencies": {
     "leaflet": "^1.9.4",
