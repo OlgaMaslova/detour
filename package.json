@@ -7,7 +7,8 @@
     "validate:madrid-seed": "node scripts/validate-guia-repsol-2026-madrid-seed.mjs",
     "validate:michelin-madrid": "node scripts/validate-michelin-2026-madrid-starred.mjs",
     "build:multi-source-madrid": "node scripts/build-madrid-multi-source-venues.mjs",
-    "validate:multi-source-madrid": "node scripts/validate-madrid-multi-source-venues.mjs"
+    "validate:multi-source-madrid": "node scripts/validate-madrid-multi-source-venues.mjs",
+    "validate:coffee-madrid": "node scripts/validate-worlds-100-best-coffee-shops-2026-madrid.mjs"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

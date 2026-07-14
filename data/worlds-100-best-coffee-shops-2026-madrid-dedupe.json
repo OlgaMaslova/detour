@@ -1,0 +1,35 @@
+{
+  "dataset": "worlds-100-best-coffee-shops-2026-madrid-dedupe",
+  "policy": {
+    "document": "docs/2026-07-14-madrid-pizza-coffee-source-policy.md",
+    "matching": "Exact normalized full-name equality only: NFC, trim, collapse whitespace, lower case. No diacritic folding, no fuzzy/prefix/alias matching, no auto-merge.",
+    "fuzzy_merge": false,
+    "notes": "A separately corroborated address may corroborate a match but never creates one. Aliases such as the Europe-subset display name require manual review and are excluded here."
+  },
+  "candidate": {
+    "source_slug": "w100-best-coffee-shops",
+    "source_venue_name": "Hola Coffee Lagasca",
+    "normalized_match_key": "hola coffee lagasca",
+    "global_rank": 19,
+    "edition_year": 2026,
+    "locality": "Madrid",
+    "country": "Spain"
+  },
+  "checked_target_dataset": {
+    "file": "data/madrid-2026-unified-venues.json",
+    "dataset": "madrid-2026-unified-venues",
+    "canonical_venues_checked": 40,
+    "sources": [
+      "michelin",
+      "repsol"
+    ]
+  },
+  "match_outcome": "no_match",
+  "matched_venue": null,
+  "decision": "No existing canonical venue matches; candidate remains a standalone source row (no Detour canonical venue linkage). No merge performed.",
+  "excluded_non_governing_display": {
+    "name": "Hola Coffee Roastery",
+    "context": "The World's 100 Best Coffee Shops — Europe subset, #8",
+    "reason": "Related, non-governing regional display name; not auto-merged and not imported as a second source row. The global list and official venue record govern."
+  }
+}
