@@ -11,7 +11,8 @@
     "validate:coffee-madrid": "node scripts/validate-worlds-100-best-coffee-shops-2026-madrid.mjs",
     "validate:pizza-madrid": "node scripts/validate-50-top-pizza-europa-2026-madrid.mjs",
     "validate:pizza-coffee-integration": "node scripts/validate-pizza-coffee-integration.mjs",
-    "validate:michelin-paris": "node scripts/validate-michelin-2026-paris-two-three-starred.mjs"
+    "validate:michelin-paris": "node scripts/validate-michelin-2026-paris-two-three-starred.mjs",
+    "validate:michelin-san-francisco": "node scripts/validate-michelin-2026-san-francisco-starred.mjs"
   },
   "dependencies": {
     "leaflet": "^1.9.4",
