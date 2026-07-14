@@ -25,6 +25,10 @@ interface State {
   /** Free-text venue-name search; matched case-insensitively after trimming. */
   search: string;
   selectedId: string | null;
+  /** Whether the last selection came from a map pin or a list card — used to restore focus on close. */
+  selectedVia: 'pin' | 'card' | null;
+  /** Progressive-disclosure filter tray visibility. */
+  trayOpen: boolean;
   guideYear: number;
   userLocation: UserLocation | null;
   geoStatus: string;
@@ -39,11 +43,24 @@ const state: State = {
   categoryFilter: '',
   search: '',
   selectedId: null,
+  selectedVia: null,
+  trayOpen: false,
   guideYear: GUIDE_YEAR,
   userLocation: null,
   geoStatus: '',
   geoBusy: false,
 };
+
+/**
+ * CSS selector of the element that should receive focus after the next
+ * render. The whole root is re-rendered on every state change, so focus is
+ * otherwise lost when a control is clicked.
+ */
+let pendingFocus: string | null = null;
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
 
 /* ---------- helpers ---------- */
 
@@ -164,6 +181,11 @@ function awardSummary(v: Venue): string {
     .join('; ');
 }
 
+/** Unique guide names for a venue, in award order. */
+function guideNames(v: Venue): string[] {
+  return [...new Set(v.awards.map((a) => a.sourceName).filter(Boolean))];
+}
+
 /* ---------- live data loading ---------- */
 
 type Rec = Record<string, unknown>;
@@ -231,6 +253,8 @@ async function loadLiveVenues(): Promise<Venue[]> {
       venue.guide_source as string
     );
     const source = sourceId ? sourceById.get(sourceId) : undefined;
+    // Provenance notes stay internal: they inform the approximate-location
+    // flag below but are never shown verbatim to guests.
     const note = str(
       award.verification_note as string,
       venue.coord_verification_note,
@@ -239,7 +263,7 @@ async function loadLiveVenues(): Promise<Venue[]> {
       venue.description
     );
 
-    // The backend stores 0/0 as a neutral "no verified coordinates" sentinel
+    // The backend stores 0/0 as a neutral "no known coordinates" sentinel
     // (see the seed migrations). Treat it — and missing values — as unknown
     // location rather than plotting a fake pin.
     const rawLat = num(venue.lat, venue.latitude);
@@ -302,12 +326,12 @@ async function loadLiveVenues(): Promise<Venue[]> {
   return venues;
 }
 
-/* ---------- rendering ---------- */
+/* ---------- filters ---------- */
 
 /**
  * Award-level filter options derived from the loaded data's literal labels.
  * Ranked-list awards (per-venue 'No. N' labels) are excluded — they are
- * discovered through the category and guide-source controls instead.
+ * discovered through the category and guide controls instead.
  */
 function awardFilters(): { value: Filter; label: string }[] {
   const seen = new Map<string, number | null>();
@@ -361,9 +385,25 @@ function filteredVenues(): Venue[] {
   );
 }
 
+interface ActiveFilter {
+  kind: 'award' | 'category' | 'source';
+  label: string;
+  value: string;
+}
+
+function activeFilters(): ActiveFilter[] {
+  const chips: ActiveFilter[] = [];
+  if (state.filter) chips.push({ kind: 'award', label: state.filter, value: state.filter });
+  if (state.categoryFilter)
+    chips.push({ kind: 'category', label: state.categoryFilter, value: state.categoryFilter });
+  if (state.sourceFilter)
+    chips.push({ kind: 'source', label: state.sourceFilter, value: state.sourceFilter });
+  return chips;
+}
+
 /* ---------- interactive map (Leaflet + OpenStreetMap) ---------- */
 
-// Central Madrid fallback view used when there are no verified venue pins to
+// Central Madrid fallback view used when there are no plottable venue pins to
 // derive bounds from, or when browser location is unavailable/denied.
 const MADRID_CENTER: [number, number] = [40.4168, -3.7038];
 const MADRID_ZOOM = 13;
@@ -419,14 +459,14 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
       '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
   }).addTo(map);
 
-  // Venue pins — only real, verified coordinates are ever plotted.
+  // Venue pins — only known venue positions are ever plotted.
   for (const v of mappable) {
     const selected = v.id === state.selectedId;
     const markerRank = maxAwardRank(v);
     const markerClass = markerRank > 0 ? `pin-${markerRank}` : 'pin-ranked';
     const icon = L.divIcon({
       className: '',
-      html: `<span class="map-pin ${markerClass}${selected ? ' pin-selected' : ''}">
+      html: `<span class="map-pin ${markerClass}${selected ? ' pin-selected' : ''}" data-pin="${esc(v.id)}">
         <span class="pin-dot"></span>
         <span class="pin-label">${esc(v.name)}</span>
       </span>`,
@@ -449,8 +489,11 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
       { closeButton: false, offset: [0, -6] }
     );
     const select = () => {
-      state.selectedId = state.selectedId === v.id ? null : v.id;
+      const deselecting = state.selectedId === v.id;
+      state.selectedId = deselecting ? null : v.id;
+      state.selectedVia = deselecting ? null : 'pin';
       savedView = { center: map.getCenter(), zoom: map.getZoom() };
+      pendingFocus = `[data-pin="${CSS.escape(v.id)}"]`;
       render(root);
     };
     const el = marker.getElement();
@@ -486,13 +529,13 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
   if (state.userLocation) {
     L.circleMarker([state.userLocation.lat, state.userLocation.lng], {
       radius: 7,
-      color: '#fdf6ec',
+      color: '#f6f0e4',
       weight: 2,
-      fillColor: '#2563eb',
+      fillColor: '#c78f97',
       fillOpacity: 1,
     })
       .addTo(map)
-      .bindTooltip('Your approximate location');
+      .bindTooltip('You are here');
   }
 
   // View: restore the user's last view, else fit the real pins, else Madrid.
@@ -515,21 +558,116 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
   });
 }
 
-function mapPanel(list: Venue[]): string {
+/* ---------- view fragments ---------- */
+
+function mapNote(list: Venue[]): string {
   const mappable = mappableVenues(list);
-  const pending = list.length - mappable.length;
-  const note =
-    list.length === 0
-      ? 'No venues match your current search or filters — no pins to show. The map stays centered on Madrid.'
-      : mappable.length === 0
-        ? 'Locations pending verification — no verified venue pins to show yet. The map stays centered on Madrid.'
-        : pending > 0
-          ? `${pending} venue${pending === 1 ? '' : 's'} not pinned — location pending verification.`
-          : '';
-  return `<div class="map-panel map-panel-live" role="group" aria-label="Interactive map of listed venues in Madrid">
-    <div id="venue-map" class="venue-map" aria-label="Madrid venue map — OpenStreetMap"></div>
-    ${note ? `<p class="map-note" role="status">${esc(note)}</p>` : ''}
+  const refining = list.length - mappable.length;
+  if (list.length === 0)
+    return 'Nothing matches at the moment — the map stays on Madrid while you adjust your search.';
+  if (mappable.length === 0)
+    return 'Map positions for this selection are being refined. Every place is still listed below.';
+  if (refining > 0)
+    return `${refining} ${refining === 1 ? 'place' : 'places'} in the list ${refining === 1 ? 'has its' : 'have their'} map position being refined.`;
+  return '';
+}
+
+function mapStage(list: Venue[]): string {
+  const note = mapNote(list);
+  return `<section class="map-stage" aria-label="Madrid map">
+    <div class="map-panel map-panel-live" role="group" aria-label="Interactive map of the Madrid selection">
+      <div id="venue-map" class="venue-map" tabindex="-1" aria-label="Madrid map"></div>
+      ${note ? `<p class="map-note" role="status">${esc(note)}</p>` : ''}
+    </div>
+    ${detailPanel()}
+  </section>`;
+}
+
+function refineChips(): string {
+  const chips = activeFilters();
+  if (chips.length === 0) return '';
+  return `<div class="chips" aria-label="Active filters">
+    ${chips
+      .map(
+        (c) => `<button type="button" class="chip" data-chip="${c.kind}"
+          aria-label="Remove filter ${esc(c.label)}">${esc(c.label)}<span class="chip-x" aria-hidden="true">×</span></button>`
+      )
+      .join('')}
+    <button type="button" class="chip chip-clear" data-clear-filters>Clear all</button>
   </div>`;
+}
+
+function filterTray(): string {
+  if (!state.trayOpen) return '';
+  const group = (
+    id: string,
+    label: string,
+    buttons: string
+  ) => `<div class="tray-group">
+      <span class="tray-label" id="${id}">${label}</span>
+      <div class="tray-options" role="group" aria-labelledby="${id}">${buttons}</div>
+    </div>`;
+  const awardButtons = awardFilters()
+    .map(
+      (f) => `<button type="button" class="filter${state.filter === f.value ? ' filter-active' : ''}"
+        data-filter="${esc(f.value)}" aria-pressed="${state.filter === f.value}">${esc(f.label) || 'All'}</button>`
+    )
+    .join('');
+  const categoryButtons =
+    `<button type="button" class="filter${state.categoryFilter === '' ? ' filter-active' : ''}"
+      data-category="" aria-pressed="${state.categoryFilter === ''}">All</button>` +
+    categoryNames()
+      .map(
+        (name) => `<button type="button" class="filter${state.categoryFilter === name ? ' filter-active' : ''}"
+          data-category="${esc(name)}" aria-pressed="${state.categoryFilter === name}">${esc(name)}</button>`
+      )
+      .join('');
+  const sourceButtons =
+    `<button type="button" class="filter${state.sourceFilter === '' ? ' filter-active' : ''}"
+      data-source="" aria-pressed="${state.sourceFilter === ''}">All</button>` +
+    sourceNames()
+      .map(
+        (name) => `<button type="button" class="filter${state.sourceFilter === name ? ' filter-active' : ''}"
+          data-source="${esc(name)}" aria-pressed="${state.sourceFilter === name}">${esc(name)}</button>`
+      )
+      .join('');
+  return `<div class="tray" id="filter-tray">
+    ${group('tray-award', 'Recognition', awardButtons)}
+    ${group('tray-category', 'Category', categoryButtons)}
+    ${group('tray-source', 'Guide', sourceButtons)}
+    <div class="tray-actions">
+      <button type="button" class="tray-clear" data-clear-filters>Clear filters</button>
+      <button type="button" class="tray-done" data-tray-close>Done</button>
+    </div>
+  </div>`;
+}
+
+function discoveryBar(list: Venue[], loading: boolean): string {
+  const activeCount = activeFilters().length;
+  return `<section class="discovery" aria-label="Explore the selection">
+    <div class="discovery-row">
+      <div class="search-control">
+        <label class="visually-hidden" for="venue-search">Search by name</label>
+        <input type="search" id="venue-search" data-search
+          value="${esc(state.search)}"
+          placeholder="Search by name — Casa, DiverXO…"
+          autocomplete="off" spellcheck="false" />
+      </div>
+      <button type="button" class="refine-btn${activeCount ? ' refine-btn-active' : ''}" data-tray-toggle
+        aria-expanded="${state.trayOpen}" aria-controls="filter-tray">
+        Refine${activeCount ? ` <span class="refine-count">${activeCount}</span>` : ''}
+      </button>
+      <button type="button" class="nearby-btn" data-geolocate ${state.geoBusy ? 'disabled' : ''}>
+        ${state.geoBusy ? 'Finding you…' : 'Show nearby'}
+      </button>
+      <span class="count" aria-live="polite">${
+        loading ? 'Preparing the selection…' : `${list.length} ${list.length === 1 ? 'place' : 'places'}`
+      }</span>
+    </div>
+    ${filterTray()}
+    ${refineChips()}
+    ${state.geoStatus ? `<p class="geo-status" role="status">${esc(state.geoStatus)}</p>` : ''}
+  </section>`;
 }
 
 function venueCard(v: Venue): string {
@@ -545,11 +683,9 @@ function venueCard(v: Venue): string {
                 a.listRank !== null
                   ? `<span role="listitem" class="award award-ranked" title="${esc(awardText(a))} — ${esc(a.sourceName)} ${a.awardYear}">
                   <span class="award-rank-no">No. ${a.listRank}</span> ${esc(a.edition)}
-                  <span class="award-guide">${esc(a.sourceName)}</span>
                 </span>`
                   : `<span role="listitem" class="award award-${a.awardRank ?? 0}" title="${esc(a.awardLevel)} — ${esc(a.sourceName)} ${a.awardYear}">
                   <span aria-hidden="true">${awardIcons(a)}</span> ${esc(a.awardLevel)}
-                  <span class="award-guide">${esc(a.sourceName)}</span>
                 </span>`
               )
               .join('')}
@@ -558,8 +694,8 @@ function venueCard(v: Venue): string {
         <p class="card-meta">${esc([v.category, v.neighborhood].filter(Boolean).join(' · '))}</p>
         <p class="card-address">${
           v.address
-            ? `${esc(v.address)}${v.approxLocation ? ' <span class="approx">approx. location</span>' : ''}`
-            : '<span class="approx">Location pending verification</span>'
+            ? esc(v.address)
+            : '<span class="approx">Map position being refined</span>'
         }</p>
       </button>
       <div class="card-sources">
@@ -567,11 +703,11 @@ function venueCard(v: Venue): string {
           .map((a) => {
             const claim =
               a.listRank !== null
-                ? `<span class="card-source-rank">No. ${a.listRank}</span> in <strong>${esc(a.edition)}</strong> · ${esc(a.sourceName)}`
-                : `${esc(a.awardLevel)} verified in <strong>${esc(a.sourceName)} ${a.awardYear}</strong>`;
+                ? `No. ${a.listRank} · ${esc(a.edition)}`
+                : `${esc(a.awardLevel)} · ${esc(a.sourceName)} ${a.awardYear}`;
             return `<p class="card-source">${claim}${
               a.sourceUrl
-                ? ` · <a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">official listing ↗</a>`
+                ? ` — <a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">Official guide ↗</a>`
                 : ''
             }</p>`;
           })
@@ -584,16 +720,22 @@ function venueCard(v: Venue): string {
 function detailPanel(): string {
   const v = state.venues.find((x) => x.id === state.selectedId);
   if (!v) {
-    return `<aside class="detail detail-empty" aria-live="polite">
-      <p>Select a venue from the list or the map to see its details.</p>
-    </aside>`;
+    return `<p class="map-prompt" aria-live="polite">Choose a pin on the map — or a place in the list — to see more.</p>`;
   }
-  return `<aside class="detail" aria-live="polite" aria-label="Selected venue details">
+  const guides = guideNames(v);
+  const guideSentence =
+    guides.length > 0
+      ? `A current selection, independently recognised by ${guides.join(' and ')}.`
+      : '';
+  return `<aside class="detail" aria-live="polite" aria-label="Selected place">
     <div class="detail-head">
-      <h2>${esc(v.name)}</h2>
+      <div>
+        <h2>${esc(v.name)}</h2>
+        ${v.category || v.neighborhood ? `<p class="detail-meta">${esc([v.category, v.neighborhood].filter(Boolean).join(' · '))}</p>` : ''}
+      </div>
       <button type="button" class="detail-close" data-close aria-label="Close details">✕</button>
     </div>
-    <ul class="detail-awards" aria-label="Awards">
+    <ul class="detail-awards" aria-label="Recognition">
       ${v.awards
         .map((a) =>
           a.listRank !== null
@@ -606,161 +748,127 @@ function detailPanel(): string {
         )
         .join('')}
     </ul>
-    ${[...new Set(v.awards.map((a) => a.note).filter(Boolean))]
-      .map((note) => `<p class="detail-note">${esc(note)}</p>`)
-      .join('')}
+    ${guideSentence ? `<p class="detail-note">${esc(guideSentence)}</p>` : ''}
     <dl class="detail-facts">
-      ${v.category ? `<div><dt>Category</dt><dd>${esc(v.category)}</dd></div>` : ''}
-      ${v.neighborhood ? `<div><dt>Neighborhood</dt><dd>${esc(v.neighborhood)}</dd></div>` : ''}
       <div><dt>Address</dt><dd>${
         v.address
-          ? `${esc(v.address)}${v.approxLocation ? ' <span class="approx">approximate location</span>' : ''}`
-          : '<span class="approx">Location pending verification</span>'
+          ? esc(v.address)
+          : '<span class="approx">Map position being refined</span>'
       }</dd></div>
-      <div><dt>Award source${v.awards.length === 1 ? '' : 's'}</dt><dd>${v.awards
-        .map(
-          (a) =>
-            `${esc(awardText(a))}: ${
-              a.sourceUrl
-                ? `<a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(a.sourceName)} ${a.awardYear} ↗</a>`
-                : `${esc(a.sourceName)} ${a.awardYear}`
-            }`
+      <div><dt>Official guide${v.awards.length === 1 ? '' : 's'}</dt><dd>${v.awards
+        .map((a) =>
+          a.sourceUrl
+            ? `<a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(a.sourceName)} ${a.awardYear} ↗</a>`
+            : `${esc(a.sourceName)} ${a.awardYear}`
         )
         .join('<br>')}</dd></div>
     </dl>
   </aside>`;
 }
 
+/* ---------- render ---------- */
+
 function render(root: HTMLElement) {
   const list = filteredVenues();
-  const demoBanner =
+  const previewBanner =
     state.mode === 'demo'
-      ? `<p class="demo-banner" role="status">Showing a local demo selection — the live catalogue isn’t connected yet.</p>`
+      ? `<p class="status-banner" role="status">You’re seeing a limited preview of the Madrid selection. The full, current list will be back shortly.</p>`
       : '';
   const loading = state.mode === 'loading';
 
   root.innerHTML = `
+    <a class="skip-link" href="#venue-map">Skip to the map</a>
     <header class="hero">
       <div class="hero-inner">
         <p class="brand">Detour</p>
-        <p class="brand-line" style="margin:0 0 0.6rem;font-size:0.85rem;letter-spacing:0.08em;font-style:italic;opacity:0.85;">Trust the experts. Great food is never a straight line.</p>
-        <h1>Madrid’s trusted table, mapped.</h1>
-        <p class="tagline">Every place on Detour holds a current award from a named guide — source first, always linked. This is a verified selection for Madrid right now, not a directory of the whole city.</p>
-        <div class="hero-badges">
-          <span class="badge badge-year">${esc(sourceNames().join(' · ') || 'Guía Repsol')} · ${state.guideYear} guide year</span>
-          <span class="badge">Source-attributed</span>
-          <span class="badge">Madrid, Spain</span>
-        </div>
+        <h1>Madrid’s exceptional tables, mapped.</h1>
+        <p class="tagline">A deliberately small selection — every place holds a current award from a named guide. ${esc(String(state.guideYear))} selections.</p>
       </div>
     </header>
-    ${demoBanner}
-    <section class="controls" aria-label="Filter venues by award level">
-      <span class="controls-label" id="filter-label">Award level</span>
-      <div class="filters" role="group" aria-labelledby="filter-label">
-        ${awardFilters()
-          .map(
-            (f) => `<button type="button" class="filter${state.filter === f.value ? ' filter-active' : ''}"
-            data-filter="${esc(f.value)}" aria-pressed="${state.filter === f.value}">${esc(f.label) || 'All'}</button>`
-          )
-          .join('')}
-      </div>
-      <span class="count" aria-live="polite">${loading ? 'Loading…' : `${list.length} venue${list.length === 1 ? '' : 's'}`}</span>
+    ${previewBanner}
+    ${discoveryBar(list, loading)}
+    ${
+      loading
+        ? `<section class="map-stage" aria-label="Madrid map"><div class="map-panel map-panel-live"><p class="map-empty">Drawing the map of Madrid…</p></div></section>`
+        : mapStage(list)
+    }
+    <section class="results" aria-label="The selection">
+      ${
+        loading
+          ? '<p class="loading">Gathering the current selection…</p>'
+          : list.length
+            ? `<ul class="card-list">${list.map(venueCard).join('')}</ul>`
+            : `<div class="empty-state" role="status">
+                <p class="empty-state-title">Nothing matches yet</p>
+                <p class="empty-state-body">Try a different name, or start again with the full Madrid selection.</p>
+                <button type="button" class="empty-state-reset" data-reset-filters>Show everything</button>
+              </div>`
+      }
     </section>
-    <section class="controls" aria-label="Filter venues by category">
-      <span class="controls-label" id="category-label">Category</span>
-      <div class="filters" role="group" aria-labelledby="category-label">
-        <button type="button" class="filter${state.categoryFilter === '' ? ' filter-active' : ''}"
-          data-category="" aria-pressed="${state.categoryFilter === ''}">All</button>
-        ${categoryNames()
-          .map(
-            (name) => `<button type="button" class="filter${state.categoryFilter === name ? ' filter-active' : ''}"
-              data-category="${esc(name)}" aria-pressed="${state.categoryFilter === name}">${esc(name)}</button>`
-          )
-          .join('')}
-      </div>
-    </section>
-    <section class="controls" aria-label="Filter venues by guide source">
-      <span class="controls-label" id="source-label">Guide source</span>
-      <div class="filters" role="group" aria-labelledby="source-label">
-        <button type="button" class="filter${state.sourceFilter === '' ? ' filter-active' : ''}"
-          data-source="" aria-pressed="${state.sourceFilter === ''}">All</button>
-        ${sourceNames()
-          .map(
-            (name) => `<button type="button" class="filter${state.sourceFilter === name ? ' filter-active' : ''}"
-              data-source="${esc(name)}" aria-pressed="${state.sourceFilter === name}">${esc(name)}</button>`
-          )
-          .join('')}
-      </div>
-    </section>
-    <section class="controls" aria-label="Search venues by name">
-      <label class="controls-label" for="venue-search">Search by name</label>
-      <div class="search-control">
-        <input type="search" id="venue-search" data-search
-          value="${esc(state.search)}"
-          placeholder="e.g. Casa, DiverXO…"
-          autocomplete="off" spellcheck="false" />
-      </div>
-    </section>
-    <section class="controls" aria-label="Your location">
-      <span class="controls-label" id="geo-label">Your location</span>
-      <div class="filters" role="group" aria-labelledby="geo-label">
-        <button type="button" class="filter" data-geolocate ${state.geoBusy ? 'disabled' : ''}>
-          ${state.geoBusy ? 'Locating…' : 'Use my location'}
-        </button>
-      </div>
-      ${state.geoStatus ? `<span class="count" role="status">${esc(state.geoStatus)}</span>` : ''}
-    </section>
-    <div class="layout">
-      <section class="results" aria-label="Venue results">
-        ${
-          loading
-            ? '<p class="loading">Loading the current selection…</p>'
-            : list.length
-              ? `<ul class="card-list">${list.map(venueCard).join('')}</ul>`
-              : `<div class="empty-state" role="status">
-                  <p class="empty-state-title">No matching venues</p>
-                  <p class="empty-state-body">Your current search and filters produced no matches. Try a different venue name, or start over.</p>
-                  <button type="button" class="empty-state-reset" data-reset-filters>Clear search &amp; filters</button>
-                </div>`
-        }
-      </section>
-      <div class="side">
-        ${loading ? '<div class="map-panel"><p class="map-empty">Loading map…</p></div>' : mapPanel(list)}
-        ${detailPanel()}
-      </div>
-    </div>
     <footer class="footer">
-      <p>Detour lists a current, verified selection of awarded Madrid venues. Awards belong to their guides; follow each source link for the official listing.</p>
+      <p>Detour is a current, deliberately edited selection of Madrid’s awarded tables. Each award belongs to its guide — follow the official guide links for the original listings.</p>
     </footer>
   `;
+
+  const keepSelectionValid = () => {
+    const visible = filteredVenues();
+    if (state.selectedId && !visible.some((v) => v.id === state.selectedId)) {
+      state.selectedId = null;
+      state.selectedVia = null;
+    }
+  };
 
   root.querySelectorAll<HTMLButtonElement>('[data-filter]').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.filter = btn.dataset.filter ?? '';
-      const visible = filteredVenues();
-      if (state.selectedId && !visible.some((v) => v.id === state.selectedId)) {
-        state.selectedId = null;
-      }
+      keepSelectionValid();
+      pendingFocus = `[data-filter="${CSS.escape(btn.dataset.filter ?? '')}"]`;
       render(root);
     });
   });
   root.querySelectorAll<HTMLButtonElement>('[data-category]').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.categoryFilter = btn.dataset.category ?? '';
-      const visible = filteredVenues();
-      if (state.selectedId && !visible.some((v) => v.id === state.selectedId)) {
-        state.selectedId = null;
-      }
+      keepSelectionValid();
+      pendingFocus = `[data-category="${CSS.escape(btn.dataset.category ?? '')}"]`;
       render(root);
     });
   });
   root.querySelectorAll<HTMLButtonElement>('[data-source]').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.sourceFilter = btn.dataset.source ?? '';
-      const visible = filteredVenues();
-      if (state.selectedId && !visible.some((v) => v.id === state.selectedId)) {
-        state.selectedId = null;
-      }
+      keepSelectionValid();
+      pendingFocus = `[data-source="${CSS.escape(btn.dataset.source ?? '')}"]`;
+      render(root);
+    });
+  });
+  root.querySelector<HTMLButtonElement>('[data-tray-toggle]')?.addEventListener('click', () => {
+    state.trayOpen = !state.trayOpen;
+    pendingFocus = '[data-tray-toggle]';
+    render(root);
+  });
+  root.querySelector<HTMLButtonElement>('[data-tray-close]')?.addEventListener('click', () => {
+    state.trayOpen = false;
+    pendingFocus = '[data-tray-toggle]';
+    render(root);
+  });
+  root.querySelectorAll<HTMLButtonElement>('[data-chip]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const kind = btn.dataset.chip;
+      if (kind === 'award') state.filter = '';
+      if (kind === 'category') state.categoryFilter = '';
+      if (kind === 'source') state.sourceFilter = '';
+      keepSelectionValid();
+      pendingFocus = '[data-tray-toggle]';
+      render(root);
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>('[data-clear-filters]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.filter = '';
+      state.sourceFilter = '';
+      state.categoryFilter = '';
+      pendingFocus = '[data-tray-toggle]';
       render(root);
     });
   });
@@ -770,18 +878,23 @@ function render(root: HTMLElement) {
   root.querySelectorAll<HTMLButtonElement>('[data-venue]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.venue ?? null;
-      state.selectedId = state.selectedId === id ? null : id;
+      const deselecting = state.selectedId === id;
+      state.selectedId = deselecting ? null : id;
+      state.selectedVia = deselecting ? null : 'card';
+      pendingFocus = id ? `[data-venue="${CSS.escape(id)}"]` : null;
       render(root);
-      root.querySelector('.detail')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      if (!deselecting) {
+        root.querySelector('.detail')?.scrollIntoView({
+          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+          block: 'nearest',
+        });
+      }
     });
   });
   const searchInput = root.querySelector<HTMLInputElement>('[data-search]');
   searchInput?.addEventListener('input', () => {
     state.search = searchInput.value;
-    const visible = filteredVenues();
-    if (state.selectedId && !visible.some((v) => v.id === state.selectedId)) {
-      state.selectedId = null;
-    }
+    keepSelectionValid();
     const caret = searchInput.selectionStart;
     render(root);
     // Re-rendering replaces the input; restore focus and caret so typing
@@ -797,21 +910,40 @@ function render(root: HTMLElement) {
     state.sourceFilter = '';
     state.categoryFilter = '';
     state.search = '';
+    pendingFocus = '[data-search]';
     render(root);
   });
   root.querySelector('[data-close]')?.addEventListener('click', () => {
+    const closedId = state.selectedId;
+    const via = state.selectedVia;
     state.selectedId = null;
+    state.selectedVia = null;
+    // Return focus to the card or pin that opened the detail.
+    pendingFocus =
+      closedId === null
+        ? null
+        : via === 'pin'
+          ? `[data-pin="${CSS.escape(closedId)}"]`
+          : `[data-venue="${CSS.escape(closedId)}"]`;
     render(root);
   });
 
   // (Re)create the Leaflet map after the DOM has been replaced.
   mountMap(root, list);
+
+  // Restore focus to the control that triggered this render (map pins are
+  // only queryable after mountMap).
+  if (pendingFocus) {
+    const target = root.querySelector<HTMLElement>(pendingFocus);
+    pendingFocus = null;
+    target?.focus({ preventScroll: true });
+  }
 }
 
 /* ---------- geolocation (opt-in only) ---------- */
 
 const GEO_FALLBACK =
-  'We couldn’t get your location, so the map stays centered on Madrid — everything else works as usual.';
+  'We couldn’t find your position, so the map stays on Madrid — everything else works as usual.';
 
 function requestUserLocation(root: HTMLElement): void {
   if (state.geoBusy) return;
@@ -822,7 +954,8 @@ function requestUserLocation(root: HTMLElement): void {
     return;
   }
   state.geoBusy = true;
-  state.geoStatus = 'Requesting your location…';
+  state.geoStatus = 'Finding places near you…';
+  pendingFocus = '[data-geolocate]';
   render(root);
   navigator.geolocation.getCurrentPosition(
     (pos) => {
@@ -838,16 +971,17 @@ function requestUserLocation(root: HTMLElement): void {
         state.geoStatus = GEO_FALLBACK;
       } else {
         state.userLocation = { lat: latitude, lng: longitude };
-        state.geoStatus =
-          'Your location is shown on the map as a blue dot.';
+        state.geoStatus = 'You’re on the map — look for the rose dot.';
         savedView = null; // refit / recenter so the user sees their marker context
       }
+      pendingFocus = '[data-geolocate]';
       render(root);
     },
     () => {
       state.geoBusy = false;
       state.userLocation = null;
       state.geoStatus = GEO_FALLBACK;
+      pendingFocus = '[data-geolocate]';
       render(root);
     },
     { timeout: 10000, maximumAge: 60000 }
