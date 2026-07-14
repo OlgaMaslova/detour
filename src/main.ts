@@ -835,8 +835,20 @@ function detailPanel(): string {
 
 /* ---------- render ---------- */
 
+/**
+ * Keep the browser tab title and the meta description in step with the
+ * active city. The static index.html defaults cover the pre-JS load; from
+ * the first render onwards the document reflects the city being explored.
+ */
+function syncDocumentMeta(city: CityConfig): void {
+  document.title = city.metaTitle;
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+  if (meta) meta.setAttribute('content', city.metaDescription);
+}
+
 function render(root: HTMLElement) {
   const city = activeCity();
+  syncDocumentMeta(city);
   const list = filteredVenues();
   const cityHasVenues = cityVenues().length > 0;
   const previewBanner =

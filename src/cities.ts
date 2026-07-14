@@ -24,6 +24,10 @@ export interface CityConfig {
   tagline: string;
   footer: string;
   searchPlaceholder: string;
+  /** Browser tab title once the app has booted into this city. */
+  metaTitle: string;
+  /** `meta[name="description"]` content once the app has booted into this city. */
+  metaDescription: string;
   /** Shown when the city is configured but its selection is not published yet. */
   unavailableCopy: string;
   /** Map view used when there are no plottable pins to derive bounds from. */
@@ -48,6 +52,9 @@ export const CITIES: readonly CityConfig[] = [
     footer:
       'Detour is a current, deliberately edited selection of Madrid’s awarded tables. Each award belongs to its guide — follow the official guide links for the original listings.',
     searchPlaceholder: 'Search by name — Casa, DiverXO…',
+    metaTitle: 'Detour — Madrid’s exceptional tables, mapped',
+    metaDescription:
+      'A deliberately small map of Madrid’s awarded tables — every place holds a current award from a named guide, from Repsol Soles to Michelin Stars.',
     unavailableCopy:
       'The Madrid selection isn’t available right now. It will be back shortly.',
     center: [40.4168, -3.7038],
@@ -64,6 +71,9 @@ export const CITIES: readonly CityConfig[] = [
     footer:
       'Detour is a current, deliberately edited selection of Paris’s awarded tables — map positions for this selection are being refined. Each award belongs to its guide — follow the official guide links for the original listings.',
     searchPlaceholder: 'Search by name — Kei, Arpège…',
+    metaTitle: 'Detour — Paris’s starred tables, gathered',
+    metaDescription:
+      'A deliberately small selection of Paris’s starred tables — every place holds a current award from a named guide, gathered on one map.',
     unavailableCopy:
       'The Paris selection isn’t published here yet. Check back soon — Madrid is ready to explore in the meantime.',
     center: [48.8566, 2.3522],
@@ -80,6 +90,9 @@ export const CITIES: readonly CityConfig[] = [
     footer:
       'Detour is a current, deliberately edited selection of San Francisco’s awarded tables. Each award belongs to its guide — follow the official guide links for the original listings.',
     searchPlaceholder: 'Search by name — Quince, Benu…',
+    metaTitle: 'Detour — San Francisco’s starred tables, mapped',
+    metaDescription:
+      'A deliberately small map of San Francisco’s awarded tables — every place holds a current award from a named guide.',
     unavailableCopy:
       'The San Francisco selection isn’t published here yet. Check back soon — Madrid is ready to explore in the meantime.',
     center: [37.7749, -122.4194],
