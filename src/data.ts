@@ -27,6 +27,8 @@ export interface VenueAward {
 export interface Venue {
   id: string;
   name: string;
+  /** City name as stored in the catalogue (e.g. 'Madrid'); scopes every view to one city. */
+  city: string;
   /**
    * Every current award this canonical venue holds, one entry per guide.
    * Sorted highest rank first; always at least one entry.
@@ -137,6 +139,7 @@ export const demoVenues: Venue[] = [
     ([id, name, award, address, lat, lng, approxLocation]): Venue => ({
       id,
       name,
+      city: 'Madrid',
       awards: [
         {
           awardLevel: solLabel(award),
@@ -161,6 +164,7 @@ export const demoVenues: Venue[] = [
     ([id, name, award, address, lat, lng, approxLocation]): Venue => ({
       id,
       name,
+      city: 'Madrid',
       awards: [
         {
           awardLevel: solLabel(award),
@@ -188,6 +192,7 @@ export const demoVenues: Venue[] = [
   {
     id: 'demo-baldoria',
     name: 'Baldoria',
+    city: 'Madrid',
     awards: [
       {
         awardLevel: `${PIZZA_EDITION} — No. 2`,
@@ -210,6 +215,7 @@ export const demoVenues: Venue[] = [
   {
     id: 'demo-fratelli-figurato',
     name: 'Fratelli Figurato',
+    city: 'Madrid',
     awards: [
       {
         awardLevel: `${PIZZA_EDITION} — No. 11`,
@@ -232,6 +238,7 @@ export const demoVenues: Venue[] = [
   {
     id: 'demo-hola-coffee-lagasca',
     name: 'Hola Coffee Lagasca',
+    city: 'Madrid',
     awards: [
       {
         awardLevel: `${COFFEE_EDITION} — No. 19`,

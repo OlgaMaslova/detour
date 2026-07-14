@@ -4,6 +4,8 @@ import L from 'leaflet';
 import { pb } from './pocketbase';
 import { demoVenues, GUIDE_YEAR } from './data';
 import type { Venue, VenueAward } from './data';
+import { CITIES, cityBySlug, citySlugFromUrl } from './cities';
+import type { CityConfig, CitySlug } from './cities';
 
 /** '' = all award levels; otherwise a literal level label present in the loaded data. */
 type Filter = string;
@@ -16,6 +18,9 @@ interface UserLocation {
 
 interface State {
   mode: DataMode;
+  /** Active city; every filter/search/count/map/detail render is scoped to it. */
+  city: CitySlug;
+  /** Every loaded venue, across all cities. Never rendered directly — see cityVenues(). */
   venues: Venue[];
   filter: Filter;
   /** '' = all sources; otherwise a source name present in the loaded data. */
@@ -37,6 +42,7 @@ interface State {
 
 const state: State = {
   mode: 'loading',
+  city: citySlugFromUrl(window.location.search),
   venues: [],
   filter: '',
   sourceFilter: '',
@@ -310,6 +316,7 @@ async function loadLiveVenues(): Promise<Venue[]> {
     venuesById.set(venueId, {
       id: venueId,
       name: str(venue.name, venue.title) || 'Unnamed venue',
+      city: str(venue.city, venue.town, venue.locality),
       awards: [venueAward],
       category: str(venue.category, venue.cuisine, venue.style),
       neighborhood: str(venue.neighborhood, venue.district, venue.area),
@@ -326,6 +333,44 @@ async function loadLiveVenues(): Promise<Venue[]> {
   return venues;
 }
 
+/* ---------- city scoping ---------- */
+
+function activeCity(): CityConfig {
+  return cityBySlug(state.city) ?? CITIES[0];
+}
+
+/**
+ * The active city's venues — the only venue list any filter, search, count,
+ * map, or detail render may derive from, so records from another city can
+ * never leak into the current view.
+ */
+function cityVenues(): Venue[] {
+  const name = activeCity().name.toLowerCase();
+  return state.venues.filter((v) => v.city.trim().toLowerCase() === name);
+}
+
+function switchCity(root: HTMLElement, slug: CitySlug): void {
+  if (slug === state.city) return;
+  state.city = slug;
+  // A city switch starts a fresh exploration: clear every scoped control.
+  state.filter = '';
+  state.sourceFilter = '';
+  state.categoryFilter = '';
+  state.search = '';
+  state.selectedId = null;
+  state.selectedVia = null;
+  state.trayOpen = false;
+  state.userLocation = null;
+  state.geoStatus = '';
+  savedView = null;
+  savedPinKey = '';
+  const url = new URL(window.location.href);
+  url.searchParams.set('city', slug);
+  window.history.replaceState(null, '', url);
+  pendingFocus = '[data-city]';
+  render(root);
+}
+
 /* ---------- filters ---------- */
 
 /**
@@ -335,7 +380,7 @@ async function loadLiveVenues(): Promise<Venue[]> {
  */
 function awardFilters(): { value: Filter; label: string }[] {
   const seen = new Map<string, number | null>();
-  for (const v of state.venues) {
+  for (const v of cityVenues()) {
     for (const a of v.awards) {
       if (a.listRank !== null) continue;
       if (!seen.has(a.awardLevel)) seen.set(a.awardLevel, a.awardRank);
@@ -353,13 +398,13 @@ function awardFilters(): { value: Filter; label: string }[] {
 /** Stable category options present in the loaded data (e.g. 'Coffee', 'Pizza'). */
 function categoryNames(): string[] {
   const names = new Set<string>();
-  for (const v of state.venues) if (v.category) names.add(v.category);
+  for (const v of cityVenues()) if (v.category) names.add(v.category);
   return [...names].sort((a, b) => a.localeCompare(b));
 }
 
 function sourceNames(): string[] {
   const names = new Set<string>();
-  for (const v of state.venues)
+  for (const v of cityVenues())
     for (const a of v.awards) if (a.sourceName) names.add(a.sourceName);
   return [...names].sort((a, b) => a.localeCompare(b));
 }
@@ -368,7 +413,7 @@ function filteredVenues(): Venue[] {
   const query = state.search.trim().toLowerCase();
   // A filter matches when ANY of the venue's awards matches, so a venue
   // recognised by several guides stays visible under each guide's filter.
-  const list = state.venues.filter(
+  const list = cityVenues().filter(
     (v) =>
       (state.filter === '' || v.awards.some((a) => a.awardLevel === state.filter)) &&
       (state.sourceFilter === '' ||
@@ -403,12 +448,12 @@ function activeFilters(): ActiveFilter[] {
 
 /* ---------- interactive map (Leaflet + OpenStreetMap) ---------- */
 
-// Central Madrid fallback view used when there are no plottable venue pins to
-// derive bounds from, or when browser location is unavailable/denied.
-const MADRID_CENTER: [number, number] = [40.4168, -3.7038];
-const MADRID_ZOOM = 13;
-
 type MappableVenue = Venue & { lat: number; lng: number };
+
+function withinCity(city: CityConfig, p: UserLocation): boolean {
+  const b = city.bounds;
+  return p.lat > b.latMin && p.lat < b.latMax && p.lng > b.lngMin && p.lng < b.lngMax;
+}
 
 function mappableVenues(list: Venue[]): MappableVenue[] {
   return list.filter(
@@ -438,16 +483,18 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
   const container = root.querySelector<HTMLElement>('#venue-map');
   if (!container) return;
 
+  const city = activeCity();
   const mappable = mappableVenues(list);
-  const pinKey = mappable.map((v) => v.id).join('|');
+  // Include the active city in the key so a city switch always refits the map.
+  const pinKey = `${city.slug}::${mappable.map((v) => v.id).join('|')}`;
   if (pinKey !== savedPinKey) {
     savedPinKey = pinKey;
     savedView = null;
   }
 
   const map = L.map(container, {
-    center: MADRID_CENTER,
-    zoom: MADRID_ZOOM,
+    center: city.center,
+    zoom: city.zoom,
     scrollWheelZoom: false, // don't hijack page scroll
     zoomSnap: 0.5,
   });
@@ -525,8 +572,12 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
     if (selected) marker.openPopup();
   }
 
-  // User location — shown only when the browser granted a real position.
-  if (state.userLocation) {
+  // User location — shown only when the browser granted a real position that
+  // plausibly falls inside the active city, so a distant visitor's marker
+  // never appears on (or drags) another city's map.
+  const userInCity =
+    state.userLocation !== null && withinCity(city, state.userLocation);
+  if (state.userLocation && userInCity) {
     L.circleMarker([state.userLocation.lat, state.userLocation.lng], {
       radius: 7,
       color: '#f6f0e4',
@@ -538,19 +589,17 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
       .bindTooltip('You are here');
   }
 
-  // View: restore the user's last view, else fit the real pins, else Madrid.
+  // View: restore the user's last view, else fit the active city's real
+  // pins, else stay on the city's fallback centre.
   if (savedView) {
     map.setView(savedView.center, savedView.zoom, { animate: false });
   } else if (mappable.length > 0) {
     const bounds = L.latLngBounds(
       mappable.map((v) => [v.lat, v.lng] as [number, number])
     );
-    // Include the user's marker in the frame only when it is near Madrid,
-    // so a distant user never zooms the city map out to another region.
+    // Frame the user's marker only when it is inside the active city.
     const u = state.userLocation;
-    if (u && u.lat > 40.2 && u.lat < 40.65 && u.lng > -3.95 && u.lng < -3.45) {
-      bounds.extend([u.lat, u.lng]);
-    }
+    if (u && userInCity) bounds.extend([u.lat, u.lng]);
     map.fitBounds(bounds, { padding: [36, 36], maxZoom: 16 });
   }
   map.on('moveend zoomend', () => {
@@ -563,8 +612,12 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
 function mapNote(list: Venue[]): string {
   const mappable = mappableVenues(list);
   const refining = list.length - mappable.length;
-  if (list.length === 0)
-    return 'Nothing matches at the moment — the map stays on Madrid while you adjust your search.';
+  if (list.length === 0) {
+    const city = activeCity();
+    return cityVenues().length === 0
+      ? `The ${city.name} selection isn’t published here yet — the map stays on ${city.name}.`
+      : `Nothing matches at the moment — the map stays on ${city.name} while you adjust your search.`;
+  }
   if (mappable.length === 0)
     return 'Map positions for this selection are being refined. Every place is still listed below.';
   if (refining > 0)
@@ -574,9 +627,10 @@ function mapNote(list: Venue[]): string {
 
 function mapStage(list: Venue[]): string {
   const note = mapNote(list);
-  return `<section class="map-stage" aria-label="Madrid map">
-    <div class="map-panel map-panel-live" role="group" aria-label="Interactive map of the Madrid selection">
-      <div id="venue-map" class="venue-map" tabindex="-1" aria-label="Madrid map"></div>
+  const cityName = esc(activeCity().name);
+  return `<section class="map-stage" aria-label="${cityName} map">
+    <div class="map-panel map-panel-live" role="group" aria-label="Interactive map of the ${cityName} selection">
+      <div id="venue-map" class="venue-map" tabindex="-1" aria-label="${cityName} map"></div>
       ${note ? `<p class="map-note" role="status">${esc(note)}</p>` : ''}
     </div>
     ${detailPanel()}
@@ -642,15 +696,28 @@ function filterTray(): string {
   </div>`;
 }
 
+function citySelector(): string {
+  return `<div class="city-control">
+      <label class="visually-hidden" for="city-select">City</label>
+      <select id="city-select" data-city>
+        ${CITIES.map(
+          (c) =>
+            `<option value="${esc(c.slug)}"${c.slug === state.city ? ' selected' : ''}>${esc(c.name)}, ${esc(c.country)}</option>`
+        ).join('')}
+      </select>
+    </div>`;
+}
+
 function discoveryBar(list: Venue[], loading: boolean): string {
   const activeCount = activeFilters().length;
   return `<section class="discovery" aria-label="Explore the selection">
     <div class="discovery-row">
+      ${citySelector()}
       <div class="search-control">
         <label class="visually-hidden" for="venue-search">Search by name</label>
         <input type="search" id="venue-search" data-search
           value="${esc(state.search)}"
-          placeholder="Search by name — Casa, DiverXO…"
+          placeholder="${esc(activeCity().searchPlaceholder)}"
           autocomplete="off" spellcheck="false" />
       </div>
       <button type="button" class="refine-btn${activeCount ? ' refine-btn-active' : ''}" data-tray-toggle
@@ -718,7 +785,7 @@ function venueCard(v: Venue): string {
 }
 
 function detailPanel(): string {
-  const v = state.venues.find((x) => x.id === state.selectedId);
+  const v = cityVenues().find((x) => x.id === state.selectedId);
   if (!v) {
     return `<p class="map-prompt" aria-live="polite">Choose a pin on the map — or a place in the list — to see more.</p>`;
   }
@@ -769,27 +836,39 @@ function detailPanel(): string {
 /* ---------- render ---------- */
 
 function render(root: HTMLElement) {
+  const city = activeCity();
   const list = filteredVenues();
+  const cityHasVenues = cityVenues().length > 0;
   const previewBanner =
-    state.mode === 'demo'
-      ? `<p class="status-banner" role="status">You’re seeing a limited preview of the Madrid selection. The full, current list will be back shortly.</p>`
+    state.mode === 'demo' && cityHasVenues
+      ? `<p class="status-banner" role="status">You’re seeing a limited preview of the ${esc(city.name)} selection. The full, current list will be back shortly.</p>`
       : '';
   const loading = state.mode === 'loading';
+  const emptyState = cityHasVenues
+    ? `<div class="empty-state" role="status">
+        <p class="empty-state-title">Nothing matches yet</p>
+        <p class="empty-state-body">Try a different name, or start again with the full ${esc(city.name)} selection.</p>
+        <button type="button" class="empty-state-reset" data-reset-filters>Show everything</button>
+      </div>`
+    : `<div class="empty-state" role="status">
+        <p class="empty-state-title">Nothing to show for ${esc(city.name)} yet</p>
+        <p class="empty-state-body">${esc(city.unavailableCopy)}</p>
+      </div>`;
 
   root.innerHTML = `
     <a class="skip-link" href="#venue-map">Skip to the map</a>
     <header class="hero">
       <div class="hero-inner">
         <p class="brand">Detour</p>
-        <h1>Madrid’s exceptional tables, mapped.</h1>
-        <p class="tagline">A deliberately small selection — every place holds a current award from a named guide. ${esc(String(state.guideYear))} selections.</p>
+        <h1>${esc(city.title)}</h1>
+        <p class="tagline">${esc(city.tagline.replace('{year}', String(state.guideYear)))}</p>
       </div>
     </header>
     ${previewBanner}
     ${discoveryBar(list, loading)}
     ${
       loading
-        ? `<section class="map-stage" aria-label="Madrid map"><div class="map-panel map-panel-live"><p class="map-empty">Drawing the map of Madrid…</p></div></section>`
+        ? `<section class="map-stage" aria-label="${esc(city.name)} map"><div class="map-panel map-panel-live"><p class="map-empty">Drawing the map of ${esc(city.name)}…</p></div></section>`
         : mapStage(list)
     }
     <section class="results" aria-label="The selection">
@@ -798,15 +877,11 @@ function render(root: HTMLElement) {
           ? '<p class="loading">Gathering the current selection…</p>'
           : list.length
             ? `<ul class="card-list">${list.map(venueCard).join('')}</ul>`
-            : `<div class="empty-state" role="status">
-                <p class="empty-state-title">Nothing matches yet</p>
-                <p class="empty-state-body">Try a different name, or start again with the full Madrid selection.</p>
-                <button type="button" class="empty-state-reset" data-reset-filters>Show everything</button>
-              </div>`
+            : emptyState
       }
     </section>
     <footer class="footer">
-      <p>Detour is a current, deliberately edited selection of Madrid’s awarded tables. Each award belongs to its guide — follow the official guide links for the original listings.</p>
+      <p>${esc(city.footer)}</p>
     </footer>
   `;
 
@@ -875,6 +950,11 @@ function render(root: HTMLElement) {
   root.querySelector<HTMLButtonElement>('[data-geolocate]')?.addEventListener('click', () => {
     requestUserLocation(root);
   });
+  const citySelect = root.querySelector<HTMLSelectElement>('[data-city]');
+  citySelect?.addEventListener('change', () => {
+    const next = cityBySlug(citySelect.value);
+    if (next) switchCity(root, next.slug);
+  });
   root.querySelectorAll<HTMLButtonElement>('[data-venue]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.venue ?? null;
@@ -942,14 +1022,15 @@ function render(root: HTMLElement) {
 
 /* ---------- geolocation (opt-in only) ---------- */
 
-const GEO_FALLBACK =
-  'We couldn’t find your position, so the map stays on Madrid — everything else works as usual.';
+function geoFallback(): string {
+  return `We couldn’t find your position, so the map stays on ${activeCity().name} — everything else works as usual.`;
+}
 
 function requestUserLocation(root: HTMLElement): void {
   if (state.geoBusy) return;
   if (!('geolocation' in navigator)) {
     state.userLocation = null;
-    state.geoStatus = GEO_FALLBACK;
+    state.geoStatus = geoFallback();
     render(root);
     return;
   }
@@ -968,10 +1049,14 @@ function requestUserLocation(root: HTMLElement): void {
         (latitude === 0 && longitude === 0)
       ) {
         state.userLocation = null;
-        state.geoStatus = GEO_FALLBACK;
+        state.geoStatus = geoFallback();
       } else {
         state.userLocation = { lat: latitude, lng: longitude };
-        state.geoStatus = 'You’re on the map — look for the rose dot.';
+        if (withinCity(activeCity(), state.userLocation)) {
+          state.geoStatus = 'You’re on the map — look for the rose dot.';
+        } else {
+          state.geoStatus = `You seem to be outside ${activeCity().name}, so the map stays on the city — everything else works as usual.`;
+        }
         savedView = null; // refit / recenter so the user sees their marker context
       }
       pendingFocus = '[data-geolocate]';
@@ -980,7 +1065,7 @@ function requestUserLocation(root: HTMLElement): void {
     () => {
       state.geoBusy = false;
       state.userLocation = null;
-      state.geoStatus = GEO_FALLBACK;
+      state.geoStatus = geoFallback();
       pendingFocus = '[data-geolocate]';
       render(root);
     },

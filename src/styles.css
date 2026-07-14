@@ -146,6 +146,32 @@ a:hover { color: var(--wine-deep); }
   gap: 0.6rem;
 }
 
+.city-control { flex: 0 1 auto; min-width: 0; }
+.city-control select {
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0.5rem 2.1rem 0.5rem 1rem;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235c4638' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.85rem center;
+  transition: border-color 0.15s, color 0.15s;
+}
+.city-control select:hover { border-color: var(--wine); color: var(--wine-deep); }
+.city-control select:focus-visible {
+  outline: 2px solid var(--wine);
+  outline-offset: 1px;
+  border-color: var(--wine);
+}
+
 .search-control { flex: 1 1 240px; min-width: 0; }
 .search-control input[type='search'] {
   width: 100%;
@@ -628,6 +654,8 @@ a:hover { color: var(--wine-deep); }
   .pin-label { max-width: 92px; }
   .detail-facts div { grid-template-columns: 1fr; gap: 0.1rem; }
   .discovery-row { gap: 0.5rem; }
+  .city-control { flex: 1 1 100%; }
+  .city-control select { width: 100%; }
   .refine-btn, .nearby-btn { flex: 1 1 auto; justify-content: center; }
   .tray-actions { flex-direction: column; }
   .tray-clear, .tray-done { width: 100%; }
