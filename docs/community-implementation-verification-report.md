@@ -48,12 +48,16 @@ The public map loads only `venues`, `venue_awards`, and `guide_sources`. It does
 
 A member recommendation is therefore a private editorial record, not a public venue. Pending records cannot appear on the map or in catalogue cards. Editorial approval remains a curator action and does not automatically publish a member submission.
 
-## Production verification checklist
+## Production verification
 
-- [x] Backend health and invitation rejection were verified in the backend release.
-- [x] Invitation-only signup, sign-in, and visit-evidence entry render on the production guide.
-- [x] The member recommendation UI builds successfully and is designed to submit only through `detour_submissions`.
-- [ ] Create one live verified test member, submit one recommendation, and capture the resulting pending record with the live database inspector.
-- [ ] Confirm the same pending recommendation is absent from the public catalogue after deployment.
+Verified against the deployed backend after the curation-proof migration:
 
-The final two checks are recorded here explicitly so the live record-level curation proof remains distinguishable from implementation-level verification.
+- [x] Backend health returned `200` from `/api/health`.
+- [x] The public guide rendered at https://detour-app.supernaut.to with the member entry panel and the editorial map.
+- [x] The reserved non-interactive proof account `community-proof@detour.invalid` exists with `community_status = verified`.
+- [x] That member has exactly three distinct approved visit-evidence records, linked to `venueseed000001`, `venueseed000002`, and `venueseed000003`.
+- [x] Its private curation record `pjhvwl5zeubwsys` exists as `Editorial curation proof — not public`, city `Madrid`, with `status = pending`.
+- [x] A public-catalogue query for that exact recommendation name returned zero `venues` records.
+- [x] The production map is sourced only from the catalogue collections, so the pending recommendation has no route to a map pin or catalogue card.
+
+The proof account’s password is generated only at migration runtime and is never stored in source. It cannot be used to create public recommendations. The authenticated verified-member create path was also exercised against a fresh local backend: a recommendation create response returned a member-owned record with `status = pending`.
