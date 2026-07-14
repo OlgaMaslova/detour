@@ -5,7 +5,7 @@ verifiable Paris launch cohort. It authorizes a limited set of attributed
 factual claims; it is **not** a restaurant directory, a reproduction of a
 guide, a licence analysis, or a claim of affiliation with any source.
 
-**Research date:** 2026-07-14  
+**Research date:** 2026-07-14
 **Launch geography:** the administrative City of Paris only (`city = Paris`,
 `country = France`). “Paris and surroundings”, Île-de-France, Hauts-de-Seine,
 and other suburbs do not qualify without a separately approved expansion.
@@ -78,14 +78,14 @@ city label, or distinction differs from this plan.
 
 All primary award facts come from these first-party MICHELIN Guide pages:
 
-1. **Paris 3 Stars MICHELIN Restaurants**  
+1. **Paris 3 Stars MICHELIN Restaurants**
    <https://guide.michelin.com/us/en/ile-de-france/paris/restaurants/3-stars-michelin>
    - Manual review on 2026-07-14 showed 9 results, each labelled Paris,
      France.
    - It establishes the source spelling, Paris locality, and 3-Star
      distinction for the approved 3-Star roster.
 
-2. **Paris 2 Stars MICHELIN Restaurants**  
+2. **Paris 2 Stars MICHELIN Restaurants**
    <https://guide.michelin.com/us/en/ile-de-france/paris/restaurants/2-stars-michelin>
    - Manual review on 2026-07-14 showed 21 results. Twenty were labelled
      Paris, France; `Le Corot` was labelled Ville-d'Avray, France and is
@@ -94,7 +94,7 @@ All primary award facts come from these first-party MICHELIN Guide pages:
      distinction for the approved 2-Star roster.
 
 3. **Every MICHELIN-Starred Restaurant in France for 2026 and the Year's Key
-   Trends** (published 2026-03-17)  
+   Trends** (published 2026-03-17)
    <https://guide.michelin.com/kr/en/article/news-and-views/michelin-star-restaurants-france-full-list>
    - The official announcement says the latest France selection was revealed
      on 2026-03-16 and covers 668 starred restaurants.
