@@ -6,6 +6,7 @@ import { demoVenues, GUIDE_YEAR } from './data';
 import type { Venue, VenueAward } from './data';
 import { CITIES, cityBySlug, citySlugFromUrl } from './cities';
 import type { CityConfig, CitySlug } from './cities';
+import { bindCommunity, communityControl, communityPanel } from './community';
 
 /** '' = all award levels; otherwise a literal level label present in the loaded data. */
 type Filter = string;
@@ -874,8 +875,10 @@ function render(root: HTMLElement) {
         <p class="brand">Detour</p>
         <h1>${esc(city.title)}</h1>
         <p class="tagline">${esc(city.tagline.replace('{year}', String(state.guideYear)))}</p>
+        <div class="hero-account">${communityControl()}</div>
       </div>
     </header>
+    ${communityPanel(state.venues)}
     ${previewBanner}
     ${discoveryBar(list, loading)}
     ${
@@ -896,6 +899,8 @@ function render(root: HTMLElement) {
       <p>${esc(city.footer)}</p>
     </footer>
   `;
+
+  bindCommunity(root, state.venues, () => render(root));
 
   const keepSelectionValid = () => {
     const visible = filteredVenues();
