@@ -49,8 +49,7 @@ export const CITIES: readonly CityConfig[] = [
     name: 'Madrid',
     country: 'Spain',
     title: 'Madrid’s exceptional tables, mapped.',
-    tagline:
-      'A deliberately small selection — every place holds a current award from a named guide. {year} selections.',
+    tagline: 'Trust the experts. Great food is never a straight line.',
     footer:
       'Detour is a current, deliberately edited selection of Madrid’s awarded tables. Each award belongs to its guide — follow the official guide links for the original listings.',
     searchPlaceholder: 'Search by name — Casa, DiverXO…',
@@ -69,8 +68,7 @@ export const CITIES: readonly CityConfig[] = [
     name: 'Paris',
     country: 'France',
     title: 'Paris’s starred tables, in preview.',
-    tagline:
-      'A deliberately small editorial list — every place holds a current award from a named guide. Location-led discovery is still being refined. {year} selections.',
+    tagline: 'Trust the experts. Great food is never a straight line.',
     footer:
       'Detour’s Paris preview is a current, deliberately edited list of awarded tables. Each award belongs to its guide — follow the official guide links for the original listings.',
     searchPlaceholder: 'Search by name — Kei, Arpège…',
@@ -89,8 +87,7 @@ export const CITIES: readonly CityConfig[] = [
     name: 'San Francisco',
     country: 'United States',
     title: 'San Francisco’s starred tables, mapped.',
-    tagline:
-      'A deliberately small selection — every place holds a current award from a named guide. {year} selections.',
+    tagline: 'Trust the experts. Great food is never a straight line.',
     footer:
       'Detour is a current, deliberately edited selection of San Francisco’s awarded tables. Each award belongs to its guide — follow the official guide links for the original listings.',
     searchPlaceholder: 'Search by name — Quince, Benu…',
