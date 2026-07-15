@@ -22,6 +22,14 @@ export interface VenueAward {
   sourceName: string;
   sourceUrl: string;
   note: string;
+  /**
+   * True when this recognition is a Detour community selection — public
+   * provenance from the Detour community itself (guide source slug
+   * 'detour-community'), not an award from an external guide. Community
+   * selections never carry star/sole icons, list ranks, or external
+   * guide links.
+   */
+  community: boolean;
 }
 
 export interface Venue {
@@ -150,6 +158,7 @@ export const demoVenues: Venue[] = [
           sourceName: SOURCE_NAME,
           sourceUrl: AWARD_PAGE_URLS[award],
           note: NEW_AWARD_NOTE,
+          community: false,
         },
       ],
       category: '',
@@ -175,6 +184,7 @@ export const demoVenues: Venue[] = [
           sourceName: SOURCE_NAME,
           sourceUrl: BOOKLET_URL,
           note: CONTINUING_NOTE,
+          community: false,
         },
       ],
       category: '',
@@ -203,6 +213,7 @@ export const demoVenues: Venue[] = [
         sourceName: PIZZA_SOURCE_NAME,
         sourceUrl: PIZZA_RANKING_URL,
         note: 'Rank verified on the official 50 Top Pizza Europa 2026 ranking page. Coordinates are OpenStreetMap-sourced (© OpenStreetMap contributors, ODbL), not taken from the guide.',
+        community: false,
       },
     ],
     category: 'Pizza',
@@ -226,6 +237,7 @@ export const demoVenues: Venue[] = [
         sourceName: PIZZA_SOURCE_NAME,
         sourceUrl: PIZZA_RANKING_URL,
         note: 'Rank verified on the official 50 Top Pizza Europa 2026 ranking page; the ranking names the venue without a specific branch. Shown location is the operator’s primary pizzeria, corroborated via the official site and OpenStreetMap (© OpenStreetMap contributors, ODbL).',
+        community: false,
       },
     ],
     category: 'Pizza',
@@ -249,6 +261,7 @@ export const demoVenues: Venue[] = [
         sourceName: COFFEE_SOURCE_NAME,
         sourceUrl: COFFEE_RECORD_URL,
         note: 'Rank verified on the official global top-100 ranking page and the official venue record. Coordinates are OpenStreetMap/Nominatim-sourced (© OpenStreetMap contributors, ODbL), not taken from the guide.',
+        community: false,
       },
     ],
     category: 'Coffee',

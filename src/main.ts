@@ -176,21 +176,53 @@ function bestListRank(v: Venue): number {
   );
 }
 
+/* ---------- Detour community provenance (public only) ---------- */
+
+// The community's own selections live in the same public venue_awards /
+// guide_sources collections as external guides, published under this one
+// dedicated source. Detection uses only those public fields — never
+// detour_submissions, members, notes, or any other private collection.
+const COMMUNITY_SOURCE_SLUG = 'detour-community';
+const COMMUNITY_SOURCE_NAME = 'detour community';
+const COMMUNITY_LEVEL = 'detour community selection';
+/** The exact visible phrase used everywhere a community selection is shown. */
+const COMMUNITY_LABEL = 'Detour community selection';
+
+/** True when a live award's public source/level marks it as the community's own selection. */
+function isCommunityProvenance(level: string, sourceSlug: string, sourceName: string): boolean {
+  return (
+    sourceSlug.toLowerCase() === COMMUNITY_SOURCE_SLUG ||
+    sourceName.trim().toLowerCase() === COMMUNITY_SOURCE_NAME ||
+    level.trim().toLowerCase() === COMMUNITY_LEVEL
+  );
+}
+
+/** Whether the venue holds a current Detour community selection. */
+function hasCommunityAward(v: Venue): boolean {
+  return v.awards.some((a) => a.community);
+}
+
+/** Whether ALL of the venue's recognition is community provenance (no external guide). */
+function onlyCommunityAwards(v: Venue): boolean {
+  return v.awards.every((a) => a.community);
+}
+
 /** Plain-text award label: 'No. N — edition' for ranked awards, else the literal level. */
 function awardText(a: VenueAward): string {
+  if (a.community) return COMMUNITY_LABEL;
   return a.listRank !== null ? `No. ${a.listRank} — ${a.edition}` : a.awardLevel;
 }
 
 /** Plain-text summary of every award, keeping each guide's own wording. */
 function awardSummary(v: Venue): string {
   return v.awards
-    .map((a) => `${awardText(a)} — ${a.sourceName} ${a.awardYear}`)
+    .map((a) => (a.community ? COMMUNITY_LABEL : `${awardText(a)} — ${a.sourceName} ${a.awardYear}`))
     .join('; ');
 }
 
-/** Unique guide names for a venue, in award order. */
+/** Unique EXTERNAL guide names for a venue, in award order. The Detour community is not a guide. */
 function guideNames(v: Venue): string[] {
-  return [...new Set(v.awards.map((a) => a.sourceName).filter(Boolean))];
+  return [...new Set(v.awards.filter((a) => !a.community).map((a) => a.sourceName).filter(Boolean))];
 }
 
 /* ---------- live data loading ---------- */
@@ -260,6 +292,20 @@ async function loadLiveVenues(): Promise<Venue[]> {
       venue.guide_source as string
     );
     const source = sourceId ? sourceById.get(sourceId) : undefined;
+
+    const sourceSlug = str(source?.slug as string);
+    const resolvedSourceName =
+      str(
+        source?.name as string,
+        source?.title as string,
+        award.source_name as string,
+        venue.source_name as string
+      ) || (source ? 'Unknown guide' : 'Unknown source');
+    // Public community provenance: the community's own selection, published
+    // under the dedicated 'detour-community' guide source. Never a star/sole
+    // level, never a ranked list, never linked as an external guide.
+    const community = isCommunityProvenance(level, sourceSlug, resolvedSourceName);
+
     // Detailed verification notes are private editorial provenance. The
     // backend exposes only this narrowly scoped public location qualifier.
     const approxLocation = Boolean(venue.approx_location ?? venue.location_approximate);
@@ -275,29 +321,28 @@ async function loadLiveVenues(): Promise<Venue[]> {
     const lng = hasCoords ? rawLng : null;
 
     const venueAward: VenueAward = {
-      awardLevel: level,
+      awardLevel: community ? COMMUNITY_LABEL : level,
       // A ranked-list position is never a star/sole count — keep the two
-      // notions strictly separate so icons/ordering stay faithful.
-      awardRank: isRankedList ? null : (positiveExplicitRank ?? awardRankOf(level)),
-      listRank: isRankedList ? (positiveExplicitRank ?? parsedListRank) : null,
-      edition: isRankedList ? editionOf(level) : '',
+      // notions strictly separate so icons/ordering stay faithful. Community
+      // selections carry neither: they are not graded or ranked.
+      awardRank: community ? null : isRankedList ? null : (positiveExplicitRank ?? awardRankOf(level)),
+      listRank: community ? null : isRankedList ? (positiveExplicitRank ?? parsedListRank) : null,
+      edition: community || !isRankedList ? '' : editionOf(level),
       awardYear: year ?? GUIDE_YEAR,
-      sourceName:
-        str(
-          source?.name as string,
-          source?.title as string,
-          award.source_name as string,
-          venue.source_name as string
-        ) || (source ? 'Unknown guide' : 'Unknown source'),
-      sourceUrl: str(
-        award.source_url as string,
-        source?.official_url as string,
-        source?.url as string,
-        source?.website as string,
-        venue.source_url as string,
-        venue.website as string
-      ),
+      sourceName: community ? 'Detour community' : resolvedSourceName,
+      // Community selections are Detour's own — never linked as an external guide.
+      sourceUrl: community
+        ? ''
+        : str(
+            award.source_url as string,
+            source?.official_url as string,
+            source?.url as string,
+            source?.website as string,
+            venue.source_url as string,
+            venue.website as string
+          ),
       note: '',
+      community,
     };
 
     const existing = venuesById.get(venueId);
@@ -502,7 +547,10 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
   for (const v of mappable) {
     const selected = v.id === state.selectedId;
     const markerRank = maxAwardRank(v);
-    const markerClass = markerRank > 0 ? `pin-${markerRank}` : 'pin-ranked';
+    // Community-only venues get their own rose pin; venues that also hold an
+    // external guide award keep that award's pin so guide styling is preserved.
+    const markerClass =
+      markerRank > 0 ? `pin-${markerRank}` : onlyCommunityAwards(v) ? 'pin-community' : 'pin-ranked';
     const icon = L.divIcon({
       className: '',
       html: `<span class="map-pin ${markerClass}${selected ? ' pin-selected' : ''}" data-pin="${esc(v.id)}">
@@ -520,9 +568,10 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
     }).addTo(map);
     marker.bindPopup(
       `<strong>${esc(v.name)}</strong>${v.awards
-        .map(
-          (a) =>
-            `<br>${awardIcons(a)} ${esc(awardText(a))} · ${esc(a.sourceName)} ${a.awardYear}`
+        .map((a) =>
+          a.community
+            ? `<br><span class="popup-community"><span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)}</span>`
+            : `<br>${awardIcons(a)} ${esc(awardText(a))} · ${esc(a.sourceName)} ${a.awardYear}`
         )
         .join('')}`,
       { closeButton: false, offset: [0, -6] }
@@ -690,7 +739,7 @@ function filterTray(): string {
   return `<div class="tray" id="filter-tray">
     ${group('tray-award', 'Recognition', awardButtons)}
     ${group('tray-category', 'Category', categoryButtons)}
-    ${group('tray-source', 'Guide', sourceButtons)}
+    ${group('tray-source', 'Source', sourceButtons)}
     <div class="tray-actions">
       <button type="button" class="tray-clear" data-clear-filters>Clear filters</button>
       <button type="button" class="tray-done" data-tray-close>Done</button>
@@ -753,11 +802,15 @@ function venueCard(v: Venue): string {
           <span class="card-awards" role="list" aria-label="${esc(awardSummary(v))}">
             ${v.awards
               .map((a) =>
-                a.listRank !== null
-                  ? `<span role="listitem" class="award award-ranked" title="${esc(awardText(a))} — ${esc(a.sourceName)} ${a.awardYear}">
+                a.community
+                  ? `<span role="listitem" class="award award-community" title="${esc(COMMUNITY_LABEL)}">
+                  <span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)}
+                </span>`
+                  : a.listRank !== null
+                    ? `<span role="listitem" class="award award-ranked" title="${esc(awardText(a))} — ${esc(a.sourceName)} ${a.awardYear}">
                   <span class="award-rank-no">No. ${a.listRank}</span> ${esc(a.edition)}
                 </span>`
-                  : `<span role="listitem" class="award award-${a.awardRank ?? 0}" title="${esc(a.awardLevel)} — ${esc(a.sourceName)} ${a.awardYear}">
+                    : `<span role="listitem" class="award award-${a.awardRank ?? 0}" title="${esc(a.awardLevel)} — ${esc(a.sourceName)} ${a.awardYear}">
                   <span aria-hidden="true">${awardIcons(a)}</span> ${esc(a.awardLevel)}
                 </span>`
               )
@@ -774,6 +827,8 @@ function venueCard(v: Venue): string {
       <div class="card-sources">
         ${v.awards
           .map((a) => {
+            if (a.community)
+              return `<p class="card-source card-source-community"><span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)} — Detour’s editorial selection</p>`;
             const claim =
               a.listRank !== null
                 ? `No. ${a.listRank} · ${esc(a.edition)}`
@@ -800,10 +855,17 @@ function detailPanel(): string {
     return `<p class="map-prompt" aria-live="polite">${prompt}</p>`;
   }
   const guides = guideNames(v);
-  const guideSentence =
-    guides.length > 0
-      ? `A current selection, independently recognised by ${guides.join(' and ')}.`
-      : '';
+  const communityHere = hasCommunityAward(v);
+  const sentences: string[] = [];
+  if (guides.length > 0)
+    sentences.push(`A current selection, independently recognised by ${guides.join(' and ')}.`);
+  if (communityHere)
+    sentences.push(
+      guides.length > 0
+        ? 'Also a Detour community selection, selected editorially by Detour.'
+        : 'A Detour community selection, selected editorially by Detour.'
+    );
+  const guideSentence = sentences.join(' ');
   return `<aside class="detail" aria-live="polite" aria-label="Selected place">
     <div class="detail-head">
       <div>
@@ -815,13 +877,15 @@ function detailPanel(): string {
     <ul class="detail-awards" aria-label="Recognition">
       ${v.awards
         .map((a) =>
-          a.listRank !== null
-            ? `<li class="detail-award detail-award-ranked"><span class="award-rank-no">No. ${a.listRank}</span> ${esc(
-                a.edition
-              )} · ${esc(a.sourceName)}</li>`
-            : `<li class="detail-award award-${a.awardRank ?? 0}"><span aria-hidden="true">${awardIcons(a)}</span> ${esc(
-                a.awardLevel
-              )} · ${esc(a.sourceName)} ${a.awardYear}</li>`
+          a.community
+            ? `<li class="detail-award detail-award-community"><span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)}</li>`
+            : a.listRank !== null
+              ? `<li class="detail-award detail-award-ranked"><span class="award-rank-no">No. ${a.listRank}</span> ${esc(
+                  a.edition
+                )} · ${esc(a.sourceName)}</li>`
+              : `<li class="detail-award award-${a.awardRank ?? 0}"><span aria-hidden="true">${awardIcons(a)}</span> ${esc(
+                  a.awardLevel
+                )} · ${esc(a.sourceName)} ${a.awardYear}</li>`
         )
         .join('')}
     </ul>
@@ -832,13 +896,24 @@ function detailPanel(): string {
           ? esc(v.address)
           : '<span class="approx">Map position being refined</span>'
       }</dd></div>
-      <div><dt>Official guide${v.awards.length === 1 ? '' : 's'}</dt><dd>${v.awards
-        .map((a) =>
-          a.sourceUrl
-            ? `<a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(a.sourceName)} ${a.awardYear} ↗</a>`
-            : `${esc(a.sourceName)} ${a.awardYear}`
-        )
-        .join('<br>')}</dd></div>
+      ${(() => {
+        // Only external guide awards belong under “Official guide” — the
+        // Detour community is never presented or linked as one.
+        const external = v.awards.filter((a) => !a.community);
+        const guideRow = external.length
+          ? `<div><dt>Official guide${external.length === 1 ? '' : 's'}</dt><dd>${external
+              .map((a) =>
+                a.sourceUrl
+                  ? `<a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(a.sourceName)} ${a.awardYear} ↗</a>`
+                  : `${esc(a.sourceName)} ${a.awardYear}`
+              )
+              .join('<br>')}</dd></div>`
+          : '';
+        const communityRow = communityHere
+          ? `<div><dt>Community</dt><dd>${esc(COMMUNITY_LABEL)} — Detour’s editorial selection</dd></div>`
+          : '';
+        return guideRow + communityRow;
+      })()}
     </dl>
   </aside>`;
 }

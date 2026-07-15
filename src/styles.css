@@ -387,6 +387,13 @@ a:hover { color: var(--wine-deep); }
 }
 .venue-map .leaflet-popup-content { margin: 0.6rem 0.85rem; font-size: 0.85rem; line-height: 1.4; }
 .venue-map .leaflet-popup-tip { background: var(--parchment); }
+/* Community attribution line inside the marker popup */
+.popup-community {
+  color: var(--wine);
+  font-weight: 700;
+  font-style: italic;
+  font-family: var(--serif);
+}
 
 /* Leaflet divIcon venue pins — anchored at the venue coordinate */
 .map-pin {
@@ -417,6 +424,11 @@ a:hover { color: var(--wine-deep); }
 .map-pin.pin-1 .pin-dot { background: #7c3a50; width: 12px; height: 12px; }
 /* Ordered-list recognition has no star/sole level: a distinct olive pin. */
 .map-pin.pin-ranked .pin-dot { background: var(--olive); }
+/* Detour community selections — the community's own rose, ringed in plum. */
+.map-pin.pin-community .pin-dot {
+  background: var(--rose);
+  border-color: var(--plum);
+}
 .map-pin .pin-label {
   /* Hidden by default: names are shown in the marker popup on selection.
      Absolutely positioned below the dot so the label never inflates or
@@ -541,6 +553,12 @@ a:hover { color: var(--wine-deep); }
 .detail-facts dt { font-weight: 700; color: var(--ink-soft); }
 .detail-facts dd { margin: 0; overflow-wrap: anywhere; }
 .detail-award-ranked { color: var(--olive); }
+.detail-award-community {
+  color: var(--wine);
+  font-family: var(--serif);
+  font-style: italic;
+}
+.detail-award-community span[aria-hidden] { color: var(--rose); font-style: normal; }
 .detail-award-ranked .award-rank-no {
   background: #ecece0;
   border-radius: 4px;
@@ -612,6 +630,14 @@ a:hover { color: var(--wine-deep); }
   letter-spacing: 0.01em;
 }
 .card-source-rank { font-weight: 800; font-variant-numeric: tabular-nums; }
+/* Detour community selection — rose fleuron on plum: the community's own
+   mark, deliberately distinct from brass guide awards and olive rankings. */
+.award-community {
+  background: var(--plum);
+  color: #eccfd4;
+  border: 1px solid var(--rose);
+  white-space: normal;
+}
 .award-3 { color: var(--brass-deep); }
 .award-2 { color: var(--wine); background: #f2e2e2; }
 .award-1 { color: #7c3a50; background: #f4e6e9; }
@@ -633,6 +659,13 @@ a:hover { color: var(--wine-deep); }
   color: var(--ink-soft);
 }
 .card-source a { color: var(--brass-deep); }
+.card-source-community {
+  color: var(--wine);
+  background: #f6ecec;
+  font-family: var(--serif);
+  font-style: italic;
+}
+.card-source-community span[aria-hidden] { color: var(--rose); font-style: normal; }
 
 /* ------------------------------------------------ Empty state */
 .empty-state {
