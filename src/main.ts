@@ -12,6 +12,8 @@ import { bindCommunity, communityControl, communityPanel } from './community';
 type Filter = string;
 type DataMode = 'loading' | 'live' | 'demo';
 
+const MOTTO = 'Trust the experts. Great food is never a straight line.';
+
 interface UserLocation {
   lat: number;
   lng: number;
@@ -883,7 +885,7 @@ function render(root: HTMLElement) {
       <div class="hero-inner">
         <p class="brand">Detour</p>
         <h1>${esc(city.title)}</h1>
-        <p class="tagline">${esc(city.tagline.replace('{year}', String(state.guideYear)))}</p>
+        <p class="tagline">${MOTTO}</p>
         <div class="hero-account">${communityControl()}</div>
       </div>
     </header>
