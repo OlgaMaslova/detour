@@ -260,15 +260,9 @@ async function loadLiveVenues(): Promise<Venue[]> {
       venue.guide_source as string
     );
     const source = sourceId ? sourceById.get(sourceId) : undefined;
-    // Provenance notes stay internal: they inform the approximate-location
-    // flag below but are never shown verbatim to guests.
-    const note = str(
-      award.verification_note as string,
-      venue.coord_verification_note,
-      venue.note,
-      venue.summary,
-      venue.description
-    );
+    // Detailed verification notes are private editorial provenance. The
+    // backend exposes only this narrowly scoped public location qualifier.
+    const approxLocation = Boolean(venue.approx_location ?? venue.location_approximate);
 
     // The backend stores 0/0 as a neutral "no known coordinates" sentinel
     // (see the seed migrations). Treat it — and missing values — as unknown
@@ -303,14 +297,13 @@ async function loadLiveVenues(): Promise<Venue[]> {
         venue.source_url as string,
         venue.website as string
       ),
-      note,
+      note: '',
     };
 
     const existing = venuesById.get(venueId);
     if (existing) {
       existing.awards.push(venueAward);
-      existing.approxLocation =
-        existing.approxLocation || /approx|street-level/i.test(note);
+      existing.approxLocation = existing.approxLocation || approxLocation;
       continue;
     }
 
@@ -324,9 +317,7 @@ async function loadLiveVenues(): Promise<Venue[]> {
       address: str(venue.address, venue.street_address),
       lat,
       lng,
-      approxLocation:
-        Boolean(venue.approx_location ?? venue.location_approximate) ||
-        /approx|street-level/i.test(note),
+      approxLocation,
     });
   }
   const venues = [...venuesById.values()];
@@ -638,6 +629,16 @@ function mapStage(list: Venue[]): string {
   </section>`;
 }
 
+function listPreviewStage(): string {
+  const cityName = esc(activeCity().name);
+  return `<section class="list-preview" aria-labelledby="list-preview-title">
+    <p class="list-preview-kicker">Editorial preview</p>
+    <h2 id="list-preview-title">${cityName}, in the list first.</h2>
+    <p>Every table below has a current award from a named guide. Map positions are still under editorial review, so this selection is presented as a list rather than a map.</p>
+    ${detailPanel()}
+  </section>`;
+}
+
 function refineChips(): string {
   const chips = activeFilters();
   if (chips.length === 0) return '';
@@ -703,7 +704,7 @@ function citySelector(): string {
       <select id="city-select" data-city>
         ${CITIES.map(
           (c) =>
-            `<option value="${esc(c.slug)}"${c.slug === state.city ? ' selected' : ''}>${esc(c.name)}, ${esc(c.country)}</option>`
+            `<option value="${esc(c.slug)}"${c.slug === state.city ? ' selected' : ''}>${esc(c.name)}, ${esc(c.country)}${c.presentation === 'list' ? ' — list preview' : ''}</option>`
         ).join('')}
       </select>
     </div>`;
@@ -725,9 +726,13 @@ function discoveryBar(list: Venue[], loading: boolean): string {
         aria-expanded="${state.trayOpen}" aria-controls="filter-tray">
         Refine${activeCount ? ` <span class="refine-count">${activeCount}</span>` : ''}
       </button>
-      <button type="button" class="nearby-btn" data-geolocate ${state.geoBusy ? 'disabled' : ''}>
-        ${state.geoBusy ? 'Finding you…' : 'Show nearby'}
-      </button>
+      ${
+        activeCity().presentation === 'map'
+          ? `<button type="button" class="nearby-btn" data-geolocate ${state.geoBusy ? 'disabled' : ''}>
+              ${state.geoBusy ? 'Finding you…' : 'Show nearby'}
+            </button>`
+          : ''
+      }
       <span class="count" aria-live="polite">${
         loading ? 'Preparing the selection…' : `${list.length} ${list.length === 1 ? 'place' : 'places'}`
       }</span>
@@ -788,7 +793,11 @@ function venueCard(v: Venue): string {
 function detailPanel(): string {
   const v = cityVenues().find((x) => x.id === state.selectedId);
   if (!v) {
-    return `<p class="map-prompt" aria-live="polite">Choose a pin on the map — or a place in the list — to see more.</p>`;
+    const prompt =
+      activeCity().presentation === 'map'
+        ? 'Choose a pin on the map — or a place in the list — to see more.'
+        : 'Choose a place in the list to see more.';
+    return `<p class="map-prompt" aria-live="polite">${prompt}</p>`;
   }
   const guides = guideNames(v);
   const guideSentence =
@@ -869,7 +878,7 @@ function render(root: HTMLElement) {
       </div>`;
 
   root.innerHTML = `
-    <a class="skip-link" href="#venue-map">Skip to the map</a>
+    <a class="skip-link" href="#selection-results">Skip to the selection</a>
     <header class="hero">
       <div class="hero-inner">
         <p class="brand">Detour</p>
@@ -883,10 +892,14 @@ function render(root: HTMLElement) {
     ${discoveryBar(list, loading)}
     ${
       loading
-        ? `<section class="map-stage" aria-label="${esc(city.name)} map"><div class="map-panel map-panel-live"><p class="map-empty">Drawing the map of ${esc(city.name)}…</p></div></section>`
-        : mapStage(list)
+        ? city.presentation === 'map'
+          ? `<section class="map-stage" aria-label="${esc(city.name)} map"><div class="map-panel map-panel-live"><p class="map-empty">Drawing the map of ${esc(city.name)}…</p></div></section>`
+          : `<section class="list-preview" aria-label="${esc(city.name)} preview"><p class="map-empty">Preparing the ${esc(city.name)} selection…</p></section>`
+        : city.presentation === 'map'
+          ? mapStage(list)
+          : listPreviewStage()
     }
-    <section class="results" aria-label="The selection">
+    <section class="results" id="selection-results" aria-label="The selection">
       ${
         loading
           ? '<p class="loading">Gathering the current selection…</p>'
@@ -1025,8 +1038,9 @@ function render(root: HTMLElement) {
     render(root);
   });
 
-  // (Re)create the Leaflet map after the DOM has been replaced.
-  mountMap(root, list);
+  // (Re)create the Leaflet map only for cities published as map experiences.
+  if (city.presentation === 'map') mountMap(root, list);
+  else destroyMap();
 
   // Restore focus to the control that triggered this render (map pins are
   // only queryable after mountMap).

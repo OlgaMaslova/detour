@@ -30,6 +30,8 @@ export interface CityConfig {
   metaDescription: string;
   /** Shown when the city is configured but its selection is not published yet. */
   unavailableCopy: string;
+  /** Whether this city is ready for map-led discovery or published as a list-first preview. */
+  presentation: 'map' | 'list';
   /** Map view used when there are no plottable pins to derive bounds from. */
   center: [number, number];
   zoom: number;
@@ -57,6 +59,7 @@ export const CITIES: readonly CityConfig[] = [
       'A deliberately small map of Madrid’s awarded tables — every place holds a current award from a named guide, from Repsol Soles to Michelin Stars.',
     unavailableCopy:
       'The Madrid selection isn’t available right now. It will be back shortly.',
+    presentation: 'map',
     center: [40.4168, -3.7038],
     zoom: 13,
     bounds: { latMin: 40.2, latMax: 40.65, lngMin: -3.95, lngMax: -3.45 },
@@ -65,17 +68,18 @@ export const CITIES: readonly CityConfig[] = [
     slug: 'paris',
     name: 'Paris',
     country: 'France',
-    title: 'Paris’s starred tables, gathered.',
+    title: 'Paris’s starred tables, in preview.',
     tagline:
-      'A deliberately small selection — every place holds a current award from a named guide. Map positions for this selection are being refined. {year} selections.',
+      'A deliberately small editorial list — every place holds a current award from a named guide. Location-led discovery is still being refined. {year} selections.',
     footer:
-      'Detour is a current, deliberately edited selection of Paris’s awarded tables — map positions for this selection are being refined. Each award belongs to its guide — follow the official guide links for the original listings.',
+      'Detour’s Paris preview is a current, deliberately edited list of awarded tables. Each award belongs to its guide — follow the official guide links for the original listings.',
     searchPlaceholder: 'Search by name — Kei, Arpège…',
-    metaTitle: 'Detour — Paris’s starred tables, gathered',
+    metaTitle: 'Detour — Paris starred tables preview',
     metaDescription:
-      'A deliberately small selection of Paris’s starred tables — every place holds a current award from a named guide, gathered on one map.',
+      'An editorial preview of Paris’s starred tables — every place holds a current award from a named guide.',
     unavailableCopy:
-      'The Paris selection isn’t published here yet. Check back soon — Madrid is ready to explore in the meantime.',
+      'The Paris preview isn’t published here yet. Check back soon — Madrid is ready to explore in the meantime.',
+    presentation: 'list',
     center: [48.8566, 2.3522],
     zoom: 12,
     bounds: { latMin: 48.75, latMax: 48.95, lngMin: 2.2, lngMax: 2.5 },
@@ -95,6 +99,7 @@ export const CITIES: readonly CityConfig[] = [
       'A deliberately small map of San Francisco’s awarded tables — every place holds a current award from a named guide.',
     unavailableCopy:
       'The San Francisco selection isn’t published here yet. Check back soon — Madrid is ready to explore in the meantime.',
+    presentation: 'map',
     center: [37.7749, -122.4194],
     zoom: 13,
     bounds: { latMin: 37.6, latMax: 37.85, lngMin: -122.55, lngMax: -122.33 },

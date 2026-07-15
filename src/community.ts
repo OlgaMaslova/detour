@@ -32,6 +32,14 @@ interface SubmissionRecord {
   created?: string;
 }
 
+interface InviteRecord {
+  id: string;
+  code?: string;
+  claimed_by?: string;
+  claimed_at?: string;
+  created?: string;
+}
+
 interface Notice {
   kind: NoticeKind;
   text: string;
@@ -46,6 +54,9 @@ let loadingEvidence = false;
 let submissions: SubmissionRecord[] = [];
 let submissionsLoaded = false;
 let loadingSubmissions = false;
+let invites: InviteRecord[] = [];
+let invitesLoaded = false;
+let loadingInvites = false;
 let submitting = false;
 
 function esc(value: string | undefined | null): string {
@@ -99,6 +110,10 @@ function evidenceName(item: EvidenceRecord): string {
 function submissionPlace(item: SubmissionRecord): string {
   const place = item.venue_name?.trim() || 'Untitled detour';
   return item.city?.trim() ? `${place} — ${item.city.trim()}` : place;
+}
+
+function openInvites(): InviteRecord[] {
+  return invites.filter((invite) => !invite.claimed_by);
 }
 
 function noticeMarkup(): string {
@@ -166,6 +181,25 @@ function signedInPanel(venues: Venue[]): string {
       </div>
       <button class="community-signout" type="button" data-community-sign-out>Sign out</button>
     </div>
+    <section class="community-invites" aria-labelledby="community-invites-title">
+      <div>
+        <p class="community-kicker">Trusted introductions</p>
+        <h3 id="community-invites-title">Invite a detourist</h3>
+        <p>Each code is personal and works once. Share it directly with someone you trust.</p>
+      </div>
+      <div class="community-invite-actions">
+        <button class="community-secondary" type="button" data-community-invite ${submitting ? 'disabled' : ''}>${submitting ? 'Preparing…' : 'Issue a personal invitation'}</button>
+        ${
+          loadingInvites || !invitesLoaded
+            ? '<p class="community-loading" role="status">Checking your invitations…</p>'
+            : openInvites().length
+              ? `<ul class="community-invite-codes" aria-label="Your unclaimed invitation codes">${openInvites()
+                  .map((invite) => `<li><code>${esc(invite.code || '')}</code><span>Unclaimed</span></li>`)
+                  .join('')}</ul>`
+              : '<p class="community-empty">No unclaimed invitations yet.</p>'
+        }
+      </div>
+    </section>
     <div class="community-member-grid">
       <aside class="community-progress" aria-label="Verification progress">
         <p class="community-progress-label">Visit verification</p>
@@ -272,6 +306,21 @@ async function loadEvidence(render: () => void): Promise<void> {
   }
 }
 
+async function loadInvites(render: () => void): Promise<void> {
+  if (!member() || loadingInvites) return;
+  loadingInvites = true;
+  render();
+  try {
+    invites = await pb.collection('invites').getFullList<InviteRecord>({ sort: '-created', requestKey: null });
+    invitesLoaded = true;
+  } catch (error) {
+    notice = { kind: 'error', text: readableError(error, 'Your invitations could not be loaded. Please try again.') };
+  } finally {
+    loadingInvites = false;
+    render();
+  }
+}
+
 async function loadSubmissions(render: () => void): Promise<void> {
   if (!member() || loadingSubmissions) return;
   loadingSubmissions = true;
@@ -304,6 +353,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     notice = null;
     render();
     if (panelOpen && member() && !evidenceLoaded) void loadEvidence(render);
+    if (panelOpen && member() && !invitesLoaded) void loadInvites(render);
     if (panelOpen && member()?.community_status === 'verified' && !submissionsLoaded) void loadSubmissions(render);
   });
 
@@ -357,11 +407,14 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
       await pb.collection('members').authWithPassword(String(values.get('email') || '').trim(), String(values.get('password') || ''));
       panelOpen = true;
       evidenceLoaded = false;
+      invites = [];
+      invitesLoaded = false;
       submissions = [];
       submissionsLoaded = false;
       notice = { kind: 'success', text: 'Welcome back. Your visits are ready when you are.' };
       await refreshMember(render);
       void loadEvidence(render);
+      void loadInvites(render);
       if (member()?.community_status === 'verified') void loadSubmissions(render);
     } catch (error) {
       notice = { kind: 'error', text: readableError(error, 'Those sign-in details were not recognised.') };
@@ -375,10 +428,30 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     pb.authStore.clear();
     evidence = [];
     evidenceLoaded = false;
+    invites = [];
+    invitesLoaded = false;
     submissions = [];
     submissionsLoaded = false;
     notice = { kind: 'info', text: 'You have signed out of Detour.' };
     render();
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-community-invite]')?.addEventListener('click', async () => {
+    if (!member()) return;
+    submitting = true;
+    notice = null;
+    render();
+    try {
+      await pb.collection('invites').create({});
+      invitesLoaded = false;
+      notice = { kind: 'success', text: 'A personal invitation is ready to share.' };
+      await loadInvites(render);
+    } catch (error) {
+      notice = { kind: 'error', text: readableError(error, 'That invitation could not be prepared. Please try again.') };
+    } finally {
+      submitting = false;
+      render();
+    }
   });
 
   root.querySelector<HTMLFormElement>('[data-community-evidence]')?.addEventListener('submit', async (event) => {
@@ -438,6 +511,9 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
   // adding a global auth-store listener that could duplicate across renders.
   if (panelOpen && member() && !evidenceLoaded && !loadingEvidence) {
     void loadEvidence(render);
+  }
+  if (panelOpen && member() && !invitesLoaded && !loadingInvites) {
+    void loadInvites(render);
   }
   if (panelOpen && member()?.community_status === 'verified' && !submissionsLoaded && !loadingSubmissions) {
     void loadSubmissions(render);

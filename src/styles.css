@@ -447,6 +447,37 @@ a:hover { color: var(--wine-deep); }
 .venue-map .map-pin:focus-visible { outline: none; }
 .venue-map .map-pin:focus-visible .pin-dot { outline: var(--focus-ring); }
 
+/* List-first city previews are intentionally a quiet editorial surface, never a vacant map. */
+.list-preview {
+  margin: 0 0 1.4rem;
+  padding: clamp(1.25rem, 3vw, 2rem);
+  border: 1px solid var(--line-strong);
+  border-left: 4px solid var(--brass);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow-soft);
+}
+.list-preview-kicker {
+  margin: 0 0 0.35rem;
+  color: var(--wine);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.list-preview h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(1.35rem, 3vw, 1.85rem);
+}
+.list-preview > p:not(.list-preview-kicker):not(.map-prompt) {
+  max-width: 62ch;
+  margin: 0.6rem 0 0;
+  color: var(--ink-soft);
+  line-height: 1.6;
+}
+.list-preview .detail { margin: 1.2rem -1px -1px; }
+
 /* Quiet editorial note under the map */
 .map-note {
   margin: 0;
@@ -755,6 +786,17 @@ a:hover { color: var(--wine-deep); }
 .community-status.is-verified span { background: #608052; box-shadow: 0 0 0 3px rgba(96, 128, 82, 0.18); }
 .community-signout { min-height: 38px; padding: 0.35rem 0.65rem; color: var(--ink-soft); background: transparent; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
 .community-signout:hover { color: var(--wine); border-color: var(--wine); }
+.community-invites { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 0.9fr); gap: 1rem; align-items: start; padding: 1rem; background: #f8f1e4; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.community-invites h3 { margin: 0; color: var(--plum); font-family: var(--serif); font-size: 1.18rem; }
+.community-invites > div:first-child > p:last-child { max-width: 43ch; margin: 0.42rem 0 0; color: var(--ink-soft); font-size: 0.86rem; }
+.community-invite-actions { display: grid; gap: 0.65rem; justify-items: start; }
+.community-secondary { min-height: 40px; padding: 0.45rem 0.75rem; color: var(--wine-deep); background: transparent; border: 1px solid var(--wine); border-radius: var(--radius-sm); font: inherit; font-size: 0.83rem; font-weight: 750; cursor: pointer; }
+.community-secondary:hover { color: var(--parchment); background: var(--wine); }
+.community-secondary:disabled { opacity: 0.56; cursor: not-allowed; }
+.community-invite-codes { display: grid; width: 100%; gap: 0.4rem; margin: 0; padding: 0; list-style: none; }
+.community-invite-codes li { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; padding: 0.45rem 0.55rem; background: var(--card); border: 1px solid var(--line); border-radius: 4px; }
+.community-invite-codes code { color: var(--plum); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; font-weight: 700; overflow-wrap: anywhere; }
+.community-invite-codes span { flex: none; color: var(--olive); font-size: 0.7rem; font-weight: 800; text-transform: uppercase; }
 .community-member-grid { display: grid; grid-template-columns: minmax(190px, 0.72fr) minmax(0, 1.28fr); gap: 1.35rem; align-items: start; }
 .community-progress { padding: 1rem; background: #f8f1e4; border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .community-progress-label { margin: 0; color: var(--ink-soft); font-size: 0.76rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
@@ -812,7 +854,7 @@ a:hover { color: var(--wine-deep); }
 /* ------------------------------------------------ Responsive */
 @media (max-width: 860px) {
   .card-list { grid-template-columns: 1fr; }
-  .community-panel-auth, .community-member-grid, .community-submission-grid { grid-template-columns: 1fr; }
+  .community-panel-auth, .community-invites, .community-member-grid, .community-submission-grid { grid-template-columns: 1fr; }
   .community-form-wrap { padding: 1.2rem 0 0; border-top: 1px solid var(--line); border-left: 0; }
   .community-section-heading { align-items: start; flex-direction: column; }
   .community-section-heading > p { text-align: left; }
