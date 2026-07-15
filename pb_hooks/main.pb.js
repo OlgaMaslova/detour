@@ -171,3 +171,240 @@ onRecordCreateRequest((e) => {
   e.record.set("curator_note", "");
   e.next();
 }, "detour_submissions");
+
+// Publication is deliberately a curator-only action rather than a record update.
+// It writes the safe public catalogue facts and the private audit link together
+// in one transaction, so a submission is never marked published on its own.
+routerAdd(
+  "POST",
+  "/api/detour/curation/submissions/{id}/publish",
+  (e) => {
+    const body = e.requestInfo().body || {};
+    const submissionId = e.request.pathValue("id");
+    const country = typeof body.country === "string" ? body.country.trim() : "";
+    const address = typeof body.address === "string" ? body.address.trim() : "";
+    const officialUrl = typeof body.official_url === "string" ? body.official_url.trim() : "";
+    const category = typeof body.category === "string" ? body.category.trim() : "";
+    const hasLat = typeof body.lat === "number";
+    const hasLng = typeof body.lng === "number";
+
+    function requireCheck(name) {
+      if (body[name] !== true) {
+        throw new BadRequestError("Curator confirmation is required: " + name + ".");
+      }
+    }
+
+    let result;
+    e.app.runInTransaction((txApp) => {
+      const submission = txApp.findRecordById("detour_submissions", submissionId);
+      const status = submission.getString("status");
+      const member = txApp.findRecordById("members", submission.getString("member"));
+      const venueName = submission.getString("venue_name").trim();
+      const city = submission.getString("city").trim();
+
+      if (
+        member.getString("email") === "community-proof@detour.invalid" ||
+        venueName === "Editorial curation proof — not public"
+      ) {
+        throw new BadRequestError("The reserved community proof fixture can never be published.");
+      }
+      if (status === "published") {
+        const publishedVenueId = submission.getString("published_venue");
+        const publishedAwardId = submission.getString("published_award");
+        if (!publishedVenueId || !publishedAwardId) {
+          throw new BadRequestError("This published submission is missing its private publication audit link.");
+        }
+        result = {
+          submission_id: submission.id,
+          venue_id: publishedVenueId,
+          award_id: publishedAwardId,
+          status: "published",
+          attribution: "Detour community selection",
+          idempotent: true,
+        };
+        return;
+      }
+      if (status !== "approved") {
+        throw new BadRequestError("Only an approved submission can be published.");
+      }
+      if (!country || country.length > 120) {
+        throw new BadRequestError("A separately verified country is required.");
+      }
+      if (address.length > 300 || officialUrl.length > 2048 || category.length > 120) {
+        throw new BadRequestError("One or more public venue fields exceed their allowed length.");
+      }
+      requireCheck("identity_checked");
+      requireCheck("official_url_checked");
+      requireCheck("rights_checked");
+      requireCheck("consent_checked");
+      requireCheck("editorial_selected");
+      if (address) requireCheck("address_checked");
+      if (hasLat !== hasLng) {
+        throw new BadRequestError("Latitude and longitude must be supplied together.");
+      }
+      if (hasLat) {
+        if (
+          !body.location_verified ||
+          typeof body.location_approximate !== "boolean" ||
+          body.lat < -90 ||
+          body.lat > 90 ||
+          body.lng < -180 ||
+          body.lng > 180
+        ) {
+          throw new BadRequestError("Verified, qualified coordinates are required for a public map location.");
+        }
+      } else if (body.location_verified === true || body.location_approximate !== undefined) {
+        throw new BadRequestError("Location qualification may be supplied only with latitude and longitude.");
+      }
+      if (!venueName || !city) {
+        throw new BadRequestError("The approved submission is missing a venue name or city.");
+      }
+
+      let venue;
+      try {
+        venue = txApp.findFirstRecordByFilter(
+          "venues",
+          "name = {:name} && city = {:city}",
+          { name: venueName, city: city }
+        );
+      } catch {
+        const venues = txApp.findCollectionByNameOrId("venues");
+        venue = new Record(venues);
+        venue.set("name", venueName);
+        venue.set("city", city);
+        venue.set("country", country);
+        venue.set("address", address);
+        venue.set("official_url", officialUrl);
+        venue.set("category", category);
+        venue.set("approx_location", hasLat ? body.location_approximate : false);
+        if (hasLat) {
+          venue.set("lat", body.lat);
+          venue.set("lng", body.lng);
+        }
+        txApp.save(venue);
+      }
+
+      if (venue.getString("country").trim().toLowerCase() !== country.toLowerCase()) {
+        throw new BadRequestError("The canonical venue country does not match the curator-verified country.");
+      }
+
+      let source;
+      try {
+        source = txApp.findFirstRecordByFilter(
+          "guide_sources",
+          "slug = 'detour-community'"
+        );
+      } catch {
+        const sources = txApp.findCollectionByNameOrId("guide_sources");
+        source = new Record(sources);
+        source.set("name", "Detour community");
+        source.set("slug", "detour-community");
+        source.set("official_url", "");
+        source.set("current_year", new Date().getUTCFullYear());
+        txApp.save(source);
+      }
+
+      const year = new Date().getUTCFullYear();
+      let award;
+      try {
+        award = txApp.findFirstRecordByFilter(
+          "venue_awards",
+          "source = {:source} && venue = {:venue} && year = {:year} && level = {:level}",
+          {
+            source: source.id,
+            venue: venue.id,
+            year: year,
+            level: "Detour community selection",
+          }
+        );
+      } catch {
+        // The unique source/venue/year/level index makes this creation path
+        // converge if a retry follows a failed transaction.
+      }
+      if (award) {
+        award.set("source_url", "");
+        award.set("current", true);
+        award.set("verification_status", "verified");
+        txApp.save(award);
+      } else {
+        const awards = txApp.findCollectionByNameOrId("venue_awards");
+        award = new Record(awards);
+        award.set("source", source.id);
+        award.set("venue", venue.id);
+        award.set("year", year);
+        award.set("level", "Detour community selection");
+        award.set("rank", 0);
+        award.set("source_url", "");
+        award.set("current", true);
+        award.set("verification_status", "verified");
+        txApp.save(award);
+      }
+
+      submission.set("published_venue", venue.id);
+      submission.set("published_award", award.id);
+      submission.set("published_at", new Date().toISOString());
+      submission.set("publication_audit_id", "dc-" + $security.randomString(32));
+      submission.set("status", "published");
+      txApp.save(submission);
+
+      result = {
+        submission_id: submission.id,
+        venue_id: venue.id,
+        award_id: award.id,
+        status: "published",
+        attribution: "Detour community selection",
+        idempotent: false,
+      };
+    });
+
+    return e.json(200, result);
+  },
+  $apis.requireSuperuserAuth()
+);
+
+// Corrections and rights concerns remove the community label first while
+// retaining the private submission for an audited re-review or rejection.
+routerAdd(
+  "POST",
+  "/api/detour/curation/submissions/{id}/unpublish",
+  (e) => {
+    const submissionId = e.request.pathValue("id");
+    let result;
+
+    e.app.runInTransaction((txApp) => {
+      const submission = txApp.findRecordById("detour_submissions", submissionId);
+      if (submission.getString("status") !== "published") {
+        result = {
+          submission_id: submission.id,
+          status: submission.getString("status"),
+          idempotent: true,
+        };
+        return;
+      }
+
+      const awardId = submission.getString("published_award");
+      if (awardId) {
+        const award = txApp.findRecordById("venue_awards", awardId);
+        const source = txApp.findRecordById("guide_sources", award.getString("source"));
+        if (source.getString("slug") !== "detour-community") {
+          throw new BadRequestError("The submission publication audit link is not a Detour community selection.");
+        }
+        if (award.getBool("current")) {
+          award.set("current", false);
+          txApp.save(award);
+        }
+      }
+
+      submission.set("published_venue", "");
+      submission.set("published_award", "");
+      submission.set("published_at", "");
+      submission.set("publication_audit_id", "");
+      submission.set("status", "approved");
+      txApp.save(submission);
+      result = { submission_id: submission.id, status: "approved", idempotent: false };
+    });
+
+    return e.json(200, result);
+  },
+  $apis.requireSuperuserAuth()
+);

@@ -324,3 +324,34 @@ The user may be offered the option to share their **browser location**
 geolocation is unavailable, the frontend must fall back to a
 Madrid-oriented view **without fabricating a location** — no fake pin, no
 assumed user position.
+
+## Community publication operator route
+
+Curators must use the protected publication route after completing the checks in
+`docs/community-curation-policy.md`. Do not set a submission to `published` in
+the admin interface and do not create a public venue or award by hand.
+
+- `POST /api/detour/curation/submissions/{submissionId}/publish` requires a
+  PocketBase superuser token. The submission must already be `approved`.
+- The JSON body must include the independently verified `country` and these
+  boolean confirmations set to `true`: `identity_checked`,
+  `official_url_checked`, `rights_checked`, `consent_checked`, and
+  `editorial_selected`.
+- Optional public fields are `official_url`, `address`, and `category`. An
+  address requires `address_checked: true`. The route never copies the private
+  submission note, research link, curator note, or member information.
+- Coordinates are optional. When present, send both numeric `lat` and `lng`,
+  `location_verified: true`, and boolean `location_approximate`. Never submit
+  an unsupported pin or a `0,0` placeholder.
+- The response contains only safe IDs, status, and the `Detour community
+  selection` attribution. Repeating a completed publication returns the linked
+  public IDs without duplicating a venue or selection event.
+- `POST /api/detour/curation/submissions/{submissionId}/unpublish` requires the
+  same superuser token. It disables the linked public community-selection event
+  and returns the private submission to `approved` for correction or rejection;
+  it does not delete the venue or submission.
+
+Before treating a publication as complete, make one unauthenticated catalogue
+request and confirm the public venue carries `Detour community selection` with
+no submission, member, note, evidence, curator note, audit reference, or source
+lead exposed.
