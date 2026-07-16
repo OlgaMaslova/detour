@@ -1,3 +1,5 @@
+import { pb } from './pocketbase';
+
 export type AwardLevel = 1 | 2 | 3;
 
 /** One guide award held by a venue, with its own source attribution. */
@@ -30,6 +32,8 @@ export interface VenueAward {
    * guide links.
    */
   community: boolean;
+  /** True when this entry adapts a public `places.source_badges` value rather than a graded award. */
+  sourceBadge?: boolean;
 }
 
 export interface Venue {
@@ -38,8 +42,8 @@ export interface Venue {
   /** City name as stored in the catalogue (e.g. 'Madrid'); scopes every view to one city. */
   city: string;
   /**
-   * Every current award this canonical venue holds, one entry per guide.
-   * Sorted highest rank first; always at least one entry.
+   * Recognition-shaped entries used by the established UI. Live source badges
+   * are adapted here too; the array may be empty when a place has no badges.
    */
   awards: VenueAward[];
   /** Stable venue category from the catalogue (e.g. 'Pizza', 'Coffee'); '' when unspecified. */
@@ -50,6 +54,14 @@ export interface Venue {
   lat: number | null;
   lng: number | null;
   approxLocation: boolean;
+  /** Public place slug and relation metadata from the live `places` collection. */
+  slug?: string;
+  cityId?: string;
+  citySlug?: string;
+  /** Public place-page content from the live `places` collection. */
+  description?: string;
+  sourceBadges?: string[];
+  imageUrl?: string;
 }
 
 export const GUIDE_YEAR = 2026;
@@ -272,3 +284,148 @@ export const demoVenues: Venue[] = [
     approxLocation: false,
   },
 ];
+
+export interface LiveCity {
+  id: string;
+  name: string;
+  slug: string;
+  country: string;
+}
+
+export interface LiveCatalogue {
+  cities: LiveCity[];
+  venues: Venue[];
+}
+
+type CityRecord = Record<string, unknown> & {
+  id: string;
+  name?: string;
+  slug?: string;
+  country?: string;
+};
+
+type PlaceRecord = Record<string, unknown> & {
+  id: string;
+  name?: string;
+  slug?: string;
+  category?: string;
+  city?: string;
+  description?: string;
+  address?: string;
+  source_badges?: string[];
+  image_url?: string;
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  restaurant: 'Restaurant',
+  coffee: 'Coffee',
+  boulangerie: 'Boulangerie',
+  other: 'Other',
+};
+
+const SOURCE_BADGE_LABELS: Record<string, string> = {
+  michelin: 'Michelin',
+  mof: 'MOF',
+  other: 'Other',
+  'detour community': 'Detour community',
+};
+
+function cleanString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map(cleanString).filter(Boolean))];
+}
+
+function categoryLabel(value: unknown): string {
+  const category = cleanString(value).toLowerCase();
+  return CATEGORY_LABELS[category] ?? (category ? category[0].toUpperCase() + category.slice(1) : '');
+}
+
+function sourceBadgeLabel(value: string): string {
+  return SOURCE_BADGE_LABELS[value.toLowerCase()] ?? value;
+}
+
+function badgeAward(label: string): VenueAward {
+  const community = label.toLowerCase() === 'detour community';
+  return {
+    awardLevel: community ? 'Detour community selection' : label,
+    awardRank: null,
+    listRank: null,
+    edition: '',
+    awardYear: 0,
+    sourceName: community ? 'Detour community' : label,
+    sourceUrl: '',
+    note: '',
+    community,
+    sourceBadge: !community,
+  };
+}
+
+/**
+ * Load the public catalogue used by city discovery and place details.
+ * The adapter intentionally reads only `cities` and `places`, joins each place
+ * to its live city relation, and never substitutes hardcoded place records.
+ */
+export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
+  const [cityRecords, placeRecords] = await Promise.all([
+    pb.collection('cities').getFullList<CityRecord>({
+      fields: 'id,name,slug,country',
+      sort: 'name',
+      requestKey: null,
+    }),
+    pb.collection('places').getFullList<PlaceRecord>({
+      fields: 'id,name,slug,category,city,description,address,source_badges,image_url',
+      sort: 'name',
+      requestKey: null,
+    }),
+  ]);
+
+  const cities = cityRecords
+    .map((record): LiveCity | null => {
+      const name = cleanString(record.name);
+      const slug = cleanString(record.slug);
+      if (!record.id || !name || !slug) return null;
+      return {
+        id: record.id,
+        name,
+        slug,
+        country: cleanString(record.country),
+      };
+    })
+    .filter((city): city is LiveCity => city !== null);
+  const cityById = new Map(cities.map((city) => [city.id, city]));
+
+  const venues = placeRecords
+    .map((record): Venue | null => {
+      const cityId = cleanString(record.city);
+      const city = cityById.get(cityId);
+      const name = cleanString(record.name);
+      if (!record.id || !city || !name) return null;
+
+      const sourceBadges = stringList(record.source_badges).map(sourceBadgeLabel);
+      return {
+        id: record.id,
+        name,
+        slug: cleanString(record.slug),
+        cityId,
+        citySlug: city.slug,
+        city: city.name,
+        awards: sourceBadges.map(badgeAward),
+        category: categoryLabel(record.category),
+        neighborhood: '',
+        address: cleanString(record.address),
+        description: cleanString(record.description),
+        sourceBadges,
+        imageUrl: cleanString(record.image_url),
+        lat: null,
+        lng: null,
+        approxLocation: false,
+      };
+    })
+    .filter((venue): venue is Venue => venue !== null);
+
+  return { cities, venues };
+}

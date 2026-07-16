@@ -1,9 +1,8 @@
 import './styles.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { pb } from './pocketbase';
-import { demoVenues, GUIDE_YEAR } from './data';
-import type { Venue, VenueAward } from './data';
+import { GUIDE_YEAR, loadLiveCatalogue } from './data';
+import type { LiveCity, Venue, VenueAward } from './data';
 import {
   CITIES,
   GLOBAL_META_DESCRIPTION,
@@ -16,7 +15,7 @@ import { bindCommunity, communityControl, communityPanel } from './community';
 
 /** '' = all award levels; otherwise a literal level label present in the loaded data. */
 type Filter = string;
-type DataMode = 'loading' | 'live' | 'demo';
+type DataMode = 'loading' | 'live' | 'error';
 
 interface UserLocation {
   lat: number;
@@ -27,7 +26,9 @@ interface State {
   mode: DataMode;
   /** Active city route; null renders the city chooser. */
   city: CitySlug | null;
-  /** Every loaded venue, across all cities. Never rendered directly — see cityVenues(). */
+  /** Public city records loaded with the catalogue; static configs only supply presentation metadata. */
+  cities: LiveCity[];
+  /** Every loaded place, across all cities. Never rendered directly — see cityVenues(). */
   venues: Venue[];
   filter: Filter;
   /** '' = all sources; otherwise a source name present in the loaded data. */
@@ -50,6 +51,7 @@ interface State {
 const state: State = {
   mode: 'loading',
   city: citySlugFromUrl(window.location.search),
+  cities: [],
   venues: [],
   filter: '',
   sourceFilter: '',
@@ -164,9 +166,9 @@ function sortAwards(awards: VenueAward[]): VenueAward[] {
   );
 }
 
-/** The venue's highest-ranked award (awards lists are never empty). */
-function topAward(v: Venue): VenueAward {
-  return v.awards[0];
+/** The venue's highest-ranked recognition, when the live record has one. */
+function topAward(v: Venue): VenueAward | null {
+  return v.awards[0] ?? null;
 }
 
 /** Highest numeric rank across a venue's awards; -1 when none is parseable. */
@@ -184,24 +186,8 @@ function bestListRank(v: Venue): number {
 
 /* ---------- Detour community provenance (public only) ---------- */
 
-// The community's own selections live in the same public venue_awards /
-// guide_sources collections as external guides, published under this one
-// dedicated source. Detection uses only those public fields — never
-// detour_submissions, members, notes, or any other private collection.
-const COMMUNITY_SOURCE_SLUG = 'detour-community';
-const COMMUNITY_SOURCE_NAME = 'detour community';
-const COMMUNITY_LEVEL = 'detour community selection';
 /** The exact visible phrase used everywhere a community selection is shown. */
 const COMMUNITY_LABEL = 'Detour community selection';
-
-/** True when a live award's public source/level marks it as the community's own selection. */
-function isCommunityProvenance(level: string, sourceSlug: string, sourceName: string): boolean {
-  return (
-    sourceSlug.toLowerCase() === COMMUNITY_SOURCE_SLUG ||
-    sourceName.trim().toLowerCase() === COMMUNITY_SOURCE_NAME ||
-    level.trim().toLowerCase() === COMMUNITY_LEVEL
-  );
-}
 
 /** Whether the venue holds a current Detour community selection. */
 function hasCommunityAward(v: Venue): boolean {
@@ -210,7 +196,7 @@ function hasCommunityAward(v: Venue): boolean {
 
 /** Whether ALL of the venue's recognition is community provenance (no external guide). */
 function onlyCommunityAwards(v: Venue): boolean {
-  return v.awards.every((a) => a.community);
+  return v.awards.length > 0 && v.awards.every((a) => a.community);
 }
 
 /** Plain-text award label: 'No. N — edition' for ranked awards, else the literal level. */
@@ -219,181 +205,61 @@ function awardText(a: VenueAward): string {
   return a.listRank !== null ? `No. ${a.listRank} — ${a.edition}` : a.awardLevel;
 }
 
-/** Plain-text summary of every award, keeping each guide's own wording. */
+/** Plain-text summary of live source badges and any retained recognition metadata. */
 function awardSummary(v: Venue): string {
-  return v.awards
-    .map((a) => (a.community ? COMMUNITY_LABEL : `${awardText(a)} — ${a.sourceName} ${a.awardYear}`))
-    .join('; ');
+  const summary = v.awards.map((a) => {
+    if (a.community) return COMMUNITY_LABEL;
+    if (a.sourceBadge) return `Source badge: ${a.sourceName}`;
+    return `${awardText(a)} — ${a.sourceName} ${a.awardYear}`;
+  });
+  return summary.join('; ') || [v.category, v.city].filter(Boolean).join(' in ');
 }
 
-/** Unique EXTERNAL guide names for a venue, in award order. The Detour community is not a guide. */
+/** Unique EXTERNAL guide names for retained recognition metadata. */
 function guideNames(v: Venue): string[] {
-  return [...new Set(v.awards.filter((a) => !a.community).map((a) => a.sourceName).filter(Boolean))];
+  return [
+    ...new Set(
+      v.awards
+        .filter((a) => !a.community && !a.sourceBadge)
+        .map((a) => a.sourceName)
+        .filter(Boolean)
+    ),
+  ];
 }
 
-/* ---------- live data loading ---------- */
+/* ---------- live source badges ---------- */
 
-type Rec = Record<string, unknown>;
-
-async function loadLiveVenues(): Promise<Venue[]> {
-  const [venueRecs, awardRecs, sourceRecs] = await Promise.all([
-    pb.collection('venues').getFullList<Rec>({ requestKey: null }),
-    pb
-      .collection('venue_awards')
-      .getFullList<Rec>({ requestKey: null })
-      .catch(() => [] as Rec[]),
-    pb
-      .collection('guide_sources')
-      .getFullList<Rec>({ requestKey: null })
-      .catch(() => [] as Rec[]),
-  ]);
-
-  const sourceById = new Map<string, Rec>();
-  for (const s of sourceRecs) sourceById.set(String(s.id), s);
-
-  const venueById = new Map<string, Rec>();
-  for (const venue of venueRecs) venueById.set(String(venue.id), venue);
-
-  // A venue can be recognised by several independent sources. Render one card
-  // per canonical venue, collecting every current award into its awards list so
-  // a Michelin Star can never inherit a Repsol Sol label (or vice versa) and a
-  // multi-guide venue never appears twice.
-  const venuesById = new Map<string, Venue>();
-  for (const award of awardRecs) {
-    if (award.current === false) continue;
-    const year = num(award.year, award.guide_year);
-    if (year !== null && year !== GUIDE_YEAR) continue;
-
-    const venueId = str(award.venue as string, award.venue_id as string);
-    const venue = venueById.get(venueId);
-    if (!venue) continue;
-
-    // Award levels are stored as literal strings like '1 Sol' / '3 Soles'
-    // (Guía Repsol) or '1 Star' / '3 Stars' (Michelin Guide); keep the
-    // source's exact wording.
-    const level = parseAwardLevel(
-      award.level,
-      award.soles,
-      venue.award_level,
-      venue.soles,
-      venue.award
-    );
-    if (!level) continue;
-
-    // The backend stores an explicit numeric rank for ranked-list awards
-    // (venue_awards.rank, e.g. 2 for '… — No. 2'); prefer it over parsing.
-    const explicitRank = num(award.rank);
-    const parsedListRank = listRankOf(level);
-    const isRankedList = parsedListRank !== null;
-    // Legacy Stars/Soles rows use 0 as the unset-rank sentinel. Only a
-    // positive explicit rank is meaningful; otherwise preserve the literal
-    // level's star/sole count.
-    const positiveExplicitRank =
-      explicitRank !== null && explicitRank > 0 ? explicitRank : null;
-
-    const sourceId = str(
-      award.source as string,
-      award.guide_source as string,
-      venue.source as string,
-      venue.guide_source as string
-    );
-    const source = sourceId ? sourceById.get(sourceId) : undefined;
-
-    const sourceSlug = str(source?.slug as string);
-    const resolvedSourceName =
-      str(
-        source?.name as string,
-        source?.title as string,
-        award.source_name as string,
-        venue.source_name as string
-      ) || (source ? 'Unknown guide' : 'Unknown source');
-    // Public community provenance: the community's own selection, published
-    // under the dedicated 'detour-community' guide source. Never a star/sole
-    // level, never a ranked list, never linked as an external guide.
-    const community = isCommunityProvenance(level, sourceSlug, resolvedSourceName);
-
-    // Detailed verification notes are private editorial provenance. The
-    // backend exposes only this narrowly scoped public location qualifier.
-    const approxLocation = Boolean(venue.approx_location ?? venue.location_approximate);
-
-    // The backend stores 0/0 as a neutral "no known coordinates" sentinel
-    // (see the seed migrations). Treat it — and missing values — as unknown
-    // location rather than plotting a fake pin.
-    const rawLat = num(venue.lat, venue.latitude);
-    const rawLng = num(venue.lng, venue.lon, venue.longitude);
-    const hasCoords =
-      rawLat !== null && rawLng !== null && !(rawLat === 0 && rawLng === 0);
-    const lat = hasCoords ? rawLat : null;
-    const lng = hasCoords ? rawLng : null;
-
-    const venueAward: VenueAward = {
-      awardLevel: community ? COMMUNITY_LABEL : level,
-      // A ranked-list position is never a star/sole count — keep the two
-      // notions strictly separate so icons/ordering stay faithful. Community
-      // selections carry neither: they are not graded or ranked.
-      awardRank: community ? null : isRankedList ? null : (positiveExplicitRank ?? awardRankOf(level)),
-      listRank: community ? null : isRankedList ? (positiveExplicitRank ?? parsedListRank) : null,
-      edition: community || !isRankedList ? '' : editionOf(level),
-      awardYear: year ?? GUIDE_YEAR,
-      sourceName: community ? 'Detour community' : resolvedSourceName,
-      // Community selections are Detour's own — never linked as an external guide.
-      sourceUrl: community
-        ? ''
-        : str(
-            award.source_url as string,
-            source?.official_url as string,
-            source?.url as string,
-            source?.website as string,
-            venue.source_url as string,
-            venue.website as string
-          ),
-      note: '',
-      community,
-    };
-
-    const existing = venuesById.get(venueId);
-    if (existing) {
-      existing.awards.push(venueAward);
-      existing.approxLocation = existing.approxLocation || approxLocation;
-      continue;
-    }
-
-    venuesById.set(venueId, {
-      id: venueId,
-      name: str(venue.name, venue.title) || 'Unnamed venue',
-      city: str(venue.city, venue.town, venue.locality),
-      awards: [venueAward],
-      category: str(venue.category, venue.cuisine, venue.style),
-      neighborhood: str(venue.neighborhood, venue.district, venue.area),
-      address: str(venue.address, venue.street_address),
-      lat,
-      lng,
-      approxLocation,
-    });
-  }
-  const venues = [...venuesById.values()];
-  for (const v of venues) v.awards = sortAwards(v.awards);
-  return venues;
+function sourceBadgeClass(label: string): string {
+  const normalized = label.trim().toLowerCase();
+  if (normalized === 'michelin') return 'source-michelin';
+  if (normalized === 'mof') return 'source-mof';
+  return 'source-other';
 }
 
 /* ---------- city scoping ---------- */
 
 function activeCity(): CityConfig | null {
-  return cityBySlug(state.city);
+  if (state.mode === 'loading') return cityBySlug(state.city);
+  return availableCities().find((city) => city.slug === state.city) ?? null;
 }
 
 function venuesForCity(city: CityConfig): Venue[] {
   const name = city.name.toLowerCase();
-  return state.venues.filter((v) => v.city.trim().toLowerCase() === name);
+  return state.venues.filter(
+    (v) => v.citySlug === city.slug || (!v.citySlug && v.city.trim().toLowerCase() === name)
+  );
 }
 
-/** Cities backed by at least one currently loaded, award-backed venue. */
+/** Cities backed by both a live `cities` record and at least one joined live place. */
 function availableCities(): CityConfig[] {
-  if (state.mode === 'loading') return [];
-  return CITIES.filter(
-    (city) =>
-      (state.mode !== 'demo' || city.slug === 'madrid') && venuesForCity(city).length > 0
-  );
+  if (state.mode !== 'live') return [];
+  const liveBySlug = new Map(state.cities.map((city) => [city.slug, city]));
+  return CITIES.flatMap((config) => {
+    const live = liveBySlug.get(config.slug);
+    if (!live) return [];
+    const city: CityConfig = { ...config, name: live.name, country: live.country };
+    return venuesForCity(city).length > 0 ? [city] : [];
+  });
 }
 
 function cityIsAvailable(slug: CitySlug): boolean {
@@ -484,7 +350,7 @@ function awardFilters(): { value: Filter; label: string }[] {
   const seen = new Map<string, number | null>();
   for (const v of cityVenues()) {
     for (const a of v.awards) {
-      if (a.listRank !== null) continue;
+      if (a.listRank !== null || a.sourceBadge) continue;
       if (!seen.has(a.awardLevel)) seen.set(a.awardLevel, a.awardRank);
     }
   }
@@ -527,7 +393,7 @@ function filteredVenues(): Venue[] {
     (a, b) =>
       maxAwardRank(b) - maxAwardRank(a) ||
       bestListRank(a) - bestListRank(b) ||
-      topAward(a).awardLevel.localeCompare(topAward(b).awardLevel) ||
+      (topAward(a)?.awardLevel ?? '').localeCompare(topAward(b)?.awardLevel ?? '') ||
       a.name.localeCompare(b.name)
   );
 }
@@ -637,7 +503,9 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
         .map((a) =>
           a.community
             ? `<br><span class="popup-community"><span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)}</span>`
-            : `<br>${awardIcons(a)} ${esc(awardText(a))} · ${esc(a.sourceName)} ${a.awardYear}`
+            : a.sourceBadge
+              ? `<br>Source badge · ${esc(a.sourceName)}`
+              : `<br>${awardIcons(a)} ${esc(awardText(a))} · ${esc(a.sourceName)} ${a.awardYear}`
         )
         .join('')}`,
       { closeButton: false, offset: [0, -6] }
@@ -873,11 +741,13 @@ function venueCard(v: Venue): string {
                   ? `<span role="listitem" class="award award-community" title="${esc(COMMUNITY_LABEL)}">
                   <span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)}
                 </span>`
-                  : a.listRank !== null
-                    ? `<span role="listitem" class="award award-ranked" title="${esc(awardText(a))} — ${esc(a.sourceName)} ${a.awardYear}">
+                  : a.sourceBadge
+                    ? `<span role="listitem" class="award award-source ${sourceBadgeClass(a.sourceName)}" title="Source badge: ${esc(a.sourceName)}">${esc(a.sourceName)}</span>`
+                    : a.listRank !== null
+                      ? `<span role="listitem" class="award award-ranked" title="${esc(awardText(a))} — ${esc(a.sourceName)} ${a.awardYear}">
                   <span class="award-rank-no">No. ${a.listRank}</span> ${esc(a.edition)}
                 </span>`
-                    : `<span role="listitem" class="award award-${a.awardRank ?? 0}" title="${esc(a.awardLevel)} — ${esc(a.sourceName)} ${a.awardYear}">
+                      : `<span role="listitem" class="award award-${a.awardRank ?? 0}" title="${esc(a.awardLevel)} — ${esc(a.sourceName)} ${a.awardYear}">
                   <span aria-hidden="true">${awardIcons(a)}</span> ${esc(a.awardLevel)}
                 </span>`
               )
@@ -896,6 +766,8 @@ function venueCard(v: Venue): string {
           .map((a) => {
             if (a.community)
               return `<p class="card-source card-source-community"><span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)} — Detour’s editorial selection</p>`;
+            if (a.sourceBadge)
+              return `<p class="card-source card-source-badge ${sourceBadgeClass(a.sourceName)}"><span>Source badge</span> · ${esc(a.sourceName)}</p>`;
             const claim =
               a.listRank !== null
                 ? `No. ${a.listRank} · ${esc(a.edition)}`
@@ -941,21 +813,28 @@ function detailPanel(): string {
       </div>
       <button type="button" class="detail-close" data-close aria-label="Close details">✕</button>
     </div>
-    <ul class="detail-awards" aria-label="Recognition">
+    ${
+      v.awards.length
+        ? `<ul class="detail-awards" aria-label="Source badges and recognition">
       ${v.awards
         .map((a) =>
           a.community
             ? `<li class="detail-award detail-award-community"><span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)}</li>`
-            : a.listRank !== null
-              ? `<li class="detail-award detail-award-ranked"><span class="award-rank-no">No. ${a.listRank}</span> ${esc(
-                  a.edition
-                )} · ${esc(a.sourceName)}</li>`
-              : `<li class="detail-award award-${a.awardRank ?? 0}"><span aria-hidden="true">${awardIcons(a)}</span> ${esc(
-                  a.awardLevel
-                )} · ${esc(a.sourceName)} ${a.awardYear}</li>`
+            : a.sourceBadge
+              ? `<li class="detail-award detail-source-badge ${sourceBadgeClass(a.sourceName)}"><span>Source badge</span>${esc(a.sourceName)}</li>`
+              : a.listRank !== null
+                ? `<li class="detail-award detail-award-ranked"><span class="award-rank-no">No. ${a.listRank}</span> ${esc(
+                    a.edition
+                  )} · ${esc(a.sourceName)}</li>`
+                : `<li class="detail-award award-${a.awardRank ?? 0}"><span aria-hidden="true">${awardIcons(a)}</span> ${esc(
+                    a.awardLevel
+                  )} · ${esc(a.sourceName)} ${a.awardYear}</li>`
         )
         .join('')}
-    </ul>
+    </ul>`
+        : ''
+    }
+    ${v.description ? `<p class="detail-description">${esc(v.description)}</p>` : ''}
     ${guideSentence ? `<p class="detail-note">${esc(guideSentence)}</p>` : ''}
     <dl class="detail-facts">
       <div><dt>Address</dt><dd>${
@@ -964,9 +843,8 @@ function detailPanel(): string {
           : '<span class="approx">Map position being refined</span>'
       }</dd></div>
       ${(() => {
-        // Only external guide awards belong under “Official guide” — the
-        // Detour community is never presented or linked as one.
-        const external = v.awards.filter((a) => !a.community);
+        // Only retained external-guide recognition belongs under “Official guide”.
+        const external = v.awards.filter((a) => !a.community && !a.sourceBadge);
         const guideRow = external.length
           ? `<div><dt>Official guide${external.length === 1 ? '' : 's'}</dt><dd>${external
               .map((a) =>
@@ -1022,13 +900,13 @@ function renderCityChooser(root: HTMLElement): void {
   const status =
     state.mode === 'loading'
       ? '<p class="city-chooser-status loading" role="status">Checking the current published selections…</p>'
-      : state.mode === 'demo'
-        ? '<p class="city-chooser-status status-banner" role="status">Live data is temporarily unavailable. Madrid is open as a limited preview.</p>'
+      : state.mode === 'error'
+        ? '<p class="city-chooser-status status-banner" role="status">The current city selections could not be loaded. Please try again shortly.</p>'
         : cities.length === 0
           ? '<p class="city-chooser-status" role="status">No city selections are published at the moment. Please return soon.</p>'
           : '';
   const choices =
-    state.mode === 'loading'
+    state.mode !== 'live'
       ? ''
       : `<ul class="city-choices" id="city-choices" aria-label="Published city selections">
           ${cities
@@ -1087,10 +965,6 @@ function render(root: HTMLElement) {
 
   syncDocumentMeta(city);
   const list = filteredVenues();
-  const previewBanner =
-    state.mode === 'demo'
-      ? `<p class="status-banner" role="status">You’re seeing a limited preview of the ${esc(city.name)} selection. The full, current list will be back shortly.</p>`
-      : '';
   const emptyState = `<div class="empty-state" role="status">
       <p class="empty-state-title">Nothing matches yet</p>
       <p class="empty-state-body">Try a different name, or start again with the full ${esc(city.name)} selection.</p>
@@ -1108,7 +982,6 @@ function render(root: HTMLElement) {
       </div>
     </header>
     ${communityPanel(state.venues)}
-    ${previewBanner}
     ${discoveryBar(city, list)}
     ${city.presentation === 'map' ? mapStage(list) : listPreviewStage()}
     <section class="results" id="selection-results" aria-label="The selection">
@@ -1326,25 +1199,23 @@ const root = document.querySelector('#app');
 if (root instanceof HTMLElement) {
   applyRouteFromUrl(root);
   window.addEventListener('popstate', () => applyRouteFromUrl(root));
-  loadLiveVenues()
-    .then((venues) => {
-      if (venues.length > 0) {
-        state.mode = 'live';
-        state.venues = venues;
-        state.guideYear =
-          venues.reduce(
-            (y, v) => v.awards.reduce((yy, a) => Math.max(yy, a.awardYear), y),
-            0
-          ) || GUIDE_YEAR;
-      } else {
-        state.mode = 'demo';
-        state.venues = demoVenues;
-      }
+  loadLiveCatalogue()
+    .then(({ cities, venues }) => {
+      state.mode = 'live';
+      state.cities = cities;
+      state.venues = venues;
+      state.guideYear =
+        venues.reduce(
+          (year, venue) =>
+            venue.awards.reduce((current, award) => Math.max(current, award.awardYear), year),
+          0
+        ) || GUIDE_YEAR;
       applyRouteFromUrl(root);
     })
     .catch(() => {
-      state.mode = 'demo';
-      state.venues = demoVenues;
+      state.mode = 'error';
+      state.cities = [];
+      state.venues = [];
       applyRouteFromUrl(root);
     });
 }

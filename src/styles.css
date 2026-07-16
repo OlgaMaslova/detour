@@ -21,6 +21,9 @@
   --brass-deep: #816327;
   --brass-soft: #f1e6cd;
   --rose: #c78f97;          /* dusty rose — the visitor's own position */
+  --coral-soft: oklch(0.91 0.055 28); /* warm vermilion/coral — Michelin source badge */
+  --sage-soft: oklch(0.90 0.025 145); /* muted sage-grey — independent source badge */
+  --lilac: oklch(0.88 0.055 310);     /* soft violet/lilac — craft distinction */
   --olive: #767a52;         /* muted olive — quiet supporting notes */
   --radius: 12px;
   --radius-sm: 6px;
@@ -540,6 +543,33 @@ a:hover { color: var(--wine-deep); }
 .detail-close:hover { border-color: var(--wine); color: var(--wine); }
 .detail-awards { list-style: none; margin: 0.5rem 0 0.6rem; padding: 0; display: grid; gap: 0.2rem; }
 .detail-award { margin: 0; font-weight: 700; font-size: 0.94rem; }
+.detail-description {
+  max-width: 65ch;
+  margin: 0.7rem 0 0.85rem;
+  color: var(--ink);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+.detail-source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: fit-content;
+  padding: 0.3rem 0.55rem;
+  border-radius: 4px;
+  background: var(--lilac);
+  color: var(--plum);
+}
+.detail-source-badge.source-michelin { background: var(--coral-soft); color: var(--wine-deep); }
+.detail-source-badge.source-other { background: var(--sage-soft); color: var(--ink); }
+.detail-source-badge span {
+  color: currentColor;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 .detail-note {
   margin: 0 0 0.85rem;
   max-width: 62ch;
@@ -638,6 +668,9 @@ a:hover { color: var(--wine-deep); }
   border: 1px solid var(--rose);
   white-space: normal;
 }
+.award-source { background: var(--lilac); color: var(--plum); }
+.award-source.source-michelin { background: var(--coral-soft); color: var(--wine-deep); }
+.award-source.source-other { background: var(--sage-soft); color: var(--ink); }
 .award-3 { color: var(--brass-deep); }
 .award-2 { color: var(--wine); background: #f2e2e2; }
 .award-1 { color: #7c3a50; background: #f4e6e9; }
@@ -659,6 +692,10 @@ a:hover { color: var(--wine-deep); }
   color: var(--ink-soft);
 }
 .card-source a { color: var(--brass-deep); }
+.card-source-badge { background: var(--lilac); color: var(--plum); }
+.card-source-badge.source-michelin { background: var(--coral-soft); color: var(--wine-deep); }
+.card-source-badge.source-other { background: var(--sage-soft); color: var(--ink); }
+.card-source-badge span { color: currentColor; font-weight: 800; }
 .card-source-community {
   color: var(--wine);
   background: #f6ecec;
