@@ -483,11 +483,21 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
     // external guide award keep that award's pin so guide styling is preserved.
     const markerClass =
       markerRank > 0 ? `pin-${markerRank}` : onlyCommunityAwards(v) ? 'pin-community' : 'pin-ranked';
+    const markerSignal = markerRank > 0 ? String(markerRank) : onlyCommunityAwards(v) ? 'D' : '#';
+    const markerMeaning =
+      markerRank > 0
+        ? `${markerRank}-level guide recognition`
+        : onlyCommunityAwards(v)
+          ? 'Detour community selection'
+          : 'ranked guide selection';
     const icon = L.divIcon({
       className: '',
       html: `<span class="map-pin ${markerClass}${selected ? ' pin-selected' : ''}" data-pin="${esc(v.id)}">
-        <span class="pin-dot"></span>
-        <span class="pin-label">${esc(v.name)}</span>
+        <span class="pin-pivot" aria-hidden="true">
+          <span class="pin-signal">${markerSignal}</span>
+          <span class="pin-fold"></span>
+        </span>
+        <span class="pin-label">${esc(v.name)}<small>${esc(markerMeaning)}</small></span>
       </span>`,
       iconSize: [0, 0],
       iconAnchor: [0, 0],
@@ -530,7 +540,10 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
         pin.setAttribute('role', 'button');
         pin.setAttribute('tabindex', '0');
         pin.setAttribute('aria-pressed', String(selected));
-        pin.setAttribute('aria-label', `${v.name}, ${awardSummary(v)}`);
+        pin.setAttribute(
+          'aria-label',
+          `${v.name}, ${awardSummary(v)}. ${selected ? 'Selected.' : 'Select for details.'}`
+        );
         pin.addEventListener('click', (e) => {
           e.stopPropagation();
           select();
@@ -555,9 +568,9 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
   if (state.userLocation && userInCity) {
     L.circleMarker([state.userLocation.lat, state.userLocation.lng], {
       radius: 7,
-      color: '#f6f0e4',
-      weight: 2,
-      fillColor: '#c78f97',
+      color: '#ffffff',
+      weight: 3,
+      fillColor: '#87c2a5',
       fillOpacity: 1,
     })
       .addTo(map)
@@ -729,8 +742,11 @@ function discoveryBar(city: CityConfig, list: Venue[]): string {
 
 function venueCard(v: Venue): string {
   const selected = v.id === state.selectedId;
+  const rank = maxAwardRank(v);
+  const cardTone =
+    rank > 0 ? ` card-rank-${rank}` : onlyCommunityAwards(v) ? ' card-community' : ' card-ranked';
   return `<li>
-    <article class="card${selected ? ' card-selected' : ''}">
+    <article class="card${cardTone}${selected ? ' card-selected' : ''}">
       <button type="button" class="card-main" data-venue="${esc(v.id)}" aria-expanded="${selected}">
         <div class="card-top">
           <h3>${esc(v.name)}</h3>
@@ -808,58 +824,67 @@ function detailPanel(): string {
   return `<aside class="detail" aria-live="polite" aria-label="Selected place">
     <div class="detail-head">
       <div>
+        <p class="detail-overline">Selected place</p>
         <h2>${esc(v.name)}</h2>
         ${v.category || v.neighborhood ? `<p class="detail-meta">${esc([v.category, v.neighborhood].filter(Boolean).join(' · '))}</p>` : ''}
       </div>
-      <button type="button" class="detail-close" data-close aria-label="Close details">✕</button>
+      <button type="button" class="detail-close" data-close aria-label="Close details"><span aria-hidden="true">×</span></button>
     </div>
-    ${
-      v.awards.length
-        ? `<ul class="detail-awards" aria-label="Source badges and recognition">
-      ${v.awards
-        .map((a) =>
-          a.community
-            ? `<li class="detail-award detail-award-community"><span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)}</li>`
-            : a.sourceBadge
-              ? `<li class="detail-award detail-source-badge ${sourceBadgeClass(a.sourceName)}"><span>Source badge</span>${esc(a.sourceName)}</li>`
-              : a.listRank !== null
-                ? `<li class="detail-award detail-award-ranked"><span class="award-rank-no">No. ${a.listRank}</span> ${esc(
-                    a.edition
-                  )} · ${esc(a.sourceName)}</li>`
-                : `<li class="detail-award award-${a.awardRank ?? 0}"><span aria-hidden="true">${awardIcons(a)}</span> ${esc(
-                    a.awardLevel
-                  )} · ${esc(a.sourceName)} ${a.awardYear}</li>`
-        )
-        .join('')}
-    </ul>`
-        : ''
-    }
-    ${v.description ? `<p class="detail-description">${esc(v.description)}</p>` : ''}
-    ${guideSentence ? `<p class="detail-note">${esc(guideSentence)}</p>` : ''}
-    <dl class="detail-facts">
-      <div><dt>Address</dt><dd>${
-        v.address
-          ? esc(v.address)
-          : '<span class="approx">Map position being refined</span>'
-      }</dd></div>
-      ${(() => {
-        // Only retained external-guide recognition belongs under “Official guide”.
-        const external = v.awards.filter((a) => !a.community && !a.sourceBadge);
-        const guideRow = external.length
-          ? `<div><dt>Official guide${external.length === 1 ? '' : 's'}</dt><dd>${external
-              .map((a) =>
-                a.sourceUrl
-                  ? `<a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(a.sourceName)} ${a.awardYear} ↗</a>`
-                  : `${esc(a.sourceName)} ${a.awardYear}`
-              )
-              .join('<br>')}</dd></div>`
-          : '';
-        const communityRow = communityHere
-          ? `<div><dt>Community</dt><dd>${esc(COMMUNITY_LABEL)} — Detour’s editorial selection</dd></div>`
-          : '';
-        return guideRow + communityRow;
-      })()}
-    </dl>
+    <div class="detail-body">
+      <section class="detail-recognition" aria-labelledby="detail-recognition-title">
+        <h3 id="detail-recognition-title">Why it’s here</h3>
+        ${
+          v.awards.length
+            ? `<ul class="detail-awards" aria-label="Source badges and recognition">
+          ${v.awards
+            .map((a) =>
+              a.community
+                ? `<li class="detail-award detail-award-community"><span aria-hidden="true">◆</span> ${esc(COMMUNITY_LABEL)}</li>`
+                : a.sourceBadge
+                  ? `<li class="detail-award detail-source-badge ${sourceBadgeClass(a.sourceName)}"><span>Source badge</span>${esc(a.sourceName)}</li>`
+                  : a.listRank !== null
+                    ? `<li class="detail-award detail-award-ranked"><span class="award-rank-no">No. ${a.listRank}</span> ${esc(
+                        a.edition
+                      )} · ${esc(a.sourceName)}</li>`
+                    : `<li class="detail-award award-${a.awardRank ?? 0}"><span aria-hidden="true">${awardIcons(a)}</span> ${esc(
+                        a.awardLevel
+                      )} · ${esc(a.sourceName)} ${a.awardYear}</li>`
+            )
+            .join('')}
+        </ul>`
+            : ''
+        }
+        ${v.description ? `<p class="detail-description">${esc(v.description)}</p>` : ''}
+        ${guideSentence ? `<p class="detail-note">${esc(guideSentence)}</p>` : ''}
+      </section>
+      <section class="detail-practical" aria-labelledby="detail-practical-title">
+        <h3 id="detail-practical-title">Place details</h3>
+        <dl class="detail-facts">
+          <div><dt>Address</dt><dd>${
+            v.address
+              ? esc(v.address)
+              : '<span class="approx">Map position being refined</span>'
+          }</dd></div>
+          ${(() => {
+            // Only retained external-guide recognition belongs under “Official guide”.
+            const external = v.awards.filter((a) => !a.community && !a.sourceBadge);
+            const guideRow = external.length
+              ? `<div><dt>Official guide${external.length === 1 ? '' : 's'}</dt><dd>${external
+                  .map((a) =>
+                    a.sourceUrl
+                      ? `<a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(a.sourceName)} ${a.awardYear} ↗</a>`
+                      : `${esc(a.sourceName)} ${a.awardYear}`
+                  )
+                  .join('<br>')}</dd></div>`
+              : '';
+            const communityRow = communityHere
+              ? `<div><dt>Community</dt><dd>${esc(COMMUNITY_LABEL)} — Detour’s editorial selection</dd></div>`
+              : '';
+            return guideRow + communityRow;
+          })()}
+        </dl>
+      </section>
+    </div>
   </aside>`;
 }
 
@@ -912,11 +937,12 @@ function renderCityChooser(root: HTMLElement): void {
           ${cities
             .map((city) => {
               const count = venuesForCity(city).length;
-              return `<li class="city-choice">
+              return `<li class="city-choice city-choice-${esc(city.slug)}">
                 <article class="city-choice-content">
+                  <span class="city-choice-swatch" aria-hidden="true"><span></span></span>
                   <p class="city-choice-place"><span class="city-choice-name">${esc(city.name)}</span><span class="city-choice-separator">, </span><span class="city-choice-country">${esc(city.country)}</span></p>
                   <p class="city-choice-count">${count} current ${count === 1 ? 'selection' : 'selections'}</p>
-                  <a class="city-choice-action" href="${esc(cityHref(city.slug))}" data-choose-city="${esc(city.slug)}">Explore ${esc(city.name)}</a>
+                  <a class="city-choice-action" href="${esc(cityHref(city.slug))}" data-choose-city="${esc(city.slug)}">Explore ${esc(city.name)}<span aria-hidden="true">↗</span></a>
                 </article>
               </li>`;
             })
@@ -1172,7 +1198,7 @@ function requestUserLocation(root: HTMLElement): void {
         } else {
           state.userLocation = { lat: latitude, lng: longitude };
           if (withinCity(city, state.userLocation)) {
-            state.geoStatus = 'You’re on the map — look for the rose dot.';
+            state.geoStatus = 'You’re on the map — look for the mint location dot.';
           } else {
             state.geoStatus = `You seem to be outside ${city.name}, so the map stays on the city — everything else works as usual.`;
           }
