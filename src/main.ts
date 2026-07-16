@@ -928,7 +928,7 @@ function renderCityChooser(root: HTMLElement): void {
     <header class="hero city-chooser-hero">
       <div class="hero-inner city-chooser-header">
         <p class="brand">Detour</p>
-        <h1>Exceptional tables, city by city.</h1>
+        <h1>Trust the experts. Great food is never a straight line.</h1>
         <p class="tagline city-chooser-intro">Detour is a collection of exceptional tables across cities, chosen for the recognition they hold now. Choose a city to explore its current selection.</p>
         <div class="hero-account">${communityControl()}</div>
       </div>

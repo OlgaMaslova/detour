@@ -41,10 +41,7 @@ export interface Venue {
   name: string;
   /** City name as stored in the catalogue (e.g. 'Madrid'); scopes every view to one city. */
   city: string;
-  /**
-   * Recognition-shaped entries used by the established UI. Live source badges
-   * are adapted here too; the array may be empty when a place has no badges.
-   */
+  /** Every current recognition for this canonical venue, one entry per guide. */
   awards: VenueAward[];
   /** Stable venue category from the catalogue (e.g. 'Pizza', 'Coffee'); '' when unspecified. */
   category: string;
@@ -54,11 +51,11 @@ export interface Venue {
   lat: number | null;
   lng: number | null;
   approxLocation: boolean;
-  /** Public place slug and relation metadata from the live `places` collection. */
+  /** Optional route metadata used by the city-scoped catalogue UI. */
   slug?: string;
   cityId?: string;
   citySlug?: string;
-  /** Public place-page content from the live `places` collection. */
+  /** Optional detail content retained for compatibility with the existing UI contract. */
   description?: string;
   sourceBadges?: string[];
   imageUrl?: string;
@@ -297,135 +294,209 @@ export interface LiveCatalogue {
   venues: Venue[];
 }
 
-type CityRecord = Record<string, unknown> & {
+type VenueRecord = Record<string, unknown> & {
   id: string;
   name?: string;
-  slug?: string;
-  country?: string;
-};
-
-type PlaceRecord = Record<string, unknown> & {
-  id: string;
-  name?: string;
-  slug?: string;
-  category?: string;
   city?: string;
-  description?: string;
+  country?: string;
   address?: string;
-  source_badges?: string[];
-  image_url?: string;
+  lat?: number | string;
+  lng?: number | string;
+  category?: string;
+  official_url?: string;
+  approx_location?: boolean;
 };
 
-const CATEGORY_LABELS: Record<string, string> = {
-  restaurant: 'Restaurant',
-  coffee: 'Coffee',
-  boulangerie: 'Boulangerie',
-  other: 'Other',
+type GuideSourceRecord = Record<string, unknown> & {
+  id: string;
+  name?: string;
+  slug?: string;
+  official_url?: string;
+  current_year?: number | string;
 };
 
-const SOURCE_BADGE_LABELS: Record<string, string> = {
-  michelin: 'Michelin',
-  mof: 'MOF',
-  other: 'Other',
-  'detour community': 'Detour community',
+type VenueAwardRecord = Record<string, unknown> & {
+  id: string;
+  source?: string;
+  venue?: string;
+  year?: number | string;
+  level?: string;
+  rank?: number | string;
+  source_url?: string;
+  current?: boolean;
 };
+
+const COMMUNITY_SOURCE_SLUG = 'detour-community';
+const COMMUNITY_SOURCE_NAME = 'detour community';
+const COMMUNITY_LEVEL = 'detour community selection';
+const COMMUNITY_LABEL = 'Detour community selection';
+const LIST_RANK_RE = /\bNo\.\s*(\d+)\b/i;
 
 function cleanString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function stringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.map(cleanString).filter(Boolean))];
+function cleanNumber(value: unknown): number | null {
+  const number = typeof value === 'string' ? Number.parseFloat(value) : value;
+  return typeof number === 'number' && Number.isFinite(number) ? number : null;
 }
 
-function categoryLabel(value: unknown): string {
-  const category = cleanString(value).toLowerCase();
-  return CATEGORY_LABELS[category] ?? (category ? category[0].toUpperCase() + category.slice(1) : '');
+function positiveInteger(value: unknown): number | null {
+  const number = cleanNumber(value);
+  return number !== null && Number.isInteger(number) && number > 0 ? number : null;
 }
 
-function sourceBadgeLabel(value: string): string {
-  return SOURCE_BADGE_LABELS[value.toLowerCase()] ?? value;
+function citySlug(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
-function badgeAward(label: string): VenueAward {
-  const community = label.toLowerCase() === 'detour community';
-  return {
-    awardLevel: community ? 'Detour community selection' : label,
-    awardRank: null,
-    listRank: null,
-    edition: '',
-    awardYear: 0,
-    sourceName: community ? 'Detour community' : label,
-    sourceUrl: '',
-    note: '',
-    community,
-    sourceBadge: !community,
-  };
+function listRankOf(level: string): number | null {
+  return positiveInteger(level.match(LIST_RANK_RE)?.[1]);
+}
+
+function editionOf(level: string): string {
+  return level.split(/\s*—\s*No\.\s*\d+/i)[0].trim() || level;
+}
+
+function awardRankOf(level: string): number | null {
+  const match = level.match(/^\s*([1-3])\s+(?:sol(?:es)?|stars?)\b/i);
+  return positiveInteger(match?.[1]);
+}
+
+function isCommunityRecognition(level: string, source: GuideSourceRecord | undefined): boolean {
+  return (
+    cleanString(source?.slug).toLowerCase() === COMMUNITY_SOURCE_SLUG ||
+    cleanString(source?.name).toLowerCase() === COMMUNITY_SOURCE_NAME ||
+    level.toLowerCase() === COMMUNITY_LEVEL
+  );
+}
+
+function sortAwards(awards: VenueAward[]): VenueAward[] {
+  return [...awards].sort(
+    (a, b) =>
+      (b.awardRank ?? -1) - (a.awardRank ?? -1) ||
+      (a.listRank ?? Number.MAX_SAFE_INTEGER) - (b.listRank ?? Number.MAX_SAFE_INTEGER) ||
+      a.awardLevel.localeCompare(b.awardLevel) ||
+      a.sourceName.localeCompare(b.sourceName)
+  );
 }
 
 /**
- * Load the public catalogue used by city discovery and place details.
- * The adapter intentionally reads only `cities` and `places`, joins each place
- * to its live city relation, and never substitutes hardcoded place records.
+ * Load the established public catalogue. `venues` is the canonical place list;
+ * each current `venue_awards` row is joined to its `guide_sources` record so
+ * guide names, literal levels, ranks, years, and official links stay attached
+ * to the recognition that supplied them.
  */
 export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
-  const [cityRecords, placeRecords] = await Promise.all([
-    pb.collection('cities').getFullList<CityRecord>({
-      fields: 'id,name,slug,country',
-      sort: 'name',
+  const [venueRecords, awardRecords, sourceRecords] = await Promise.all([
+    pb.collection('venues').getFullList<VenueRecord>({
+      fields: 'id,name,city,country,address,lat,lng,category,official_url,approx_location',
+      sort: 'city,name',
       requestKey: null,
     }),
-    pb.collection('places').getFullList<PlaceRecord>({
-      fields: 'id,name,slug,category,city,description,address,source_badges,image_url',
+    pb.collection('venue_awards').getFullList<VenueAwardRecord>({
+      fields: 'id,source,venue,year,level,rank,source_url,current',
+      sort: 'venue,source,year',
+      requestKey: null,
+    }),
+    pb.collection('guide_sources').getFullList<GuideSourceRecord>({
+      fields: 'id,name,slug,official_url,current_year',
       sort: 'name',
       requestKey: null,
     }),
   ]);
 
-  const cities = cityRecords
-    .map((record): LiveCity | null => {
-      const name = cleanString(record.name);
-      const slug = cleanString(record.slug);
-      if (!record.id || !name || !slug) return null;
-      return {
-        id: record.id,
-        name,
-        slug,
-        country: cleanString(record.country),
-      };
-    })
-    .filter((city): city is LiveCity => city !== null);
-  const cityById = new Map(cities.map((city) => [city.id, city]));
+  const sourceById = new Map(sourceRecords.map((source) => [source.id, source]));
+  const citiesByName = new Map<string, LiveCity>();
 
-  const venues = placeRecords
-    .map((record): Venue | null => {
-      const cityId = cleanString(record.city);
-      const city = cityById.get(cityId);
-      const name = cleanString(record.name);
-      if (!record.id || !city || !name) return null;
+  for (const record of venueRecords) {
+    const name = cleanString(record.city);
+    if (!name) continue;
+    const key = name.toLowerCase();
+    const country = cleanString(record.country);
+    const existing = citiesByName.get(key);
+    if (existing) {
+      if (!existing.country && country) existing.country = country;
+      continue;
+    }
+    const slug = citySlug(name);
+    if (!slug) continue;
+    citiesByName.set(key, {
+      id: `legacy-city-${slug}`,
+      name,
+      slug,
+      country,
+    });
+  }
 
-      const sourceBadges = stringList(record.source_badges).map(sourceBadgeLabel);
-      return {
-        id: record.id,
-        name,
-        slug: cleanString(record.slug),
-        cityId,
-        citySlug: city.slug,
-        city: city.name,
-        awards: sourceBadges.map(badgeAward),
-        category: categoryLabel(record.category),
-        neighborhood: '',
-        address: cleanString(record.address),
-        description: cleanString(record.description),
-        sourceBadges,
-        imageUrl: cleanString(record.image_url),
-        lat: null,
-        lng: null,
-        approxLocation: false,
-      };
-    })
-    .filter((venue): venue is Venue => venue !== null);
+  const venuesById = new Map<string, Venue>();
+  for (const record of venueRecords) {
+    const id = cleanString(record.id);
+    const name = cleanString(record.name);
+    const cityName = cleanString(record.city);
+    const city = citiesByName.get(cityName.toLowerCase());
+    if (!id || !name || !city) continue;
+
+    const rawLat = cleanNumber(record.lat);
+    const rawLng = cleanNumber(record.lng);
+    const hasCoordinates =
+      rawLat !== null && rawLng !== null && !(rawLat === 0 && rawLng === 0);
+
+    venuesById.set(id, {
+      id,
+      name,
+      cityId: city.id,
+      citySlug: city.slug,
+      city: city.name,
+      awards: [],
+      category: cleanString(record.category),
+      neighborhood: '',
+      address: cleanString(record.address),
+      lat: hasCoordinates ? rawLat : null,
+      lng: hasCoordinates ? rawLng : null,
+      approxLocation: record.approx_location === true,
+    });
+  }
+
+  for (const record of awardRecords) {
+    if (record.current === false) continue;
+
+    const venue = venuesById.get(cleanString(record.venue));
+    const level = cleanString(record.level);
+    if (!venue || !level) continue;
+
+    const source = sourceById.get(cleanString(record.source));
+    const sourceName = cleanString(source?.name) || 'Unknown guide';
+    const community = isCommunityRecognition(level, source);
+    const explicitRank = positiveInteger(record.rank);
+    const parsedListRank = listRankOf(level);
+    const isRankedList = explicitRank !== null || parsedListRank !== null;
+    const awardYear = positiveInteger(record.year) ?? positiveInteger(source?.current_year) ?? GUIDE_YEAR;
+
+    venue.awards.push({
+      awardLevel: community ? COMMUNITY_LABEL : level,
+      awardRank: community || isRankedList ? null : awardRankOf(level),
+      listRank: community || !isRankedList ? null : (explicitRank ?? parsedListRank),
+      edition: community || !isRankedList ? '' : editionOf(level),
+      awardYear,
+      sourceName: community ? 'Detour community' : sourceName,
+      sourceUrl: community
+        ? ''
+        : cleanString(record.source_url) || cleanString(source?.official_url),
+      note: '',
+      community,
+    });
+  }
+
+  const cities = [...citiesByName.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const venues = [...venuesById.values()]
+    .map((venue) => ({ ...venue, awards: sortAwards(venue.awards) }))
+    .sort((a, b) => a.city.localeCompare(b.city) || a.name.localeCompare(b.name));
 
   return { cities, venues };
 }
