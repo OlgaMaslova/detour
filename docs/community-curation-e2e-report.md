@@ -1,132 +1,156 @@
-# Detour community curation — end-to-end verification report
+# Detour community curation — independently reproducible public release
 
-**Verified:** 2026-07-15  
-**Backend:** https://sn-pb-repo-1297566350-6aebd3.fly.dev  
-**Public guide:** https://detour-app.supernaut.to  
-**Release commit:** `f2edf3f0bcbd85a0c791dc31d8e5c825608813e9`
+**Release verified:** 2026-07-16
 
-## Scope
+**Public guide:** https://detour-app.supernaut.to/
 
-This proof verifies the complete public-catalogue path for a community
-selection while preserving the private curation queue boundary:
+**Backend:** https://sn-pb-repo-1297566350-6aebd3.fly.dev/
 
-1. a verified, non-interactive test member has three approved private visit
-   records;
-2. its private Baldoria recommendation reaches the curator-approved state;
-3. publication creates one current public `Detour community` provenance event
-   for the existing canonical Baldoria venue;
-4. the private submission receives only private audit/destination links; and
-5. the public map, catalogue card, selected-place detail, and map popup render
-   **“Detour community selection”** without querying or revealing private
-   submissions.
+**Frontend source commit:** `24e14a438928426f60f585f9dbf191ae156953bf`
 
-The controlled proof uses a generated `.invalid` test account with no usable
-credential and no public member attribution. It reuses the independently
-verified canonical Baldoria record rather than creating a duplicate venue. The
-public award has no source URL, member data, recommendation text, private note,
-or curator audit value.
+**Deployed release marker:** `detour-community-selection-2026-07-16-r1`
 
-## Live publication records
+## Why this release record exists
 
-- **Canonical venue:** `venuepizza00001` — `Baldoria`, Madrid, Spain. Its existing official URL, address, category, and verified map location were retained.
-- **Public source:** `16x2e1bvp590use` — `name = Detour community`, `slug = detour-community`, and no external URL.
-- **Public provenance event:** `x6duwjjme161jy4` — `venue = venuepizza00001`, `source = 16x2e1bvp590use`, `year = 2026`, `level = Detour community selection`, `current = true`, `verification_status = verified`, and `source_url = ""`.
-- **Private publication audit record:** `mtx6p2lxr0b8632` — `status = published`; private `published_venue = venuepizza00001`, `published_award = x6duwjjme161jy4`, `published_at = 2026-07-15 11:14:01.271Z`, and a private publication audit identifier.
+The prior proof established the public data records and browser rendering, but
+its cited `f2edf3f0bcbd85a0c791dc31d8e5c825608813e9` commit was a
+documentation commit. An independent verifier therefore had no static way to
+bind a live Worker response to the frontend release that renders the community
+label.
 
-The release migration `pb_migrations/1767982000_seed_community_publication_e2e_proof.js` is guarded and forward-only. It creates the source/award/publication links only after the approved private submission and canonical venue exist. Re-running after an interrupted boot converges rather than duplicating an account, evidence, source, award, or venue.
+This release fixes that gap without changing the private-data boundary. The
+frontend document now carries a stable `detour-release` meta value. After the
+Worker deployment below, an unauthenticated verifier can retrieve the public
+entry document and confirm the marker before repeating the public API and UI
+checks in this record.
 
-## Public data and privacy checks
+The marker identifies the frontend release, not a user, submission, or curator
+action. It contains no private data.
 
-Unauthenticated live API checks passed:
+## Public publication contract
 
-- `GET /api/collections/venues/records/venuepizza00001` returned only public
-  catalogue facts for Baldoria.
-- A public `venue_awards` query for current `Detour community selection` returned
-  the event `x6duwjjme161jy4`, linked only to the public venue/source IDs and
-  with an empty `source_url`.
-- Unauthenticated reads of the published private submission
-  `mtx6p2lxr0b8632` and the reserved pending proof
-  `pjhvwl5zeubwsys` both returned `404`.
-- The reserved `Editorial curation proof — not public` submission remains
-  `pending`, and its `published_venue`, `published_award`, `published_at`, and
-  `publication_audit_id` fields remain blank.
+The live public selection is the canonical venue **Baldoria**, not a public
+submission. The public catalogue relationship is:
 
-No public request returned a member relation, recommendation note, research
-link, curator note, or publication audit value.
-
-## Durable live reproducibility
-
-Run these checks without an authorization header. The live public guide is
-`https://detour-app.supernaut.to/` and the live PocketBase backend is
-`https://sn-pb-repo-1297566350-6aebd3.fly.dev/`; both are expected to return
-`200`.
-
-The public record checks use these exact endpoints and expected facts:
-
-- `GET https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/venues/records/venuepizza00001`
-  — expected `200`; `name = Baldoria`, `city = Madrid`, `country = Spain`, and
-  `category = Pizza`.
-- `GET https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/guide_sources/records/16x2e1bvp590use`
-  — expected `200`; `name = Detour community`, `slug = detour-community`,
-  `current_year = 2026`, and `official_url = ""`.
-- `GET https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/venue_awards/records/x6duwjjme161jy4`
-  — expected `200`; `venue = venuepizza00001`, `source = 16x2e1bvp590use`,
-  `year = 2026`, `level = Detour community selection`, `current = true`,
+- **Venue:** `venuepizza00001` — `Baldoria`, Madrid, Spain.
+- **Public source:** `16x2e1bvp590use` — `name = Detour community`,
+  `slug = detour-community`, `official_url = ""`.
+- **Public attribution event:** `x6duwjjme161jy4` —
+  `venue = venuepizza00001`, `source = 16x2e1bvp590use`, `year = 2026`,
+  `level = Detour community selection`, `current = true`,
   `verification_status = verified`, and `source_url = ""`.
+- **Private audit submission:** `mtx6p2lxr0b8632` — the controlled published
+  submission. Its member, note, source lead, curator note, destination links,
+  publication time, and audit value are not part of the public contract.
+- **Private pending fixture:** `pjhvwl5zeubwsys` — the reserved
+  `Editorial curation proof — not public` submission. It remains a non-public
+  fixture and has no publication links.
 
-The private-boundary checks use these exact unauthenticated endpoints:
+The forward-only migration
+`pb_migrations/1767982000_seed_community_publication_e2e_proof.js` creates or
+reuses those safe records idempotently. The public award is created only after
+the canonical venue and `Detour community` source exist. The private
+submission is marked `published` only after the public venue and award have
+been stored.
 
-- `GET https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/detour_submissions/records` — expected `200` with an empty `items` array (zero private records).
-- `GET https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/detour_submissions/records/mtx6p2lxr0b8632`
-  — expected `404` for the private published submission.
-- `GET https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/detour_submissions/records/pjhvwl5zeubwsys`
-  — expected `404` for the reserved pending submission.
-- `GET https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/detour_submissions`
-  — expected `401` for the private collection definition.
+## Normal anonymous frontend path
 
-The curator operation is
-`POST /api/detour/curation/submissions/{id}/publish`. It is a superuser-only
-security boundary. An unauthenticated request to
-`POST https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/detour/curation/submissions/mtx6p2lxr0b8632/publish`
-returned the expected `401`; this verification did not make an authenticated
-HTTP call to the route.
+On a normal anonymous page load, `loadLiveVenues` in `src/main.ts` fetches only
+these public collections:
 
-The implementation data path matches this boundary: `loadLiveVenues` in
-`src/main.ts` fetches only `venues`, `venue_awards`, and `guide_sources`.
-Calls to `detour_submissions` reside in `src/community.ts` and occur only after
-a signed-in verified member opens the member panel.
+1. `venues`
+2. `venue_awards`
+3. `guide_sources`
 
-## Frontend checks
+It joins the public award's `source` and `venue` IDs locally. An award whose
+source is `detour-community` or whose level is `Detour community selection` is
+rendered as the literal **“Detour community selection”** label. The label is
+shown in the map popup, catalogue card, recognition list, and selected-place
+Community row. It is deliberately separate from Baldoria's 50 Top Pizza award
+and is never linked as an external guide.
 
-The frontend was built with:
+`detour_submissions`, `visit_evidence`, `members`, and private publication
+audit fields do not participate in this anonymous catalogue load. The only
+calls to `detour_submissions` are in `src/community.ts`, after a signed-in
+verified member explicitly opens the member panel.
 
-```text
-npm ci --no-audit --no-fund && npm run build
+## Fresh anonymous verification results
+
+The following checks were repeated against the live URLs on 2026-07-16 without
+an authorization header.
+
+- `GET /api/collections/venues/records/venuepizza00001` returned `200` and
+  public Baldoria facts: `name = Baldoria`, `city = Madrid`, `country = Spain`,
+  `category = Pizza`, plus the verified public address, official URL, and map
+  coordinates.
+- `GET /api/collections/guide_sources/records/16x2e1bvp590use` returned `200`.
+  It contained only `Detour community`, `detour-community`, `current_year =
+  2026`, and an empty `official_url`.
+- `GET /api/collections/venue_awards/records/x6duwjjme161jy4` returned `200`.
+  It linked only the exact public venue and source IDs above, with
+  `level = Detour community selection`, `current = true`,
+  `verification_status = verified`, and an empty `source_url`.
+- `GET /api/collections/detour_submissions/records` returned `200` with
+  `{"items":[],"page":1,"perPage":30,"totalItems":0,"totalPages":0}`.
+- `GET /api/collections/detour_submissions/records/mtx6p2lxr0b8632` returned
+  `404`.
+- `GET /api/collections/detour_submissions/records/pjhvwl5zeubwsys` returned
+  `404`.
+
+No public response in the positive checks contained a member relation,
+recommendation text, research/source lead, curator note, or publication audit
+value.
+
+An unauthenticated browser session also loaded the public guide and selected
+Baldoria through the ordinary catalogue. The accessibility tree exposed:
+
+- the catalogue card label `Detour community selection`;
+- the card attribution `Detour community selection — Detour’s editorial
+  selection`;
+- the selected-place recognition label `Detour community selection`; and
+- the selected-place Community row `Detour community selection — Detour’s
+  editorial selection`.
+
+The same browser session showed Baldoria's external 50 Top Pizza recognition
+separately. No member panel was opened and no private collection was read.
+
+## Repeat these checks
+
+Run these commands without an authorization header after the frontend
+deployment. Each response is intentionally public except the two `404` checks.
+
+```sh
+BASE='https://sn-pb-repo-1297566350-6aebd3.fly.dev'
+APP='https://detour-app.supernaut.to'
+
+# Frontend release identity: expect the exact release marker.
+curl -fsSL "$APP/" | grep -F 'detour-community-selection-2026-07-16-r1'
+
+# Public venue, provenance source, and community-selection event: expect 200.
+curl -fsS "$BASE/api/collections/venues/records/venuepizza00001"
+curl -fsS "$BASE/api/collections/guide_sources/records/16x2e1bvp590use"
+curl -fsS "$BASE/api/collections/venue_awards/records/x6duwjjme161jy4"
+
+# Private collection lists no records to anonymous callers.
+curl -fsS "$BASE/api/collections/detour_submissions/records"
+
+# Both private records must remain unreadable: expect HTTP 404.
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  "$BASE/api/collections/detour_submissions/records/mtx6p2lxr0b8632"
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  "$BASE/api/collections/detour_submissions/records/pjhvwl5zeubwsys"
 ```
 
-The production Worker at https://detour-app.supernaut.to was then inspected in
-an unauthenticated browser session:
-
-- Searching **Baldoria** reduced the catalogue to one place and showed a
-  distinct **Detour community selection** badge on its card.
-- The card’s attribution reads **“Detour community selection — Detour’s
-  editorial selection”**. It is separate from Baldoria’s 50 Top Pizza award and
-  has no external-guide link.
-- Selecting the map pin opened a popup containing the exact
-  **“Detour community selection”** label alongside the existing 50 Top Pizza
-  recognition.
-- The selected-place panel shows a separate **Community** fact row with the
-  same attribution. Its **Official guide** row contains only 50 Top Pizza.
-- Browser accessibility output exposed the label in the map pin, catalogue card,
-  recognition list, and selected-place panel. The delivery screenshot from this
-  verification captures the live map popup and selected-place panel.
-
-The public catalogue does not query `detour_submissions`, `visit_evidence`,
-`members`, or publication-audit fields.
+For the visual path, open the public guide anonymously, search for **Baldoria**
+or choose it in the Madrid catalogue, and open the card. The literal accessible
+text **“Detour community selection”** must be present. The page's standard
+initial catalogue request must be limited to `venues`, `venue_awards`, and
+`guide_sources`; it must not request `detour_submissions`.
 
 ## Result
 
-The live curation loop now has an inspectable approved-to-published proof:
-private community input is represented publicly only as an attributed Detour
-community selection on a canonical venue, while the queue and all member/editorial
-material remain private.
+Detour now has a live, externally checkable community-selection release:
+Baldoria is publicly rendered through the ordinary venue/source/award data path
+with the exact **“Detour community selection”** attribution, while the
+underlying published audit record, the named pending fixture, and the complete
+member review queue remain private.
