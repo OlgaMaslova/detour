@@ -296,7 +296,7 @@ The frontend is a Vite + TypeScript static app (`src/`, `index.html`,
 - Local dev: `npm install`, then `npm run dev` (Vite dev server).
 - Build: `npm run build` (type-checks and outputs static assets into
   `public/`, the directory `wrangler.toml` serves).
-- Public frontend URL: https://detour-app.supernaut.to
+- Public frontend URL: https://detour.supernaut.to
 - Deploy: the Cloudflare static Worker deploy happens **after** the frontend
   changes are committed and pushed to `supernaut/managed-app` — trigger the
   managed Cloudflare static Worker deploy with `managedFE=true` using the root

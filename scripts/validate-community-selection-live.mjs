@@ -9,7 +9,7 @@
 
 import { chromium } from "playwright";
 
-const APP_URL = "https://detour-app.supernaut.to/?city=madrid";
+const APP_URL = "https://detour.supernaut.to/?city=madrid";
 const API_BASE = "https://sn-pb-repo-1297566350-6aebd3.fly.dev";
 const COMMUNITY_LABEL = "Detour community selection";
 
