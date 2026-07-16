@@ -3,7 +3,7 @@
 **Verified:** 2026-07-15  
 **Backend:** https://sn-pb-repo-1297566350-6aebd3.fly.dev  
 **Public guide:** https://detour-app.supernaut.to  
-**Release commit:** `c9fb53c0890075c9b04f912799f6cc1e89e195aa`
+**Release commit:** `f2edf3f0bcbd85a0c791dc31d8e5c825608813e9`
 
 ## Scope
 
@@ -54,6 +54,48 @@ Unauthenticated live API checks passed:
 No public request returned a member relation, recommendation note, research
 link, curator note, or publication audit value.
 
+## Durable live reproducibility
+
+Run these checks without an authorization header. The live public guide is
+`https://detour-app.supernaut.to/` and the live PocketBase backend is
+`https://sn-pb-repo-1297566350-6aebd3.fly.dev/`; both are expected to return
+`200`.
+
+The public record checks use these exact endpoints and expected facts:
+
+- `GET https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/venues/records/venuepizza00001`
+  — expected `200`; `name = Baldoria`, `city = Madrid`, `country = Spain`, and
+  `category = Pizza`.
+- `GET https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/guide_sources/records/16x2e1bvp590use`
+  — expected `200`; `name = Detour community`, `slug = detour-community`,
+  `current_year = 2026`, and `official_url = ""`.
+- `GET https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/venue_awards/records/x6duwjjme161jy4`
+  — expected `200`; `venue = venuepizza00001`, `source = 16x2e1bvp590use`,
+  `year = 2026`, `level = Detour community selection`, `current = true`,
+  `verification_status = verified`, and `source_url = ""`.
+
+The private-boundary checks use these exact unauthenticated endpoints:
+
+- `GET https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/detour_submissions/records` — expected `200` with an empty `items` array (zero private records).
+- `GET https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/detour_submissions/records/mtx6p2lxr0b8632`
+  — expected `404` for the private published submission.
+- `GET https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/detour_submissions/records/pjhvwl5zeubwsys`
+  — expected `404` for the reserved pending submission.
+- `GET https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/detour_submissions`
+  — expected `401` for the private collection definition.
+
+The curator operation is
+`POST /api/detour/curation/submissions/{id}/publish`. It is a superuser-only
+security boundary. An unauthenticated request to
+`POST https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/detour/curation/submissions/mtx6p2lxr0b8632/publish`
+returned the expected `401`; this verification did not make an authenticated
+HTTP call to the route.
+
+The implementation data path matches this boundary: `loadLiveVenues` in
+`src/main.ts` fetches only `venues`, `venue_awards`, and `guide_sources`.
+Calls to `detour_submissions` reside in `src/community.ts` and occur only after
+a signed-in verified member opens the member panel.
+
 ## Frontend checks
 
 The frontend was built with:
@@ -79,8 +121,7 @@ an unauthenticated browser session:
   recognition list, and selected-place panel. The delivery screenshot from this
   verification captures the live map popup and selected-place panel.
 
-The frontend loads only `venues`, `venue_awards`, and `guide_sources` for the
-public catalogue. It does not query `detour_submissions`, `visit_evidence`,
+The public catalogue does not query `detour_submissions`, `visit_evidence`,
 `members`, or publication-audit fields.
 
 ## Result
