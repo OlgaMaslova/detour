@@ -1,13 +1,10 @@
 #!/usr/bin/env node
 /**
- * Deterministic validator for Detour's conservative Paris Michelin 2026 seed.
+ * Deterministic validator for Detour's Paris MICHELIN 2026 two- and three-star
+ * seed, including independently reviewed venue/location enrichment.
  *
  * Input:  data/michelin-2026-paris-two-three-starred.csv
  * Output: docs/michelin-2026-paris-two-three-starred-coverage-report.md
- *
- * This validates minimal, attributed factual assertions only. It deliberately
- * rejects unsupported venue enrichment: no official venue URL, address, or
- * coordinates are included in this award import.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -37,6 +34,10 @@ const CATEGORY_KEYS = {
   "2 Stars": "michelin-2026-paris-2-stars-category",
 };
 const EDITION_URL = "https://guide.michelin.com/kr/en/article/news-and-views/michelin-star-restaurants-france-full-list";
+const OFFICIAL_URL_SOURCE = "first-party-or-official-michelin-record";
+const COORDINATE_SOURCE = "openstreetmap-nominatim";
+const ALLOWED_COORD_STATUSES = new Set(["osm_verified", "osm_address_verified"]);
+const PARIS_BOUNDS = { latMin: 48.80, latMax: 48.92, lngMin: 2.20, lngMax: 2.45 };
 const APPROVED = {
   "3 Stars": [
     "Le Gabriel - La Réserve Paris", "Épicure", "Kei", "Plénitude - Cheval Blanc Paris", "Le Cinq",
@@ -69,13 +70,18 @@ function parseCsv(text) {
   return rows.filter((r) => r.length > 1 || r[0] !== "");
 }
 
-const validMichelinUrl = (value) => {
+function httpsUrl(value) {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "guide.michelin.com";
+    return url.protocol === "https:" ? url : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+const validMichelinUrl = (value) => {
+  const url = httpsUrl(value);
+  return Boolean(url && url.hostname === "guide.michelin.com");
 };
 
 const raw = parseCsv(readFileSync(INPUT, "utf8"));
@@ -86,11 +92,12 @@ const records = raw.slice(1).map((row) => Object.fromEntries(header.map((name, i
 const expectedNames = new Set(Object.values(APPROVED).flat());
 const seen = new Set();
 const count = { "3 Stars": 0, "2 Stars": 0 };
+const coordCounts = { osm_verified: 0, osm_address_verified: 0 };
 
 for (const [index, record] of records.entries()) {
   const label = `row ${index + 2} (${record.source_venue_name || "?"})`;
-  for (const key of ["source_venue_name", "canonical_venue_name", "city", "country", "distinction", "guide_year", "source_url", "source_record_key", "source_type", "edition_announcement_url", "edition_announcement_published_or_updated_at", "source_accessed_at", "verification_status", "verification_note", "coordinate_validation_status"]) {
-    if (!record[key]) errors.push(`${label}: missing required field ${key}`);
+  for (const key of HEADER) {
+    if (key !== "source_published_or_updated_at" && !record[key]) errors.push(`${label}: missing required field ${key}`);
   }
   if (!Object.hasOwn(CATEGORY_URLS, record.distinction)) errors.push(`${label}: distinction must be 3 Stars or 2 Stars`);
   else {
@@ -112,10 +119,27 @@ for (const [index, record] of records.entries()) {
   if (record.source_venue_name === "Le Corot") errors.push(`${label}: Le Corot is explicitly excluded`);
   if (seen.has(record.source_venue_name)) errors.push(`${label}: duplicate source venue name`);
   seen.add(record.source_venue_name);
-  for (const key of ["venue_official_url", "venue_official_url_source", "street_address", "address_source_url", "lat", "lng", "coordinate_source"]) {
-    if (record[key] !== "") errors.push(`${label}: unsupported ${key} must be blank`);
+
+  const officialUrl = httpsUrl(record.venue_official_url);
+  if (!officialUrl) errors.push(`${label}: venue_official_url must be a valid HTTPS URL`);
+  if (record.venue_official_url_source !== OFFICIAL_URL_SOURCE) errors.push(`${label}: venue_official_url_source must be ${OFFICIAL_URL_SOURCE}`);
+  if (!record.street_address) errors.push(`${label}: street_address must be nonempty`);
+  if (!httpsUrl(record.address_source_url)) errors.push(`${label}: address_source_url must be a valid HTTPS URL`);
+
+  const lat = Number(record.lat);
+  const lng = Number(record.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < PARIS_BOUNDS.latMin || lat > PARIS_BOUNDS.latMax || lng < PARIS_BOUNDS.lngMin || lng > PARIS_BOUNDS.lngMax) {
+    errors.push(`${label}: coordinates must be within the sane Paris bounding box`);
   }
-  if (record.coordinate_validation_status !== "not_provided") errors.push(`${label}: coordinate validation status must be not_provided`);
+  if (lat === 0 && lng === 0) errors.push(`${label}: 0/0 is an unresolved sentinel, not a verified location`);
+  if (record.coordinate_source !== COORDINATE_SOURCE) errors.push(`${label}: coordinate_source must be ${COORDINATE_SOURCE}`);
+  if (!ALLOWED_COORD_STATUSES.has(record.coordinate_validation_status)) {
+    errors.push(`${label}: coordinate_validation_status must be osm_verified or osm_address_verified`);
+  } else coordCounts[record.coordinate_validation_status]++;
+
+  const awardPhrase = `Name Paris locality and ${record.distinction} verified on the official category page; France 2026 edition corroborated by the official announcement.`;
+  if (!record.verification_note.includes(awardPhrase)) errors.push(`${label}: verification_note must retain the award assertion provenance`);
+  if (!record.verification_note.includes("Independent location evidence reviewed 2026-07-16")) errors.push(`${label}: verification_note must document independent location evidence`);
 }
 
 if (records.length !== 29) errors.push(`Record count ${records.length} != expected 29`);
@@ -131,7 +155,7 @@ const lines = [
   "",
   "## Verified coverage",
   "",
-  "**29 verified MICHELIN 2026 two- and three-star source entries in the City of Paris.**",
+  "**29 verified MICHELIN 2026 two- and three-star source entries in the City of Paris, each with independently reviewed location evidence.**",
   "",
   "This is a bounded, attributed selection, not the complete Paris MICHELIN selection or a claim about other star categories.",
   "",
@@ -141,16 +165,23 @@ const lines = [
   "- 3-star entries: 9",
   "- 2-star entries: 20",
   "- Official source records: 3 (two category pages plus the France 2026 edition announcement)",
-  "- Locations with verified coordinates: 0",
-  "- Unresolved locations: 29",
+  "- Locations with verified coordinates: 29",
+  "- Unresolved locations: 0",
   "",
-  "## Provenance and limits",
+  "## Provenance and location limits",
   "",
   "- Each award/source entry links to its exact official MICHELIN Paris category page and records the 2026-07-14 access date.",
   "- The official France 2026 announcement, published 2026-03-17, corroborates the guide year for the cohort.",
-  "- The category pages establish only minimal factual source assertions: venue name, Paris locality, and two- or three-star distinction.",
-  "- Venue-owned URLs, street addresses, and coordinates are deliberately blank. No map pin is asserted from the award evidence.",
+  "- Award provenance remains separate from location corroboration: official venue or MICHELIN individual-record pages support addresses, while coordinates come independently from OpenStreetMap/Nominatim.",
+  "- `osm_verified` identifies a named restaurant element (including the documented Pavillon Ledoyen venue identity for Alléno Paris).",
+  "- `osm_address_verified` identifies exact-address or documented host-premises geometry where no suitable named restaurant element exists; it is not an entrance or dining-room centroid claim.",
+  "- Side-street context, host-building relationships, and rejected duplicate or same-name candidates are documented per row in the verification note.",
   "- Le Corot is excluded because its category-page locality is Ville-d'Avray, not Paris.",
+  "",
+  "## Coordinate qualification",
+  "",
+  `- osm_verified: ${coordCounts.osm_verified}`,
+  `- osm_address_verified: ${coordCounts.osm_address_verified}`,
   "",
   "## Validation errors",
   "",
@@ -168,7 +199,7 @@ const lines = [
   "",
 ];
 writeFileSync(OUTPUT, lines.join("\n"));
-console.log(`${status}: ${records.length} records; 3 Stars ${count["3 Stars"]}, 2 Stars ${count["2 Stars"]}; source entries 29, canonical venues 29, awards 29, verified coordinates 0, unresolved locations 29. Report: ${OUTPUT_REL}`);
+console.log(`${status}: ${records.length} records; 3 Stars ${count["3 Stars"]}, 2 Stars ${count["2 Stars"]}; source entries 29, canonical venues 29, awards 29, verified locations ${records.length}, unresolved locations 0. Report: ${OUTPUT_REL}`);
 if (errors.length) {
   for (const error of errors) console.error(` - ${error}`);
   process.exit(1);

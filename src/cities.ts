@@ -67,17 +67,17 @@ export const CITIES: readonly CityConfig[] = [
     slug: 'paris',
     name: 'Paris',
     country: 'France',
-    title: 'Paris’s starred tables, in preview.',
+    title: 'Paris’s starred tables, mapped.',
     tagline: 'Trust the experts. Great food is never a straight line.',
     footer:
-      'Detour’s Paris preview is a current, deliberately edited list of awarded tables. Each award belongs to its guide — follow the official guide links for the original listings.',
+      'Detour is a current, deliberately edited selection of Paris’s awarded tables. Each award belongs to its guide — follow the official guide links for the original listings.',
     searchPlaceholder: 'Search by name — Kei, Arpège…',
-    metaTitle: 'Detour — Paris starred tables preview',
+    metaTitle: 'Detour — Paris’s starred tables, mapped',
     metaDescription:
-      'An editorial preview of Paris’s starred tables — every place holds a current award from a named guide.',
+      'A deliberately small map of Paris’s awarded tables — every place holds a current award from a named guide.',
     unavailableCopy:
-      'The Paris preview isn’t published here yet. Check back soon — Madrid is ready to explore in the meantime.',
-    presentation: 'list',
+      'The Paris selection isn’t published here yet. Check back soon — Madrid is ready to explore in the meantime.',
+    presentation: 'map',
     center: [48.8566, 2.3522],
     zoom: 12,
     bounds: { latMin: 48.75, latMax: 48.95, lngMin: 2.2, lngMax: 2.5 },
