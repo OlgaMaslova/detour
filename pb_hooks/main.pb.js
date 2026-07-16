@@ -156,6 +156,16 @@ onRecordAfterDeleteSuccess((e) => {
   e.next();
 }, "visit_evidence");
 
+// PocketBase select fields do not have a schema-level default. Normalize every
+// public recommendation to pending before validation, regardless of any status
+// supplied by the caller. Superusers retain explicit moderation-state control.
+onRecordCreateRequest((e) => {
+  if (!e.hasSuperuserAuth()) {
+    e.record.set("status", "pending");
+  }
+  e.next();
+}, "recommendations");
+
 // Recommendations enter a private, pending curation queue. A verified status
 // is checked server-side as well as in the collection rule.
 onRecordCreateRequest((e) => {
