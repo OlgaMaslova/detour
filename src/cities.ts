@@ -20,7 +20,7 @@ export interface CityConfig {
   country: string;
   /** Hero headline. */
   title: string;
-  /** Hero tagline; `{year}` is replaced with the current guide year. */
+  /** Hero tagline; `{count}` is replaced with the current published venue count. */
   tagline: string;
   footer: string;
   searchPlaceholder: string;
@@ -28,8 +28,6 @@ export interface CityConfig {
   metaTitle: string;
   /** `meta[name="description"]` content once the app has booted into this city. */
   metaDescription: string;
-  /** Shown when the city is configured but its selection is not published yet. */
-  unavailableCopy: string;
   /** Whether this city is ready for map-led discovery or published as a list-first preview. */
   presentation: 'map' | 'list';
   /** Map view used when there are no plottable pins to derive bounds from. */
@@ -43,21 +41,24 @@ export interface CityConfig {
   bounds: CityBounds;
 }
 
+export const GLOBAL_META_TITLE = 'Detour — Exceptional tables, city by city';
+export const GLOBAL_META_DESCRIPTION =
+  'Detour is a deliberately edited collection of exceptional tables across cities. Choose a city to explore current selections from named guides and the Detour community.';
+
 export const CITIES: readonly CityConfig[] = [
   {
     slug: 'madrid',
     name: 'Madrid',
     country: 'Spain',
-    title: 'Madrid’s exceptional tables, mapped.',
-    tagline: 'Trust the experts. Great food is never a straight line.',
+    title: 'Madrid’s exceptional tables, selected.',
+    tagline:
+      '{count} current places, from awarded dining to destination pizza and standout coffee.',
     footer:
-      'Detour is a current, deliberately edited selection of Madrid’s awarded tables. Each award belongs to its guide — follow the official guide links for the original listings.',
+      'Detour is a current, deliberately edited selection of Madrid’s exceptional tables. Each recognition belongs to its guide, with official links preserved for the original listings.',
     searchPlaceholder: 'Search by name — Casa, DiverXO…',
-    metaTitle: 'Detour — Madrid’s exceptional tables, mapped',
+    metaTitle: 'Detour — Madrid’s exceptional tables',
     metaDescription:
-      'A deliberately small map of Madrid’s awarded tables — every place holds a current award from a named guide, from Repsol Soles to Michelin Stars.',
-    unavailableCopy:
-      'The Madrid selection isn’t available right now. It will be back shortly.',
+      'Explore Detour’s current Madrid selection: exceptional restaurants, pizzerias and coffee shops with published recognition from named guides or the Detour community.',
     presentation: 'map',
     center: [40.4168, -3.7038],
     zoom: 13,
@@ -67,16 +68,14 @@ export const CITIES: readonly CityConfig[] = [
     slug: 'paris',
     name: 'Paris',
     country: 'France',
-    title: 'Paris’s starred tables, mapped.',
-    tagline: 'Trust the experts. Great food is never a straight line.',
+    title: 'Paris’s exceptional tables, selected.',
+    tagline: '{count} current places holding published recognition from named guides.',
     footer:
-      'Detour is a current, deliberately edited selection of Paris’s awarded tables. Each award belongs to its guide — follow the official guide links for the original listings.',
+      'Detour is a current, deliberately edited selection of Paris’s exceptional tables. Each recognition belongs to its guide, with official links preserved for the original listings.',
     searchPlaceholder: 'Search by name — Kei, Arpège…',
-    metaTitle: 'Detour — Paris’s starred tables, mapped',
+    metaTitle: 'Detour — Paris’s exceptional tables',
     metaDescription:
-      'A deliberately small map of Paris’s awarded tables — every place holds a current award from a named guide.',
-    unavailableCopy:
-      'The Paris selection isn’t published here yet. Check back soon — Madrid is ready to explore in the meantime.',
+      'Explore Detour’s current Paris selection: exceptional tables with published recognition from named guides or the Detour community.',
     presentation: 'map',
     center: [48.8566, 2.3522],
     zoom: 12,
@@ -86,16 +85,14 @@ export const CITIES: readonly CityConfig[] = [
     slug: 'san-francisco',
     name: 'San Francisco',
     country: 'United States',
-    title: 'San Francisco’s starred tables, mapped.',
-    tagline: 'Trust the experts. Great food is never a straight line.',
+    title: 'San Francisco’s exceptional tables, selected.',
+    tagline: '{count} current places holding published recognition from named guides.',
     footer:
-      'Detour is a current, deliberately edited selection of San Francisco’s awarded tables. Each award belongs to its guide — follow the official guide links for the original listings.',
+      'Detour is a current, deliberately edited selection of San Francisco’s exceptional tables. Each recognition belongs to its guide, with official links preserved for the original listings.',
     searchPlaceholder: 'Search by name — Quince, Benu…',
-    metaTitle: 'Detour — San Francisco’s starred tables, mapped',
+    metaTitle: 'Detour — San Francisco’s exceptional tables',
     metaDescription:
-      'A deliberately small map of San Francisco’s awarded tables — every place holds a current award from a named guide.',
-    unavailableCopy:
-      'The San Francisco selection isn’t published here yet. Check back soon — Madrid is ready to explore in the meantime.',
+      'Explore Detour’s current San Francisco selection: exceptional tables with published recognition from named guides or the Detour community.',
     presentation: 'map',
     center: [37.7749, -122.4194],
     zoom: 13,
@@ -103,20 +100,17 @@ export const CITIES: readonly CityConfig[] = [
   },
 ];
 
-export const DEFAULT_CITY: CitySlug = 'madrid';
-
 export function cityBySlug(slug: string | null | undefined): CityConfig | null {
   if (!slug) return null;
   const wanted = slug.trim().toLowerCase();
   return CITIES.find((c) => c.slug === wanted) ?? null;
 }
 
-/** Safe boot-time parse of `?city=…`; falls back to the default city. */
-export function citySlugFromUrl(search: string): CitySlug {
+/** Safe boot-time parse of `?city=…`; absent or invalid values resolve to the chooser. */
+export function citySlugFromUrl(search: string): CitySlug | null {
   try {
-    const raw = new URLSearchParams(search).get('city');
-    return cityBySlug(raw)?.slug ?? DEFAULT_CITY;
+    return cityBySlug(new URLSearchParams(search).get('city'))?.slug ?? null;
   } catch {
-    return DEFAULT_CITY;
+    return null;
   }
 }

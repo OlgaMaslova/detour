@@ -880,11 +880,189 @@ a:hover { color: var(--wine-deep); }
 .community-submission-status.is-approved { color: #355a38; background: #e3efdf; }
 .community-submission-status.is-rejected { color: #7b3941; background: #f5e6e6; }
 
+/* ------------------------------------------------ Multi-city chooser */
+.city-chooser-hero {
+  padding-block: clamp(3.25rem, 7vw, 5.5rem);
+}
+.city-chooser-header { max-width: 980px; }
+.city-chooser-hero .brand { margin-bottom: 1rem; }
+.city-chooser-hero h1 {
+  max-width: 16ch;
+  margin-bottom: 0.75rem;
+  font-size: clamp(2.35rem, 6vw, 4.5rem);
+  line-height: 1.02;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+.city-chooser-intro {
+  max-width: 60ch;
+  color: var(--parchment);
+  opacity: 0.88;
+  font-size: clamp(1rem, 1.8vw, 1.16rem);
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+.city-chooser {
+  width: min(100%, 1000px);
+  margin: clamp(3.5rem, 8vw, 6.5rem) auto 0;
+}
+.city-chooser-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 0.75fr) minmax(18rem, 1fr);
+  align-items: end;
+  gap: clamp(1.25rem, 4vw, 4rem);
+  padding-bottom: 1.15rem;
+  border-bottom: 1px solid var(--brass);
+}
+.city-chooser-heading h2 {
+  margin: 0;
+  color: var(--plum);
+  font-family: var(--serif);
+  font-size: clamp(1.9rem, 4vw, 2.8rem);
+  line-height: 1.08;
+  letter-spacing: -0.018em;
+  text-wrap: balance;
+}
+.city-chooser-heading p {
+  max-width: 48ch;
+  margin: 0;
+  color: var(--plum);
+  opacity: 0.72;
+  font-size: 0.93rem;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+.city-chooser-status {
+  max-width: 48rem;
+  margin: 1.5rem auto 0;
+  color: var(--plum);
+  text-align: center;
+}
+.city-choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(1rem, 2.4vw, 1.65rem);
+  margin: clamp(2rem, 4.5vw, 3.25rem) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.city-choice { display: flex; min-width: 0; }
+.city-choice-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 18rem;
+  flex-direction: column;
+  padding: clamp(1.35rem, 2.5vw, 1.8rem);
+  background: var(--card);
+  border-top: 2px solid var(--brass);
+}
+.city-choice:nth-child(3n + 1) .city-choice-content { border-top-width: 4px; }
+.city-choice:nth-child(3n + 3) .city-choice-content { border-top-width: 1px; }
+.city-choice-place {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.18em;
+  margin: 0;
+  color: var(--plum);
+  font-family: var(--serif);
+  line-height: 1.04;
+}
+.city-choice-name {
+  font-size: clamp(1.85rem, 3.2vw, 2.45rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+}
+.city-choice:nth-child(3n + 2) .city-choice-name {
+  font-size: clamp(1.72rem, 2.8vw, 2.15rem);
+}
+.city-choice:nth-child(3n + 3) .city-choice-name {
+  font-size: clamp(1.62rem, 2.5vw, 1.95rem);
+}
+.city-choice-separator { color: var(--wine); }
+.city-choice-country {
+  color: var(--wine);
+  font-family: 'Avenir Next', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.city-choice-count {
+  margin: 0.75rem 0 0;
+  color: var(--plum);
+  opacity: 0.72;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.city-choice-action {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 44px;
+  align-items: center;
+  margin-top: auto;
+  padding: 0.7rem 0.15rem 0.55rem;
+  color: var(--wine);
+  font-size: 0.9rem;
+  font-weight: 750;
+  line-height: 1.2;
+  text-decoration-color: var(--brass);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.32rem;
+}
+.city-choice-action:visited { color: var(--wine); }
+.city-choice-action:hover { color: var(--plum); }
+.city-choice-action:active { color: var(--plum); }
+.city-choice-action:focus-visible {
+  outline: 3px solid var(--brass);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+.city-chooser-footer {
+  width: min(100%, 1000px);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+/* Restrained return route beside the city selector on detail pages. */
+.all-cities-control {
+  display: inline-flex;
+  min-height: 44px;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 0.45rem 0.2rem;
+  color: var(--wine);
+  font-size: 0.84rem;
+  font-weight: 750;
+  line-height: 1.2;
+  text-decoration-color: var(--brass);
+  text-underline-offset: 0.25rem;
+}
+.all-cities-control:visited { color: var(--wine); }
+.all-cities-control:hover,
+.all-cities-control:active { color: var(--plum); }
+.all-cities-control:focus-visible {
+  outline: 3px solid var(--brass);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 /* ------------------------------------------------ Footer */
 .footer { margin-top: 2.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
 .footer p { margin: 0; font-size: 0.82rem; color: var(--ink-soft); max-width: 65ch; }
 
 /* ------------------------------------------------ Responsive */
+@media (max-width: 920px) {
+  .city-choices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 620px) {
+  .city-chooser { margin-top: 3.25rem; }
+  .city-chooser-heading { grid-template-columns: 1fr; gap: 0.75rem; }
+  .city-choices { grid-template-columns: 1fr; }
+  .city-choice-content { min-height: 15.5rem; }
+}
 @media (max-width: 860px) {
   .card-list { grid-template-columns: 1fr; }
   .community-panel-auth, .community-invites, .community-member-grid, .community-submission-grid { grid-template-columns: 1fr; }
@@ -904,6 +1082,7 @@ a:hover { color: var(--wine-deep); }
   .detail-facts div { grid-template-columns: 1fr; gap: 0.1rem; }
   .discovery-row { gap: 0.5rem; }
   .city-control { flex: 1 1 100%; }
+  .all-cities-control + .city-control { flex: 1 1 12rem; }
   .city-control select { width: 100%; }
   .refine-btn, .nearby-btn { flex: 1 1 auto; justify-content: center; }
   .tray-actions { flex-direction: column; }
