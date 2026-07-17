@@ -1413,9 +1413,23 @@ a:hover { color: var(--violet); }
   transition: box-shadow 220ms cubic-bezier(0.25, 1, 0.5, 1), transform 220ms cubic-bezier(0.25, 1, 0.5, 1);
 }
 .city-choice-content:hover { box-shadow: 0 16px 34px rgb(37 27 43 / 0.18); transform: translateY(-3px); }
-.city-choice-madrid .city-choice-content { background: white; color: var(--ink); border-top: 4px solid var(--mint); }
-.city-choice-paris .city-choice-content { background: var(--oxblood); color: white; }
-.city-choice-san-francisco .city-choice-content { background: var(--ink); color: white; }
+/* The whole card is the link; per-city color rules below must stay after these states. */
+.city-choice-content,
+.city-choice-content:visited,
+.city-choice-content:hover,
+.city-choice-content:active {
+  color: var(--ink);
+  text-decoration: none;
+}
+.city-choice-madrid .city-choice-content,
+.city-choice-madrid .city-choice-content:visited,
+.city-choice-madrid .city-choice-content:hover { background: var(--mint); color: var(--ink); }
+.city-choice-paris .city-choice-content,
+.city-choice-paris .city-choice-content:visited,
+.city-choice-paris .city-choice-content:hover { background: var(--oxblood); color: white; }
+.city-choice-san-francisco .city-choice-content,
+.city-choice-san-francisco .city-choice-content:visited,
+.city-choice-san-francisco .city-choice-content:hover { background: var(--ink); color: white; }
 .city-choice-place { position: relative; z-index: 1; color: inherit; }
 .city-choice-name { font-size: clamp(2.05rem, 3.5vw, 2.8rem); letter-spacing: -0.04em; }
 .city-choice:nth-child(3n + 2) .city-choice-name,
@@ -1428,18 +1442,10 @@ a:hover { color: var(--violet); }
   opacity: 0.86;
 }
 .city-choice-count { position: relative; z-index: 1; color: currentColor; opacity: 0.82; }
-.city-choice-action {
-  position: relative;
-  z-index: 1;
-  gap: 0.5rem;
-  color: currentColor;
-  text-decoration-color: currentColor;
+.city-choice-content:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: -6px;
 }
-.city-choice-action:visited,
-.city-choice-action:hover,
-.city-choice-action:active { color: currentColor; }
-.city-choice-action:hover { text-decoration-thickness: 3px; }
-.city-choice-action:focus-visible { outline-color: currentColor; }
 .city-choice-swatch {
   position: absolute;
   right: -1rem;

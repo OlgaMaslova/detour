@@ -1020,12 +1020,11 @@ function renderCityChooser(root: HTMLElement): void {
             .map((city) => {
               const count = venuesForCity(city).length;
               return `<li class="city-choice city-choice-${esc(city.slug)}">
-                <article class="city-choice-content">
+                <a class="city-choice-content" href="${esc(cityHref(city.slug))}" data-choose-city="${esc(city.slug)}">
                   <span class="city-choice-swatch" aria-hidden="true"><span></span></span>
                   <p class="city-choice-place"><span class="city-choice-name">${esc(city.name)}</span><span class="city-choice-separator">, </span><span class="city-choice-country">${esc(city.country)}</span></p>
                   <p class="city-choice-count">${count} current ${count === 1 ? 'selection' : 'selections'}</p>
-                  <a class="city-choice-action" href="${esc(cityHref(city.slug))}" data-choose-city="${esc(city.slug)}">Explore ${esc(city.name)}<span aria-hidden="true">↗</span></a>
-                </article>
+                </a>
               </li>`;
             })
             .join('')}

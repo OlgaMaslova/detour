@@ -46,7 +46,14 @@ Mint is appropriate for the small brand tag, guide-rank accents, pin signals,
 filter counts, and hard-offset action shadows. Use `--canvas` or
 `--violet-soft` for broad quiet surfaces. City-detail heroes keep only a slim
 0.4rem oxblood baseboard inside their bottom edge; hero copy must never cross
-that seam. Decorative hero mint blocks are not used.
+that seam. Decorative hero mint blocks are not used. One sanctioned mint
+plane: the Madrid chooser card uses a solid `--mint` background with ink text.
+
+City chooser cards are fully clickable: the entire `.city-choice-content`
+block is the anchor (no separate "Explore …" action link). Card links carry
+no underline, keep their per-city colors across visited/hover, and show an
+inset `currentColor` focus outline so keyboard focus is visible on both light
+and dark cards. Cities without a bespoke per-city rule render ink-on-card.
 
 ## Buttons: the sticker system
 
