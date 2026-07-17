@@ -289,7 +289,9 @@ confirm the delete by re-fetching.
 ## Frontend: build, run, deploy
 
 The frontend is a Vite + TypeScript static app (`src/`, `index.html`,
-`vite.config.ts`) that reads live data from PocketBase.
+`vite.config.ts`) that reads live data from PocketBase. Visual-design
+conventions (layout surfaces, the sticker button system, map pin colors) are
+documented in `docs/frontend-design-conventions.md`.
 
 - Configure the API URL explicitly via `VITE_POCKETBASE_URL` (see
   `.env.example`); the client never assumes same-origin.
