@@ -94,7 +94,7 @@ routerAdd(
       });
     }
 
-    return e.json(200, candidates);
+    return e.json(200, { items: candidates });
   },
   $apis.requireAuth("members")
 );
