@@ -1,7 +1,7 @@
 # Detour community curation policy and curator playbook
 
 **Status:** governing policy for the community-selection workflow.  
-**Applies to:** verified-member recommendations, visit evidence, and the public Detour catalogue.  
+**Applies to:** member verification, private endorsements, recommendations, visit evidence, and the public Detour catalogue.
 **Policy owner:** Detour editorial curation.
 
 ## 1. Purpose and editorial boundary
@@ -26,25 +26,33 @@ from one.
 
 The live community foundation has these intentionally private collections:
 
+- `endorsements` contains the member relations `endorser` and `endorsee`, plus
+  server-managed active state. Only the two participating members can list or
+  view a record, only its endorser can revoke it, and members cannot update it.
 - `visit_evidence` contains a member relation, an existing `venue` relation,
   optional `evidence_url`, member `note`, `status`, and hidden `curator_note`.
-  Its current status values are `pending`, `approved`, and `rejected`.
+  Its current status values are `pending`, `approved`, and `rejected`. It is
+  retained as private historical/editorial context and does not confer member
+  verification.
 - `detour_submissions` contains `member`, optional existing `venue`,
   `venue_name`, `city`, `address`, `detour_note`, optional `source_url`,
-  `status`, and hidden `curator_note`. Its current status values are
-  `pending`, `approved`, and `rejected`.
-- Members can read only records where `member = @request.auth.id`. A verified
-  member may create a recommendation, but the server assigns the member and
-  forces its status to `pending`. Members cannot change review fields.
+  `status`, hidden `curator_note`, and private publication audit fields. Its
+  current status values are `pending`, `approved`, `rejected`, and `published`.
+- For visit evidence and submissions, members can read only records where
+  `member = @request.auth.id`. A verified member may create a recommendation,
+  but the server assigns the member and forces its status to `pending`. Members
+  cannot change review fields.
 - The public guide reads catalogue collections such as `venues`,
-  `venue_awards`, and `guide_sources`; it does **not** query
-  `detour_submissions`.
+  `venue_awards`, and `guide_sources`; it does **not** query `endorsements`,
+  `visit_evidence`, or `detour_submissions`.
 
-The current deployment has no public publication action and no `published`
-submission status. An editorial approval is therefore a private curator
-finding, not a publication. Curators must not manually expose a submission by
-loosening collection rules, copying its note into a public field, or treating
-an approval as permission to publish.
+The controlled curator publication action is the only path from an approved
+private submission to the public catalogue. An editorial approval alone remains
+a private curator finding, not a publication. Curators must not manually expose
+a submission by loosening collection rules, copying its note into a public
+field, or treating an approval as permission to publish. Endorsement records,
+member identities, and endorsement or submission note/prose must never appear in
+public catalogue responses.
 
 The reserved account `community-proof@detour.invalid` and its submission
 **“Editorial curation proof — not public”** are non-interactive verification
@@ -52,9 +60,32 @@ fixtures. They are never candidates for publication, attribution, or display.
 
 ## 3. Review lifecycle
 
-### 3.1 Visit evidence
+### 3.1 Member verification and endorsements
 
-Visit evidence follows this lifecycle:
+Email verification secures a member account only; it does not grant community
+trust or recommendation privileges. Olga or another authorized curator verifies
+founding members through the curator-only founding-verification path:
+`POST /api/detour/curation/members/{id}/founding-verification`. Founding
+verification remains valid independently of endorsements until an authorized
+curator revokes it.
+
+After the founding cohort, a non-founding member becomes verified exactly when
+they hold at least two independent active endorsements from distinct members
+who are currently verified. Each verified member can hold at most three active
+outgoing endorsements. Self-endorsement and duplicate endorser/endorsee pairs
+are prohibited. An endorser may revoke their own endorsement; revocation can
+remove the endorsee's verified status and the backend propagates that loss
+through downstream endorsements so an unverified member is not left as a trust
+source.
+
+Endorsements are private trust records, not public recommendations or public
+attribution. Only the participating endorser and endorsee may read their record.
+No endorsement identity, relation, note, prose, or private trust-graph data may
+appear in public catalogue responses.
+
+### 3.2 Visit evidence
+
+Visit evidence follows this private editorial lifecycle:
 
 1. **Pending** — submitted by a signed-in member and awaiting review.
 2. **Approved** — a curator has determined that the evidence is sufficiently
@@ -62,20 +93,17 @@ Visit evidence follows this lifecycle:
 3. **Rejected** — the evidence is insufficient, clearly unrelated, duplicate,
    unsafe to retain, or otherwise fails review.
 
-Three approved evidences for **three distinct venues** make a member verified.
-The backend recalculates that status after evidence changes, including a
-curator reversal. Approval is a trust signal for community participation. It is
-not a claim that Detour has published, endorsed, or independently verified the
-member's opinion.
-
-A curator may reverse an approval when credible new information shows it was
+Visit evidence is retained as historical/editorial context only. Creating,
+approving, rejecting, reversing, or deleting it does not change
+`community_status` and must not be presented as a route to verification. A
+curator may reverse an approval when credible new information shows it was
 wrong. Record a factual, non-sensitive reason in the private curator note. Do
 not put personal information, evidence contents, or allegations in a public
 field.
 
-### 3.2 Member recommendations
+### 3.3 Member recommendations
 
-The target lifecycle for `detour_submissions` is:
+The lifecycle for `detour_submissions` is:
 
 1. **Pending** — private intake and triage.
 2. **Approved** — a curator has finished the required checks and the lead is
@@ -209,9 +237,9 @@ private curator note about the missing verification.
 
 ## 6. Exact approved-submission-to-publication path
 
-The following is the required target path for the next backend workflow
-implementation. It separates private intake from a public, attributed catalogue
-record and gives the frontend a single safe way to discover community picks.
+The deployed controlled path separates private intake from a public, attributed
+catalogue record and gives the frontend a single safe way to discover community
+picks.
 
 ### 6.1 Inputs retained privately
 
@@ -277,12 +305,10 @@ private submission:
    set its status to `published` only after the venue and community-selection
    event have been saved successfully.
 
-The next backend milestone must add these fields and rules with a new,
-forward-only migration; none of them should be represented as already deployed
-in the current schema. The publication/unpublication operation must be
-idempotent and controlled by curator-level backend logic or a documented
-operator script, not by a member-side API call or a sequence of unguarded manual
-edits.
+The publication/unpublication operation is idempotent and controlled by
+curator-level backend logic, not by a member-side API call or a sequence of
+unguarded manual edits. Its private destination, timestamp, and audit fields
+must remain hidden from public responses.
 
 ## 7. Curator playbook
 
@@ -301,19 +327,22 @@ current user-facing app is not an editorial administration surface.
 4. Exclude the reserved `community-proof@detour.invalid` account and the
    “Editorial curation proof — not public” submission from editorial selection.
 
-### B. Process visit evidence
+### B. Manage founding verification and visit evidence
 
-1. Open the evidence record and inspect its related member and existing venue.
-2. Check that the note/link is relevant to that venue and does not contain
-   unsafe, unrelated, or clearly fabricated material.
-3. Select `approved` only when it is credible enough to count as a visit. For a
-   duplicate or insufficient record, select `rejected`.
+1. Use the curator-only founding-verification path when Olga or another
+   authorized curator admits or removes a founding-cohort member. Do not edit
+   `community_status` directly.
+2. When reviewing historical visit evidence, open the record and inspect its
+   related member and existing venue only for the private editorial purpose at
+   hand.
+3. Check that the note/link is relevant and does not contain unsafe, unrelated,
+   or clearly fabricated material. Select `approved` or `rejected` only as a
+   private evidence-review state.
 4. Add a short, factual private `curator_note`. Do not paste evidence contents
    or personal details.
-5. Save the record. Confirm the member's verification status has recalculated;
-   three approved records for distinct venues are required for `verified`.
-6. If reversing a prior decision, repeat the same check and confirm the
-   verification status afterward.
+5. Do not use visit-evidence status or counts to grant, retain, or revoke member
+   verification. Endorsement and founding-verification logic exclusively
+   controls community trust.
 
 ### C. Triage a recommendation
 
@@ -327,10 +356,10 @@ current user-facing app is not an editorial administration surface.
    unverifiable, out of scope, unsafe, rights-constrained, or not selected.
 5. Set `approved` only when the lead has passed every required verification
    gate. Explain any material limitation privately.
-6. Do not make an approved recommendation public in the current deployment.
+6. Do not make an approved recommendation public by editing it directly.
    Approval means ready for the controlled publication action, not published.
 
-### D. Publish after the controlled mechanism is deployed
+### D. Publish through the controlled mechanism
 
 1. Re-open the approved submission and re-run the name, official URL, address,
    location, no-copy, consent, and duplicate checks immediately before
@@ -365,15 +394,22 @@ meet all of these conditions:
 
 - pending, approved, rejected, private withdrawal annotations, audit data, and
   curator notes are not listable or viewable by the public or other members;
-- members can see only their own private records and cannot promote a status or
-  create a public catalogue record;
-- only authorized curators can approve, reject, publish, unpublish, or inspect
-  other members' queue data;
+- members can see only private records in which they participate and cannot
+  promote a status or create a public catalogue record;
+- email verification alone never grants community trust; founding verification
+  requires the curator-only path, while non-founding verification requires two
+  active endorsements from distinct currently verified members;
+- no verified member can hold more than three active outgoing endorsements, and
+  self or duplicate endorsements are rejected;
+- endorsement revocation recalculates the affected member and propagates any
+  status change so stale downstream trust is removed;
+- only authorized curators can toggle founding verification, approve, reject,
+  publish, unpublish, or inspect other members' queue data;
 - public catalogue queries return only public `venues`, public provenance, and
   safe community-selection attribution;
-- the frontend never queries `detour_submissions`, visit evidence, member
-  identity, or a private publication-audit relation for public map/catalogue
-  display;
+- the frontend never queries `endorsements`, `detour_submissions`, visit
+  evidence, member identity, notes/prose, or a private publication-audit
+  relation for public map/catalogue display;
 - a public community-selection label remains separate from external-guide
   awards and never attributes the pick to an outside guide; and
 - publication is verified end-to-end with a non-fixture, consent-safe test path

@@ -61,6 +61,7 @@ onRecordUpdateRequest((e) => {
   const original = e.record.original();
   if (
     e.record.getString("community_status") !== original.getString("community_status") ||
+    e.record.getBool("founding_verified") !== original.getBool("founding_verified") ||
     e.record.getString("invited_by") !== original.getString("invited_by") ||
     e.record.getString("redeemed_invite") !== original.getString("redeemed_invite")
   ) {
@@ -103,58 +104,67 @@ onRecordCreateRequest((e) => {
   e.next();
 }, "visit_evidence");
 
-// A member is verified exactly when they have three approved, distinct venue
-// visits. Rejections or curator reversals can therefore remove verification.
-onRecordAfterCreateSuccess((e) => {
-  const memberId = e.record.getString("member");
-  if (memberId) {
-    const approvedCount = e.app.countRecords(
-      "visit_evidence",
-      $dbx.hashExp({ member: memberId, status: "approved" })
-    );
-    const member = e.app.findRecordById("members", memberId);
-    const requiredStatus = approvedCount >= 3 ? "verified" : "unverified";
-    if (member.getString("community_status") !== requiredStatus) {
-      member.set("community_status", requiredStatus);
-      e.app.save(member);
-    }
+// Endorsements are private trust records. Public creation is available only to
+// verified member accounts; the server owns attribution and active state.
+onRecordCreateRequest((e) => {
+  if (!e.auth || e.hasSuperuserAuth()) {
+    throw new BadRequestError("Sign in with a verified Detour member account to endorse someone.");
   }
-  e.next();
-}, "visit_evidence");
+  if (e.auth.getString("community_status") !== "verified") {
+    throw new BadRequestError("Only verified Detour members can create endorsements.");
+  }
 
-onRecordAfterUpdateSuccess((e) => {
-  const memberId = e.record.getString("member");
-  if (memberId) {
-    const approvedCount = e.app.countRecords(
-      "visit_evidence",
-      $dbx.hashExp({ member: memberId, status: "approved" })
-    );
-    const member = e.app.findRecordById("members", memberId);
-    const requiredStatus = approvedCount >= 3 ? "verified" : "unverified";
-    if (member.getString("community_status") !== requiredStatus) {
-      member.set("community_status", requiredStatus);
-      e.app.save(member);
-    }
+  const endorseeId = e.record.getString("endorsee");
+  if (!endorseeId) {
+    throw new BadRequestError("Choose a Detour member to endorse.");
   }
+  if (endorseeId === e.auth.id) {
+    throw new BadRequestError("You cannot endorse yourself.");
+  }
+
+  let duplicate = false;
+  try {
+    e.app.findFirstRecordByFilter(
+      "endorsements",
+      "endorser = {:endorser} && endorsee = {:endorsee}",
+      { endorser: e.auth.id, endorsee: endorseeId }
+    );
+    duplicate = true;
+  } catch {
+    duplicate = false;
+  }
+  if (duplicate) {
+    throw new BadRequestError("You have already endorsed this member.");
+  }
+
+  const activeOutgoing = e.app.findRecordsByFilter(
+    "endorsements",
+    "endorser = {:endorser} && active = true",
+    "",
+    3,
+    0,
+    { endorser: e.auth.id }
+  );
+  if (activeOutgoing.length >= 3) {
+    throw new BadRequestError("You can have at most three active outgoing endorsements.");
+  }
+
+  e.record.set("endorser", e.auth.id);
+  e.record.set("active", true);
   e.next();
-}, "visit_evidence");
+}, "endorsements");
+
+onRecordAfterCreateSuccess((e) => {
+  const { recalculateVerification } = require(__hooks + "/endorsement_verification.js");
+  recalculateVerification(e.app, e.record.getString("endorsee"));
+  e.next();
+}, "endorsements");
 
 onRecordAfterDeleteSuccess((e) => {
-  const memberId = e.record.getString("member");
-  if (memberId) {
-    const approvedCount = e.app.countRecords(
-      "visit_evidence",
-      $dbx.hashExp({ member: memberId, status: "approved" })
-    );
-    const member = e.app.findRecordById("members", memberId);
-    const requiredStatus = approvedCount >= 3 ? "verified" : "unverified";
-    if (member.getString("community_status") !== requiredStatus) {
-      member.set("community_status", requiredStatus);
-      e.app.save(member);
-    }
-  }
+  const { recalculateVerification } = require(__hooks + "/endorsement_verification.js");
+  recalculateVerification(e.app, e.record.getString("endorsee"));
   e.next();
-}, "visit_evidence");
+}, "endorsements");
 
 // PocketBase select fields do not have a schema-level default. Normalize every
 // public recommendation to pending before validation, regardless of any status
@@ -173,7 +183,7 @@ onRecordCreateRequest((e) => {
     return e.next();
   }
   if (!e.auth || e.auth.getString("community_status") !== "verified") {
-    throw new BadRequestError("Three approved visits are required before submitting a detour.");
+    throw new BadRequestError("Verified Detour membership is required before submitting a detour.");
   }
 
   e.record.set("member", e.auth.id);
@@ -181,6 +191,37 @@ onRecordCreateRequest((e) => {
   e.record.set("curator_note", "");
   e.next();
 }, "detour_submissions");
+
+// Olga and other authorized curators can explicitly preserve or revoke a
+// member's founding-cohort verification. Endorsement consequences are
+// recalculated immediately and propagated through the private trust graph.
+routerAdd(
+  "POST",
+  "/api/detour/curation/members/{id}/founding-verification",
+  (e) => {
+    const { recalculateVerification } = require(__hooks + "/endorsement_verification.js");
+    const body = e.requestInfo().body || {};
+    const memberId = e.request.pathValue("id");
+    const verified = body.verified === undefined ? true : body.verified;
+
+    if (typeof verified !== "boolean") {
+      throw new BadRequestError("verified must be a boolean.");
+    }
+
+    const member = e.app.findRecordById("members", memberId);
+    member.set("founding_verified", verified);
+    e.app.save(member);
+    recalculateVerification(e.app, member.id);
+
+    const updated = e.app.findRecordById("members", member.id);
+    return e.json(200, {
+      member_id: updated.id,
+      founding_verified: updated.getBool("founding_verified"),
+      community_status: updated.getString("community_status"),
+    });
+  },
+  $apis.requireSuperuserAuth()
+);
 
 // Publication is deliberately a curator-only action rather than a record update.
 // It writes the safe public catalogue facts and the private audit link together
