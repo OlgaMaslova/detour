@@ -15,6 +15,7 @@ import { bindCommunity, communityControl, communityPanel } from './community';
 /** '' = all award levels; otherwise a literal level label present in the loaded data. */
 type Filter = string;
 type DataMode = 'loading' | 'live' | 'error';
+type AppView = 'discovery' | 'account';
 
 interface UserLocation {
   lat: number;
@@ -23,6 +24,8 @@ interface UserLocation {
 
 interface State {
   mode: DataMode;
+  /** Dedicated account route or the public discovery experience. */
+  view: AppView;
   /** Active city route; null renders the city chooser. */
   city: CitySlug | null;
   /** Public city records loaded with the catalogue; editorial copy and map settings come from the records themselves. */
@@ -49,6 +52,7 @@ interface State {
 
 const state: State = {
   mode: 'loading',
+  view: new URL(window.location.href).searchParams.get('view') === 'members' ? 'account' : 'discovery',
   city: citySlugFromUrl(window.location.search),
   cities: [],
   venues: [],
@@ -74,6 +78,10 @@ let pendingFocus: string | null = null;
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function cssToken(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
 /* ---------- helpers ---------- */
@@ -288,15 +296,25 @@ function resetCityState(): void {
   savedPinKey = '';
 }
 
-function cityHref(slug: CitySlug | null): string {
+function routeHref(view: AppView, slug: CitySlug | null): string {
   const url = new URL(window.location.href);
   if (slug) url.searchParams.set('city', slug);
   else url.searchParams.delete('city');
+  if (view === 'account') url.searchParams.set('view', 'members');
+  else url.searchParams.delete('view');
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
-function updateCityUrl(slug: CitySlug | null, mode: 'push' | 'replace'): void {
-  const href = cityHref(slug);
+function cityHref(slug: CitySlug | null): string {
+  return routeHref('discovery', slug);
+}
+
+function accountHref(): string {
+  return routeHref('account', state.city);
+}
+
+function updateRoute(view: AppView, slug: CitySlug | null, mode: 'push' | 'replace'): void {
+  const href = routeHref(view, slug);
   if (mode === 'push') window.history.pushState(null, '', href);
   else window.history.replaceState(null, '', href);
 }
@@ -304,8 +322,9 @@ function updateCityUrl(slug: CitySlug | null, mode: 'push' | 'replace'): void {
 function switchCity(root: HTMLElement, slug: CitySlug): void {
   if (!cityIsAvailable(slug)) return;
   if (slug !== state.city) resetCityState();
+  state.view = 'discovery';
   state.city = slug;
-  updateCityUrl(slug, 'push');
+  updateRoute('discovery', slug, 'push');
   pendingFocus = '[data-city]';
   render(root);
 }
@@ -313,14 +332,30 @@ function switchCity(root: HTMLElement, slug: CitySlug): void {
 function showCityChooser(root: HTMLElement): void {
   const previousCity = state.city;
   if (state.city !== null) resetCityState();
+  state.view = 'discovery';
   state.city = null;
-  updateCityUrl(null, 'push');
+  updateRoute('discovery', null, 'push');
   pendingFocus = previousCity ? `[data-choose-city="${CSS.escape(previousCity)}"]` : null;
+  render(root);
+}
+
+function showAccount(root: HTMLElement): void {
+  state.view = 'account';
+  updateRoute('account', state.city, 'push');
+  pendingFocus = '#account-title';
+  render(root);
+}
+
+function returnToDiscovery(root: HTMLElement): void {
+  state.view = 'discovery';
+  updateRoute('discovery', state.city, 'push');
+  pendingFocus = '[data-community-route]';
   render(root);
 }
 
 function applyRouteFromUrl(root: HTMLElement): void {
   const url = new URL(window.location.href);
+  const nextView: AppView = url.searchParams.get('view') === 'members' ? 'account' : 'discovery';
   const requested = citySlugFromUrl(url.search);
   const hasCityParam = url.searchParams.has('city');
   const allowed =
@@ -328,11 +363,12 @@ function applyRouteFromUrl(root: HTMLElement): void {
   const nextCity = allowed ? requested : null;
 
   if (state.city !== nextCity) resetCityState();
+  state.view = nextView;
   state.city = nextCity;
 
-  // Invalid params, and valid deep links without published data, resolve to a
-  // canonical chooser URL rather than silently selecting another city.
-  if (hasCityParam && nextCity === null) updateCityUrl(null, 'replace');
+  // Invalid city params resolve canonically while preserving the dedicated
+  // account route when it was requested directly.
+  if (hasCityParam && nextCity === null) updateRoute(nextView, null, 'replace');
   render(root);
 }
 
@@ -563,9 +599,9 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
   if (state.userLocation && userInCity) {
     L.circleMarker([state.userLocation.lat, state.userLocation.lng], {
       radius: 7,
-      color: '#ffffff',
+      color: cssToken('--surface'),
       weight: 3,
-      fillColor: '#87c2a5',
+      fillColor: cssToken('--location'),
       fillOpacity: 1,
     })
       .addTo(map)
@@ -879,10 +915,17 @@ function detailPanel(): string {
 /* ---------- render ---------- */
 
 /** Keep the browser tab title and description in step with the current route. */
-function syncDocumentMeta(city: CityConfig | null): void {
-  document.title = city?.metaTitle ?? GLOBAL_META_TITLE;
+function syncDocumentMeta(city: CityConfig | null, account = false): void {
+  document.title = account ? 'Members — Detour' : city?.metaTitle ?? GLOBAL_META_TITLE;
   const meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
-  if (meta) meta.setAttribute('content', city?.metaDescription ?? GLOBAL_META_DESCRIPTION);
+  if (meta) {
+    meta.setAttribute(
+      'content',
+      account
+        ? 'Sign in to Detour membership, manage invitations, record visits, and share recommendations for editorial review.'
+        : city?.metaDescription ?? GLOBAL_META_DESCRIPTION
+    );
+  }
 }
 
 function cityTagline(city: CityConfig): string {
@@ -890,6 +933,20 @@ function cityTagline(city: CityConfig): string {
 }
 
 function bindRouteLinks(root: HTMLElement): void {
+  root.querySelectorAll<HTMLAnchorElement>('[data-community-route]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      if (state.view !== 'account') showAccount(root);
+    });
+  });
+  root.querySelectorAll<HTMLAnchorElement>('[data-return-discovery]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      returnToDiscovery(root);
+    });
+  });
   root.querySelectorAll<HTMLAnchorElement>('[data-choose-city]').forEach((link) => {
     link.addEventListener('click', (event) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -904,6 +961,43 @@ function bindRouteLinks(root: HTMLElement): void {
     event.preventDefault();
     showCityChooser(root);
   });
+}
+
+function renderAccount(root: HTMLElement): void {
+  destroyMap();
+  syncDocumentMeta(null, true);
+  const city = state.city ? availableCities().find((item) => item.slug === state.city) ?? null : null;
+  const returnLabel = city ? `Back to ${city.name} discovery` : 'Back to city discovery';
+
+  root.innerHTML = `
+    <a class="skip-link" href="#community-area">Skip to membership</a>
+    <header class="account-masthead">
+      <div class="account-nav-row">
+        <a class="account-brand" href="${esc(cityHref(state.city))}" data-return-discovery>Detour</a>
+        <nav class="account-nav" aria-label="Account navigation">
+          <a class="account-return" href="${esc(cityHref(state.city))}" data-return-discovery><span aria-hidden="true">←</span> ${esc(returnLabel)}</a>
+          ${communityControl(accountHref(), true)}
+        </nav>
+      </div>
+      <div class="account-intro">
+        <p class="account-kicker">Detour membership</p>
+        <h1 id="account-title" tabindex="-1">Your Detour, kept in one place.</h1>
+        <p>Sign in, record the tables that stayed with you, and keep trusted introductions and recommendations together.</p>
+      </div>
+    </header>
+    ${communityPanel(state.venues)}
+    <footer class="footer account-footer">
+      <p>Membership notes and recommendations stay private while the editorial team considers them.</p>
+    </footer>
+  `;
+
+  bindCommunity(root, state.venues, () => render(root));
+  bindRouteLinks(root);
+  if (pendingFocus) {
+    const target = root.querySelector<HTMLElement>(pendingFocus);
+    pendingFocus = null;
+    target?.focus({ preventScroll: true });
+  }
 }
 
 function renderCityChooser(root: HTMLElement): void {
@@ -944,10 +1038,9 @@ function renderCityChooser(root: HTMLElement): void {
         <p class="brand">Detour</p>
         <h1>Trust the experts. Great food is never a straight line.</h1>
         <p class="tagline city-chooser-intro">Detour is a collection of exceptional tables across cities, chosen for the recognition they hold now. Choose a city to explore its current selection.</p>
-        <div class="hero-account">${communityControl()}</div>
+        <div class="hero-account">${communityControl(accountHref())}</div>
       </div>
     </header>
-    ${communityPanel(state.venues)}
     <section class="city-chooser" aria-labelledby="city-chooser-title">
       <div class="city-chooser-heading">
         <h2 id="city-chooser-title">Choose a city</h2>
@@ -961,7 +1054,6 @@ function renderCityChooser(root: HTMLElement): void {
     </footer>
   `;
 
-  bindCommunity(root, state.venues, () => render(root));
   bindRouteLinks(root);
   if (pendingFocus) {
     const target = root.querySelector<HTMLElement>(pendingFocus);
@@ -971,6 +1063,11 @@ function renderCityChooser(root: HTMLElement): void {
 }
 
 function render(root: HTMLElement) {
+  if (state.view === 'account') {
+    renderAccount(root);
+    return;
+  }
+
   const city = activeCity();
   if (state.mode === 'loading' || !city || !cityIsAvailable(city.slug)) {
     renderCityChooser(root);
@@ -993,10 +1090,9 @@ function render(root: HTMLElement) {
         <p class="brand">Detour</p>
         <h1>${esc(city.title)}</h1>
         <p class="tagline">${esc(cityTagline(city))}</p>
-        <div class="hero-account">${communityControl()}</div>
+        <div class="hero-account">${communityControl(accountHref())}</div>
       </div>
     </header>
-    ${communityPanel(state.venues)}
     ${discoveryBar(city, list)}
     ${city.presentation === 'map' ? mapStage(list) : listPreviewStage()}
     <section class="selection-disclosure" aria-labelledby="selection-disclosure-title">
@@ -1017,7 +1113,6 @@ function render(root: HTMLElement) {
     </footer>
   `;
 
-  bindCommunity(root, state.venues, () => render(root));
   bindRouteLinks(root);
 
   const keepSelectionValid = () => {
@@ -1190,7 +1285,7 @@ function requestUserLocation(root: HTMLElement): void {
         } else {
           state.userLocation = { lat: latitude, lng: longitude };
           if (withinCity(city, state.userLocation)) {
-            state.geoStatus = 'You’re on the map — look for the mint location dot.';
+            state.geoStatus = 'You’re on the map — look for the outlined location dot.';
           } else {
             state.geoStatus = `You seem to be outside ${city.name}, so the map stays on the city — everything else works as usual.`;
           }

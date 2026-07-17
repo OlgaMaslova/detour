@@ -45,7 +45,6 @@ interface Notice {
   text: string;
 }
 
-let panelOpen = false;
 let mode: CommunityMode = 'sign-in';
 let notice: Notice | null = null;
 let evidence: EvidenceRecord[] = [];
@@ -280,14 +279,13 @@ function signedInPanel(venues: Venue[]): string {
   </section>`;
 }
 
-export function communityControl(): string {
+export function communityControl(href: string, current = false): string {
   const record = member();
   const label = record ? `Member: ${memberName(record)}` : 'Members';
-  return `<button class="community-toggle" type="button" data-community-toggle aria-expanded="${panelOpen}" aria-controls="community-area">${esc(label)}<span aria-hidden="true">${panelOpen ? '—' : '+'}</span></button>`;
+  return `<a class="community-toggle${current ? ' is-current' : ''}" href="${esc(href)}" data-community-route${current ? ' aria-current="page"' : ''}>${esc(label)}<span aria-hidden="true">${current ? '•' : '↗'}</span></a>`;
 }
 
 export function communityPanel(venues: Venue[]): string {
-  if (!panelOpen) return '<div id="community-area"></div>';
   return `<div id="community-area" class="community-area">${member() ? signedInPanel(venues) : signedOutPanel()}</div>`;
 }
 
@@ -348,15 +346,6 @@ async function refreshMember(render: () => void): Promise<void> {
 }
 
 export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => void): void {
-  root.querySelector<HTMLButtonElement>('[data-community-toggle]')?.addEventListener('click', () => {
-    panelOpen = !panelOpen;
-    notice = null;
-    render();
-    if (panelOpen && member() && !evidenceLoaded) void loadEvidence(render);
-    if (panelOpen && member() && !invitesLoaded) void loadInvites(render);
-    if (panelOpen && member()?.community_status === 'verified' && !submissionsLoaded) void loadSubmissions(render);
-  });
-
   root.querySelectorAll<HTMLButtonElement>('[data-community-mode]').forEach((button) => {
     button.addEventListener('click', () => {
       mode = button.dataset.communityMode === 'join' ? 'join' : 'sign-in';
@@ -405,7 +394,6 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     render();
     try {
       await pb.collection('members').authWithPassword(String(values.get('email') || '').trim(), String(values.get('password') || ''));
-      panelOpen = true;
       evidenceLoaded = false;
       invites = [];
       invitesLoaded = false;
@@ -507,15 +495,15 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     }
   });
 
-  // Keep the current member record fresh after a normal map re-render, without
-  // adding a global auth-store listener that could duplicate across renders.
-  if (panelOpen && member() && !evidenceLoaded && !loadingEvidence) {
+  // The account route owns these records. Load them on first render without a
+  // global auth-store listener that could duplicate across re-renders.
+  if (member() && !evidenceLoaded && !loadingEvidence) {
     void loadEvidence(render);
   }
-  if (panelOpen && member() && !invitesLoaded && !loadingInvites) {
+  if (member() && !invitesLoaded && !loadingInvites) {
     void loadInvites(render);
   }
-  if (panelOpen && member()?.community_status === 'verified' && !submissionsLoaded && !loadingSubmissions) {
+  if (member()?.community_status === 'verified' && !submissionsLoaded && !loadingSubmissions) {
     void loadSubmissions(render);
   }
 
