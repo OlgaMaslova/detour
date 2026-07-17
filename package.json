@@ -15,7 +15,8 @@
     "validate:location-backfill": "node scripts/validate-location-backfill-2026-07-16.mjs",
     "validate:michelin-san-francisco": "node scripts/validate-michelin-2026-san-francisco-starred.mjs",
     "validate:sf-catalogue-expansion": "node scripts/validate-san-francisco-catalogue-expansion.mjs",
-    "validate:community-selection-live": "node scripts/validate-community-selection-live.mjs"
+    "validate:community-selection-live": "node scripts/validate-community-selection-live.mjs",
+    "validate:community-waitlist": "node scripts/validate-community-waitlist-loop.mjs"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

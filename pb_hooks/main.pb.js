@@ -176,6 +176,115 @@ onRecordCreateRequest((e) => {
   e.next();
 }, "recommendations");
 
+// A verified member recommendation is one independent signal on the shared,
+// normalized waiting-list entry. All attribution, place resolution, private
+// participant state, and publication state are server-owned.
+onRecordCreateRequest((e) => {
+  if (e.hasSuperuserAuth()) {
+    return e.next();
+  }
+
+  const community = require(__hooks + "/community_waitlist.js");
+  community.requireVerifiedMember(e.auth, "recommending a place");
+
+  const note = community.validateRecommendationNote(e.record.getString("note"));
+  const resolved = community.resolveEntry(e.app, e.record.getString("waitlist"), {
+    venueName: e.record.getString("venue_name"),
+    city: e.record.getString("city"),
+    country: e.record.getString("country"),
+  });
+  community.ensureEntryPending(resolved.entry, "recommended again");
+
+  const duplicate = community.findMemberRecommendation(
+    e.app,
+    e.auth.id,
+    resolved.entry.id
+  );
+  if (duplicate) {
+    // A retry after an after-create publication failure must still reconcile
+    // the already-committed signal before returning the duplicate response.
+    community.recalculateAndPublish(e.app, resolved.entry.id);
+    throw new BadRequestError("You have already recommended this place.");
+  }
+
+  community.addParticipants(e.app, resolved.entry, [e.auth.id]);
+  e.record.set("member", e.auth.id);
+  e.record.set("waitlist", resolved.entry.id);
+  e.record.set("note", note);
+  e.record.set("venue_name", resolved.entry.getString("venue_name"));
+  e.record.set("city", resolved.entry.getString("city"));
+  e.record.set("country", resolved.entry.getString("country"));
+  e.next();
+}, "community_recommendations");
+
+onRecordAfterCreateSuccess((e) => {
+  const { recalculateAndPublish } = require(__hooks + "/community_waitlist.js");
+  recalculateAndPublish(e.app, e.record.getString("waitlist"));
+  e.next();
+}, "community_recommendations");
+
+// Deleting a pending signal updates the server-maintained count. A place that
+// has already auto-published remains a public selection and is never
+// automatically withdrawn merely because a later recommendation is removed.
+onRecordAfterDeleteSuccess((e) => {
+  const { recalculateAndPublish } = require(__hooks + "/community_waitlist.js");
+  recalculateAndPublish(e.app, e.record.getString("waitlist"));
+  e.next();
+}, "community_recommendations");
+
+// Shares are private invitations into an existing waiting-list entry. A share
+// creates no recommendation signal; it only links the sender and recipient as
+// private participants so the recipient can add their own independent note.
+onRecordCreateRequest((e) => {
+  if (e.hasSuperuserAuth()) {
+    return e.next();
+  }
+
+  const community = require(__hooks + "/community_waitlist.js");
+  community.requireVerifiedMember(e.auth, "sharing a place");
+
+  const recipientId = e.record.getString("recipient");
+  if (!recipientId) {
+    throw new BadRequestError("Choose a Detour member to share with.");
+  }
+  if (recipientId === e.auth.id) {
+    throw new BadRequestError("You cannot share a place with yourself.");
+  }
+  try {
+    e.app.findRecordById("members", recipientId);
+  } catch {
+    throw new BadRequestError("The share recipient is not a valid Detour member.");
+  }
+
+  const note = community.validateShareNote(e.record.getString("personal_note"));
+  const requestedWaitlistId = e.record.getString("waitlist");
+  const resolved = community.resolveEntry(e.app, requestedWaitlistId, {
+    venueName: e.record.getString("venue_name"),
+    city: e.record.getString("city"),
+    country: e.record.getString("country"),
+  });
+  community.ensureEntryPending(resolved.entry, "shared from the waiting list");
+
+  // Supplying safe place fields may create a new entry, but if those fields
+  // resolve to someone else's existing queue entry the sender must already be
+  // a participant before they can share it.
+  if (!resolved.created && !community.isParticipant(resolved.entry, e.auth.id)) {
+    throw new BadRequestError(
+      "Only a participant can share an existing waiting-list entry."
+    );
+  }
+
+  community.addParticipants(e.app, resolved.entry, [e.auth.id, recipientId]);
+  e.record.set("sender", e.auth.id);
+  e.record.set("recipient", recipientId);
+  e.record.set("waitlist", resolved.entry.id);
+  e.record.set("personal_note", note);
+  e.record.set("venue_name", resolved.entry.getString("venue_name"));
+  e.record.set("city", resolved.entry.getString("city"));
+  e.record.set("country", resolved.entry.getString("country"));
+  e.next();
+}, "community_shares");
+
 // Recommendations enter a private, pending curation queue. A verified status
 // is checked server-side as well as in the collection rule.
 onRecordCreateRequest((e) => {
