@@ -23,7 +23,6 @@ export interface CityConfig {
   /** Hero tagline; `{count}` is replaced with the current published venue count. */
   tagline: string;
   footer: string;
-  searchPlaceholder: string;
   /** Browser tab title once the app has booted into this city. */
   metaTitle: string;
   /** `meta[name="description"]` content once the app has booted into this city. */
@@ -55,7 +54,6 @@ export const CITIES: readonly CityConfig[] = [
       '{count} current places, from awarded dining to destination pizza and standout coffee.',
     footer:
       'Detour is a current, deliberately edited selection of Madrid’s exceptional tables. Each recognition belongs to its guide, with official links preserved for the original listings.',
-    searchPlaceholder: 'Search by name — Casa, DiverXO…',
     metaTitle: 'Detour — Madrid’s exceptional tables',
     metaDescription:
       'Explore Detour’s current Madrid selection: exceptional restaurants, pizzerias and coffee shops with published recognition from named guides or the Detour community.',
@@ -72,7 +70,6 @@ export const CITIES: readonly CityConfig[] = [
     tagline: '{count} current places holding published recognition from named guides.',
     footer:
       'Detour is a current, deliberately edited selection of Paris’s exceptional tables. Each recognition belongs to its guide, with official links preserved for the original listings.',
-    searchPlaceholder: 'Search by name — Kei, Arpège…',
     metaTitle: 'Detour — Paris’s exceptional tables',
     metaDescription:
       'Explore Detour’s current Paris selection: exceptional tables with published recognition from named guides or the Detour community.',
@@ -89,7 +86,6 @@ export const CITIES: readonly CityConfig[] = [
     tagline: '{count} current places holding published recognition from named guides.',
     footer:
       'Detour is a current, deliberately edited selection of San Francisco’s exceptional tables. Each recognition belongs to its guide, with official links preserved for the original listings.',
-    searchPlaceholder: 'Search by name — Quince, Benu…',
     metaTitle: 'Detour — San Francisco’s exceptional tables',
     metaDescription:
       'Explore Detour’s current San Francisco selection: exceptional tables with published recognition from named guides or the Detour community.',

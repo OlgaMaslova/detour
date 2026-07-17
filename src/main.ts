@@ -35,13 +35,13 @@ interface State {
   sourceFilter: string;
   /** '' = all categories; otherwise a venue category present in the loaded data (e.g. 'Pizza', 'Coffee'). */
   categoryFilter: string;
-  /** Free-text venue-name search; matched case-insensitively after trimming. */
-  search: string;
   selectedId: string | null;
   /** Whether the last selection came from a map pin or a list card — used to restore focus on close. */
   selectedVia: 'pin' | 'card' | null;
   /** Progressive-disclosure filter tray visibility. */
   trayOpen: boolean;
+  /** Whether the full filtered city selection is currently revealed. */
+  selectionOpen: boolean;
   guideYear: number;
   userLocation: UserLocation | null;
   geoStatus: string;
@@ -56,10 +56,10 @@ const state: State = {
   filter: '',
   sourceFilter: '',
   categoryFilter: '',
-  search: '',
   selectedId: null,
   selectedVia: null,
   trayOpen: false,
+  selectionOpen: false,
   guideYear: GUIDE_YEAR,
   userLocation: null,
   geoStatus: '',
@@ -267,8 +267,8 @@ function cityIsAvailable(slug: CitySlug): boolean {
 }
 
 /**
- * The active city's venues — the only venue list any filter, search, count,
- * map, or detail render may derive from, so records from another city can
+ * The active city's venues — the only venue list any filter, count, map, or
+ * detail render may derive from, so records from another city can
  * never leak into the current view.
  */
 function cityVenues(): Venue[] {
@@ -280,10 +280,10 @@ function resetCityState(): void {
   state.filter = '';
   state.sourceFilter = '';
   state.categoryFilter = '';
-  state.search = '';
   state.selectedId = null;
   state.selectedVia = null;
   state.trayOpen = false;
+  state.selectionOpen = false;
   state.userLocation = null;
   state.geoStatus = '';
   state.geoBusy = false;
@@ -378,7 +378,6 @@ function sourceNames(): string[] {
 }
 
 function filteredVenues(): Venue[] {
-  const query = state.search.trim().toLowerCase();
   // A filter matches when ANY of the venue's awards matches, so a venue
   // recognised by several guides stays visible under each guide's filter.
   const list = cityVenues().filter(
@@ -386,8 +385,7 @@ function filteredVenues(): Venue[] {
       (state.filter === '' || v.awards.some((a) => a.awardLevel === state.filter)) &&
       (state.sourceFilter === '' ||
         v.awards.some((a) => a.sourceName === state.sourceFilter)) &&
-      (state.categoryFilter === '' || v.category === state.categoryFilter) &&
-      (query === '' || v.name.toLowerCase().includes(query))
+      (state.categoryFilter === '' || v.category === state.categoryFilter)
   );
   return [...list].sort(
     (a, b) =>
@@ -603,13 +601,13 @@ function mapNote(list: Venue[]): string {
   if (list.length === 0) {
     const city = activeCity();
     return city
-      ? `Nothing matches at the moment — the map stays on ${city.name} while you adjust your search.`
+      ? `Nothing matches at the moment — the map stays on ${city.name} while you adjust the filters.`
       : 'Nothing matches at the moment.';
   }
   if (mappable.length === 0)
-    return 'Map positions for this selection are being refined. Every place is still listed below.';
+    return 'Map positions for this selection are being refined. Every place remains available in the full selection.';
   if (refining > 0)
-    return `${refining} ${refining === 1 ? 'place' : 'places'} in the list ${refining === 1 ? 'has its' : 'have their'} map position being refined.`;
+    return `${refining} ${refining === 1 ? 'place' : 'places'} in the full selection ${refining === 1 ? 'has its' : 'have their'} map position being refined.`;
   return '';
 }
 
@@ -714,13 +712,6 @@ function discoveryBar(city: CityConfig, list: Venue[]): string {
     <div class="discovery-row">
       <a class="all-cities-control" href="${esc(cityHref(null))}" data-all-cities>All cities</a>
       ${citySelector()}
-      <div class="search-control">
-        <label class="visually-hidden" for="venue-search">Search by name</label>
-        <input type="search" id="venue-search" data-search
-          value="${esc(state.search)}"
-          placeholder="${esc(city.searchPlaceholder)}"
-          autocomplete="off" spellcheck="false" />
-      </div>
       <button type="button" class="refine-btn${activeCount ? ' refine-btn-active' : ''}" data-tray-toggle
         aria-expanded="${state.trayOpen}" aria-controls="filter-tray">
         Refine${activeCount ? ` <span class="refine-count">${activeCount}</span>` : ''}
@@ -805,8 +796,8 @@ function detailPanel(): string {
   if (!v) {
     const prompt =
       activeCity()?.presentation === 'map'
-        ? 'Choose a pin on the map — or a place in the list — to see more.'
-        : 'Choose a place in the list to see more.';
+        ? 'Choose a pin on the map — or open the full selection — to see more.'
+        : 'Open the full selection and choose a place to see more.';
     return `<p class="map-prompt" aria-live="polite">${prompt}</p>`;
   }
   const guides = guideNames(v);
@@ -821,7 +812,7 @@ function detailPanel(): string {
         : 'A Detour community selection, selected editorially by Detour.'
     );
   const guideSentence = sentences.join(' ');
-  return `<aside class="detail" aria-live="polite" aria-label="Selected place">
+  return `<aside class="detail" id="selected-place-detail" aria-live="polite" aria-label="Selected place">
     <div class="detail-head">
       <div>
         <p class="detail-overline">Selected place</p>
@@ -993,12 +984,13 @@ function render(root: HTMLElement) {
   const list = filteredVenues();
   const emptyState = `<div class="empty-state" role="status">
       <p class="empty-state-title">Nothing matches yet</p>
-      <p class="empty-state-body">Try a different name, or start again with the full ${esc(city.name)} selection.</p>
+      <p class="empty-state-body">Adjust the filters, or start again with the full ${esc(city.name)} selection.</p>
       <button type="button" class="empty-state-reset" data-reset-filters>Show everything</button>
     </div>`;
+  const selectionLabel = `${list.length} ${list.length === 1 ? 'place' : 'places'}`;
 
   root.innerHTML = `
-    <a class="skip-link" href="#selection-results">Skip to the selection</a>
+    <a class="skip-link" href="${city.presentation === 'map' ? '#venue-map' : '#selection-disclosure-title'}">Skip to city discovery</a>
     <header class="hero city-detail-hero">
       <div class="hero-inner">
         <p class="brand">Detour</p>
@@ -1010,8 +1002,18 @@ function render(root: HTMLElement) {
     ${communityPanel(state.venues)}
     ${discoveryBar(city, list)}
     ${city.presentation === 'map' ? mapStage(list) : listPreviewStage()}
-    <section class="results" id="selection-results" aria-label="The selection">
-      ${list.length ? `<ul class="card-list">${list.map(venueCard).join('')}</ul>` : emptyState}
+    <section class="selection-disclosure" aria-labelledby="selection-disclosure-title">
+      <div class="selection-disclosure-copy">
+        <h2 id="selection-disclosure-title">Full selection</h2>
+        <p>${selectionLabel} ${list.length === 1 ? 'matches' : 'match'} the current filters. Open the list when you want to browse every place.</p>
+      </div>
+      <button type="button" class="selection-toggle" data-selection-toggle
+        aria-expanded="${state.selectionOpen}" aria-controls="selection-results">
+        ${state.selectionOpen ? 'Hide' : 'Show'} full selection <span>${list.length}</span>
+      </button>
+      <div class="results" id="selection-results"${state.selectionOpen ? '' : ' hidden'}>
+        ${state.selectionOpen ? (list.length ? `<ul class="card-list">${list.map(venueCard).join('')}</ul>` : emptyState) : ''}
+      </div>
     </section>
     <footer class="footer">
       <p>${esc(city.footer)}</p>
@@ -1063,6 +1065,12 @@ function render(root: HTMLElement) {
     pendingFocus = '[data-tray-toggle]';
     render(root);
   });
+  root.querySelector<HTMLButtonElement>('[data-selection-toggle]')?.addEventListener('click', () => {
+    state.selectionOpen = !state.selectionOpen;
+    if (!state.selectionOpen && state.selectedVia === 'card') state.selectedVia = null;
+    pendingFocus = '[data-selection-toggle]';
+    render(root);
+  });
   root.querySelectorAll<HTMLButtonElement>('[data-chip]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const kind = btn.dataset.chip;
@@ -1107,26 +1115,11 @@ function render(root: HTMLElement) {
       }
     });
   });
-  const searchInput = root.querySelector<HTMLInputElement>('[data-search]');
-  searchInput?.addEventListener('input', () => {
-    state.search = searchInput.value;
-    keepSelectionValid();
-    const caret = searchInput.selectionStart;
-    render(root);
-    // Re-rendering replaces the input; restore focus and caret so typing
-    // continues uninterrupted.
-    const next = root.querySelector<HTMLInputElement>('[data-search]');
-    if (next) {
-      next.focus();
-      if (caret !== null) next.setSelectionRange(caret, caret);
-    }
-  });
   root.querySelector<HTMLButtonElement>('[data-reset-filters]')?.addEventListener('click', () => {
     state.filter = '';
     state.sourceFilter = '';
     state.categoryFilter = '';
-    state.search = '';
-    pendingFocus = '[data-search]';
+    pendingFocus = '[data-selection-toggle]';
     render(root);
   });
   root.querySelector('[data-close]')?.addEventListener('click', () => {
@@ -1140,7 +1133,9 @@ function render(root: HTMLElement) {
         ? null
         : via === 'pin'
           ? `[data-pin="${CSS.escape(closedId)}"]`
-          : `[data-venue="${CSS.escape(closedId)}"]`;
+          : via === 'card'
+            ? `[data-venue="${CSS.escape(closedId)}"]`
+            : '[data-selection-toggle]';
     render(root);
   });
 
