@@ -389,70 +389,6 @@ a:hover { color: var(--wine-deep); }
   font-family: var(--serif);
 }
 
-/* Leaflet divIcon venue pins — anchored at the venue coordinate */
-.map-pin {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  display: grid;
-  justify-items: center;
-  gap: 0.2rem;
-  cursor: pointer;
-  /* generous invisible hit area around the dot */
-  padding: 8px;
-  margin: -8px;
-  pointer-events: auto;
-}
-.map-pin .pin-dot,
-.map-pin .pin-label { pointer-events: none; }
-.map-pin .pin-dot {
-  display: block;
-  width: 14px;
-  height: 14px;
-  border-radius: 50% 50% 50% 0;
-  transform: rotate(-45deg);
-  border: 2px solid var(--parchment);
-  box-shadow: 0 1px 6px rgba(42, 20, 32, 0.5);
-}
-.map-pin.pin-3 .pin-dot { background: var(--brass); width: 17px; height: 17px; }
-.map-pin.pin-2 .pin-dot { background: var(--wine); }
-.map-pin.pin-1 .pin-dot { background: #7c3a50; width: 12px; height: 12px; }
-/* Ordered-list recognition has no star/sole level: a distinct olive pin. */
-.map-pin.pin-ranked .pin-dot { background: var(--olive); }
-/* Detour community selections — the community's own rose, ringed in plum. */
-.map-pin.pin-community .pin-dot {
-  background: var(--rose);
-  border-color: var(--plum);
-}
-.map-pin .pin-label {
-  /* Hidden by default: names are shown in the marker popup on selection.
-     Absolutely positioned below the dot so the label never inflates or
-     overlaps the compact .map-pin hit target. */
-  display: none;
-  position: absolute;
-  top: calc(100% + 0.25rem);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: var(--plum);
-  background: rgba(246, 240, 228, 0.94);
-  border: 1px solid var(--line-strong);
-  padding: 0.1rem 0.45rem;
-  border-radius: 4px;
-  white-space: nowrap;
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.map-pin.pin-selected .pin-label,
-.map-pin:focus-visible .pin-label { display: block; }
-.map-pin:hover .pin-dot,
-.map-pin.pin-selected .pin-dot { outline: 3px solid rgba(169, 133, 62, 0.5); }
-.map-pin.pin-selected .pin-label { background: var(--wine); border-color: var(--wine); color: var(--parchment); }
-.venue-map .map-pin:focus-visible { outline: none; }
-.venue-map .map-pin:focus-visible .pin-dot { outline: var(--focus-ring); }
-
 /* List-first city previews are intentionally a quiet editorial surface, never a vacant map. */
 .list-preview {
   margin: 0 0 1.4rem;
@@ -1535,100 +1471,91 @@ a:hover { color: var(--violet); }
 .map-note { background: var(--mint-soft); color: var(--ink-soft); font-family: var(--sans); font-style: normal; }
 .map-prompt { margin: 0.65rem 0.2rem 0; color: var(--ink-soft); font-family: var(--sans); font-style: normal; }
 
-/* Swatch Pivot marker: folded colour stock turns precisely at the coordinate. */
+/* Pearl venue markers: a quiet 18px visual inside a generous 48px target. */
 .map-pin {
-  --pivot-angle: -5deg;
+  --pearl-size: 18px;
+  --pearl-accent: var(--violet);
+  --pearl-signal: white;
   position: absolute;
   width: 48px;
   height: 48px;
-  transform: translate(-24px, -48px);
-  display: block;
+  transform: translate(-24px, -24px);
+  display: grid;
+  place-items: center;
   padding: 0;
   margin: 0;
   cursor: pointer;
   pointer-events: auto;
 }
-.map-pin .pin-pivot,
+.map-pin .pin-pearl,
 .map-pin .pin-label { pointer-events: none; }
-.pin-pivot {
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  width: 21px;
-  height: 18px;
+.pin-pearl {
+  position: relative;
+  width: var(--pearl-size);
+  height: var(--pearl-size);
   display: grid;
-  place-items: start center;
-  padding-top: 2px;
-  color: white;
-  background: var(--violet);
-  clip-path: polygon(0 0, 100% 0, 100% 70%, 66% 70%, 52% 100%, 39% 70%, 0 84%);
-  filter: drop-shadow(0 3px 2px rgb(37 27 43 / 0.38));
-  transform: translateX(-50%) rotate(var(--pivot-angle));
-  transform-origin: 52% 100%;
-  transition: filter 180ms cubic-bezier(0.25, 1, 0.5, 1);
-}
-.pin-fold {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 34%;
-  height: 30%;
-  background: rgb(37 27 43 / 0.42);
-  clip-path: polygon(0 0, 100% 0, 100% 100%);
+  place-items: center;
+  border: 1px solid oklch(0.46 0.018 318);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 34% 28%,
+    oklch(1 0 0) 0 13%,
+    oklch(0.975 0.012 155) 42%,
+    oklch(0.88 0.022 318) 100%
+  );
+  box-shadow:
+    0 0 0 2px rgb(255 255 255 / 0.88),
+    0 2px 5px rgb(37 27 43 / 0.34);
+  transition:
+    transform 180ms cubic-bezier(0.25, 1, 0.5, 1),
+    box-shadow 180ms cubic-bezier(0.25, 1, 0.5, 1);
 }
 .pin-signal {
   position: relative;
   z-index: 1;
+  width: 11px;
+  height: 11px;
+  display: grid;
+  place-items: center;
+  color: var(--pearl-signal);
+  background: var(--pearl-accent);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgb(37 27 43 / 0.18);
   font-family: var(--sans);
-  font-size: 0.56rem;
-  font-weight: 900;
+  font-size: 0.5rem;
+  font-weight: 850;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
-.map-pin.pin-3 { --pivot-angle: -6deg; }
-.map-pin.pin-3 .pin-pivot { width: 23px; height: 20px; color: var(--ink); background: var(--mint); }
-.map-pin.pin-2 { --pivot-angle: 4deg; }
-.map-pin.pin-2 .pin-pivot { width: 22px; height: 19px; background: var(--oxblood); }
-.map-pin.pin-1 { --pivot-angle: -10deg; }
-.map-pin.pin-1 .pin-pivot { width: 20px; height: 17px; background: var(--violet); }
-.map-pin.pin-ranked { --pivot-angle: 7deg; }
-.map-pin.pin-ranked .pin-pivot { background: var(--oxblood); }
-.map-pin.pin-community { --pivot-angle: -3deg; }
-.map-pin.pin-community .pin-pivot {
-  background: var(--violet);
-  box-shadow: inset 0 0 0 2px white;
+.map-pin.pin-3 { --pearl-size: 20px; --pearl-accent: var(--mint); --pearl-signal: var(--ink); }
+.map-pin.pin-2 { --pearl-size: 19px; --pearl-accent: var(--oxblood); }
+.map-pin.pin-1 { --pearl-size: 17px; --pearl-accent: var(--violet); }
+.map-pin.pin-ranked { --pearl-accent: var(--oxblood); }
+.map-pin.pin-community { --pearl-accent: var(--violet); --pearl-signal: var(--violet); }
+.map-pin.pin-community .pin-signal {
+  background: white;
+  box-shadow: inset 0 0 0 2px var(--pearl-accent);
 }
-.map-pin::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: -2px;
-  width: 29px;
-  height: 26px;
-  border: 0 solid transparent;
-  transform: translateX(-50%) rotate(-4deg);
-  pointer-events: none;
+.map-pin:hover .pin-pearl { transform: scale(1.08); }
+.map-pin.pin-selected .pin-pearl {
+  transform: scale(1.1);
+  box-shadow:
+    0 0 0 2px white,
+    0 0 0 4px var(--ink),
+    0 3px 7px rgb(37 27 43 / 0.38);
 }
-.map-pin:hover .pin-pivot { filter: drop-shadow(0 4px 3px rgb(37 27 43 / 0.52)); }
-.map-pin.pin-selected::before {
-  border-width: 3px;
-  border-color: var(--ink);
-  background: rgb(255 255 255 / 0.72);
-  box-shadow: 3px 3px 0 var(--mint);
-}
-.map-pin.pin-selected .pin-pivot { filter: drop-shadow(0 4px 3px rgb(37 27 43 / 0.55)); }
 .map-pin .pin-label {
   display: none;
   position: absolute;
   left: 50%;
-  bottom: calc(100% + 0.2rem);
+  bottom: calc(50% + 15px);
   z-index: 8;
   width: max-content;
   max-width: 180px;
   padding: 0.38rem 0.5rem;
-  color: white;
-  background: var(--ink);
-  border: 0;
+  color: var(--ink);
+  background: rgb(255 255 255 / 0.97);
+  border: 1px solid var(--ink);
   border-radius: 4px;
   font-size: 0.72rem;
   font-weight: 800;
@@ -1636,21 +1563,25 @@ a:hover { color: var(--violet); }
   white-space: normal;
   text-align: left;
   transform: translateX(-50%);
-  overflow: visible;
-  text-overflow: clip;
-  box-shadow: 3px 3px 0 var(--mint);
+  box-shadow: 0 3px 10px rgb(37 27 43 / 0.2);
 }
 .map-pin .pin-label small {
   display: block;
   margin-top: 0.15rem;
-  color: var(--mint);
+  color: var(--ink-soft);
   font-size: 0.62rem;
   font-weight: 650;
 }
+.map-pin.pin-community .pin-label small { color: var(--violet); }
 .map-pin.pin-selected .pin-label,
 .map-pin:focus-visible .pin-label { display: block; }
-.venue-map .map-pin:focus-visible { outline: 3px solid var(--violet); outline-offset: 2px; border-radius: 6px; }
-.venue-map .map-pin:focus-visible .pin-pivot { outline: 0; }
+.venue-map .map-pin:focus-visible { outline: 0; }
+.venue-map .map-pin:focus-visible .pin-pearl {
+  box-shadow:
+    0 0 0 2px white,
+    0 0 0 5px var(--violet),
+    0 3px 7px rgb(37 27 43 / 0.38);
+}
 
 /* Authoritative selected-place record. */
 .detail {

@@ -477,8 +477,8 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
   for (const v of mappable) {
     const selected = v.id === state.selectedId;
     const markerRank = maxAwardRank(v);
-    // Community-only venues get their own rose pin; venues that also hold an
-    // external guide award keep that award's pin so guide styling is preserved.
+    // Community-only venues keep a distinct outlined centre; venues that also
+    // hold an external guide award retain that guide's ranked pearl treatment.
     const markerClass =
       markerRank > 0 ? `pin-${markerRank}` : onlyCommunityAwards(v) ? 'pin-community' : 'pin-ranked';
     const markerSignal = markerRank > 0 ? String(markerRank) : onlyCommunityAwards(v) ? 'D' : '#';
@@ -491,9 +491,8 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
     const icon = L.divIcon({
       className: '',
       html: `<span class="map-pin ${markerClass}${selected ? ' pin-selected' : ''}" data-pin="${esc(v.id)}">
-        <span class="pin-pivot" aria-hidden="true">
+        <span class="pin-pearl" aria-hidden="true">
           <span class="pin-signal">${markerSignal}</span>
-          <span class="pin-fold"></span>
         </span>
         <span class="pin-label">${esc(v.name)}<small>${esc(markerMeaning)}</small></span>
       </span>`,
