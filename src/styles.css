@@ -1067,7 +1067,7 @@ a:hover { color: var(--wine-deep); }
    --------------------------------------------------------------- */
 
 body {
-  background: oklch(0.945 0.012 155);
+  background: var(--surface);
   color: var(--ink);
   font-family: var(--sans);
 }
@@ -1076,8 +1076,6 @@ body {
   min-height: 100vh;
   max-width: 1240px;
   padding: 0 clamp(0.85rem, 2.5vw, 1.5rem) 4rem;
-  background: var(--canvas);
-  box-shadow: 0 0 0 1px var(--line);
 }
 
 ::selection { background: var(--mint); color: var(--ink); }
@@ -1103,11 +1101,11 @@ a:hover { color: var(--violet); }
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  margin: 1rem 0 0;
+  margin: 0;
   padding: clamp(1.5rem, 4vw, 3rem);
   background: var(--violet);
   color: white;
-  border-radius: var(--radius);
+  border-radius: 0 0 var(--radius) var(--radius);
   box-shadow: none;
 }
 .hero::before,
@@ -1281,8 +1279,7 @@ a:hover { color: var(--violet); }
   min-height: clamp(22rem, 48vh, 30rem);
   align-items: flex-end;
   padding: clamp(2.25rem, 6vw, 4.5rem);
-  background: color-mix(in oklch, var(--oxblood) 82%, var(--ink));
-  border-radius: var(--radius) var(--radius) 0 0;
+  border-radius: 0;
 }
 .city-chooser-hero::before,
 .city-chooser-hero::after { display: none; }
@@ -1416,20 +1413,39 @@ a:hover { color: var(--violet); }
 .city-control select,
 .refine-btn,
 .nearby-btn {
-  min-height: 46px;
+  min-height: 44px;
+  padding: 0.5rem 0.85rem;
   color: var(--ink);
   background-color: white;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--ink);
   border-radius: var(--radius-sm);
-  box-shadow: none;
+  box-shadow: 4px 4px 0 var(--mint);
+  font-size: 0.82rem;
+  font-weight: 700;
+  transition:
+    color 140ms cubic-bezier(0.25, 1, 0.5, 1),
+    background-color 140ms cubic-bezier(0.25, 1, 0.5, 1),
+    transform 140ms cubic-bezier(0.25, 1, 0.5, 1),
+    box-shadow 140ms cubic-bezier(0.25, 1, 0.5, 1);
 }
-.city-control select:hover,
+.city-control select:hover { border-color: var(--ink); color: var(--ink); }
 .refine-btn:hover,
-.nearby-btn:hover { border-color: var(--violet); color: var(--ink); }
+.nearby-btn:not([disabled]):hover {
+  color: var(--ink);
+  border-color: var(--ink);
+  box-shadow: 2px 2px 0 var(--mint);
+  transform: translate(2px, 2px);
+}
+.refine-btn:active,
+.nearby-btn:not([disabled]):active {
+  box-shadow: 0 0 0 var(--mint);
+  transform: translate(4px, 4px);
+}
 .refine-btn[aria-expanded='true'],
 .refine-btn-active,
 .refine-btn[aria-expanded='true']:hover,
-.refine-btn-active:hover { background: var(--violet); border-color: var(--violet); color: white; }
+.refine-btn-active:hover { background: var(--ink); border-color: var(--ink); color: white; }
+.nearby-btn[disabled] { box-shadow: 4px 4px 0 var(--line); }
 .refine-count { background: var(--mint); color: var(--ink); }
 .nearby-btn::before { background: var(--mint); box-shadow: 0 0 0 3px color-mix(in oklch, var(--mint) 35%, transparent); }
 .count {
@@ -1493,7 +1509,6 @@ a:hover { color: var(--violet); }
 .map-pin {
   --pearl-size: 18px;
   --pearl-accent: var(--violet);
-  --pearl-signal: white;
   position: absolute;
   width: 48px;
   height: 48px;
@@ -1533,23 +1548,15 @@ a:hover { color: var(--violet); }
   z-index: 1;
   width: 11px;
   height: 11px;
-  display: grid;
-  place-items: center;
-  color: var(--pearl-signal);
   background: var(--pearl-accent);
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px rgb(37 27 43 / 0.18);
-  font-family: var(--sans);
-  font-size: 0.5rem;
-  font-weight: 850;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
 }
-.map-pin.pin-3 { --pearl-size: 20px; --pearl-accent: var(--mint); --pearl-signal: var(--ink); }
+.map-pin.pin-3 { --pearl-size: 20px; --pearl-accent: var(--mint); }
 .map-pin.pin-2 { --pearl-size: 19px; --pearl-accent: var(--oxblood); }
 .map-pin.pin-1 { --pearl-size: 17px; --pearl-accent: var(--violet); }
 .map-pin.pin-ranked { --pearl-accent: var(--oxblood); }
-.map-pin.pin-community { --pearl-accent: var(--violet); --pearl-signal: var(--violet); }
+.map-pin.pin-community { --pearl-accent: var(--violet); }
 .map-pin.pin-community .pin-signal {
   background: white;
   box-shadow: inset 0 0 0 2px var(--pearl-accent);
@@ -1724,21 +1731,22 @@ a:hover { color: var(--violet); }
   align-items: center;
   justify-content: center;
   gap: 0.65rem;
-  min-height: 46px;
-  padding: 0.6rem 0.85rem;
-  color: var(--ink);
-  background: white;
-  border: 1px solid var(--line-strong);
+  min-height: 44px;
+  padding: 0.5rem 0.85rem;
+  color: white;
+  background: var(--ink);
+  border: 1px solid var(--ink);
   border-radius: var(--radius-sm);
-  box-shadow: none;
+  box-shadow: 4px 4px 0 var(--mint);
   font: inherit;
-  font-size: 0.9rem;
-  font-weight: 750;
+  font-size: 0.82rem;
+  font-weight: 700;
   cursor: pointer;
   transition:
-    color 180ms cubic-bezier(0.25, 1, 0.5, 1),
-    background-color 180ms cubic-bezier(0.25, 1, 0.5, 1),
-    border-color 180ms cubic-bezier(0.25, 1, 0.5, 1);
+    color 140ms cubic-bezier(0.25, 1, 0.5, 1),
+    background-color 140ms cubic-bezier(0.25, 1, 0.5, 1),
+    transform 140ms cubic-bezier(0.25, 1, 0.5, 1),
+    box-shadow 140ms cubic-bezier(0.25, 1, 0.5, 1);
 }
 .selection-toggle::after {
   content: '';
@@ -1756,9 +1764,9 @@ a:hover { color: var(--violet); }
 .selection-toggle span {
   min-width: 2ch;
   padding-left: 0.65rem;
-  color: var(--oxblood);
+  color: var(--mint);
   background: transparent;
-  border-left: 1px solid var(--line-strong);
+  border-left: 1px solid rgb(255 255 255 / 0.38);
   border-radius: 0;
   font-size: 0.82rem;
   font-weight: 800;
@@ -1767,21 +1775,22 @@ a:hover { color: var(--violet); }
   font-variant-numeric: tabular-nums;
 }
 .selection-toggle:hover {
-  color: var(--oxblood);
-  background: var(--oxblood-soft);
-  border-color: var(--oxblood);
+  box-shadow: 2px 2px 0 var(--mint);
+  transform: translate(2px, 2px);
 }
-.selection-toggle:active { background: color-mix(in oklch, var(--oxblood-soft) 75%, var(--oxblood)); }
+.selection-toggle:active {
+  box-shadow: 0 0 0 var(--mint);
+  transform: translate(4px, 4px);
+}
 .selection-toggle[aria-expanded='true'] {
-  color: white;
-  background: var(--ink);
+  color: var(--ink);
+  background: white;
   border-color: var(--ink);
 }
 .selection-toggle[aria-expanded='true'] span {
-  color: var(--mint);
-  border-color: rgb(255 255 255 / 0.38);
+  color: var(--oxblood);
+  border-color: var(--line-strong);
 }
-.selection-toggle[aria-expanded='true']:hover { background: color-mix(in oklch, var(--ink) 92%, white); }
 .selection-disclosure .results {
   grid-column: 1 / -1;
   margin-top: 0.35rem;
@@ -1861,7 +1870,7 @@ a:hover { color: var(--violet); }
 
 @media (max-width: 620px) {
   #app { padding-inline: 0.75rem; }
-  .hero { margin: 0.75rem 0 0; padding: 1.35rem 1.1rem 1.5rem; }
+  .hero { margin: 0; padding: 1.35rem 1.1rem 1.5rem; }
   .hero::after { width: 5rem; height: 23%; }
   .city-chooser-hero { min-height: auto; padding-block: clamp(2.75rem, 13vw, 4rem); }
   .city-chooser-hero h1 { font-size: clamp(2.45rem, 12vw, 3.3rem); }
@@ -1913,5 +1922,9 @@ a:hover { color: var(--violet); }
   .city-choice-content:hover,
   .community-toggle:hover,
   .selection-toggle:hover,
-  .selection-toggle:active { transform: none; }
+  .selection-toggle:active,
+  .refine-btn:hover,
+  .refine-btn:active,
+  .nearby-btn:hover,
+  .nearby-btn:active { transform: none; }
 }

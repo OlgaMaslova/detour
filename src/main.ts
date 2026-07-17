@@ -481,7 +481,6 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
     // hold an external guide award retain that guide's ranked pearl treatment.
     const markerClass =
       markerRank > 0 ? `pin-${markerRank}` : onlyCommunityAwards(v) ? 'pin-community' : 'pin-ranked';
-    const markerSignal = markerRank > 0 ? String(markerRank) : onlyCommunityAwards(v) ? 'D' : '#';
     const markerMeaning =
       markerRank > 0
         ? `${markerRank}-level guide recognition`
@@ -492,7 +491,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
       className: '',
       html: `<span class="map-pin ${markerClass}${selected ? ' pin-selected' : ''}" data-pin="${esc(v.id)}">
         <span class="pin-pearl" aria-hidden="true">
-          <span class="pin-signal">${markerSignal}</span>
+          <span class="pin-signal"></span>
         </span>
         <span class="pin-label">${esc(v.name)}<small>${esc(markerMeaning)}</small></span>
       </span>`,
