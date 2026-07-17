@@ -1,4 +1,5 @@
 import { pb } from './pocketbase';
+import type { CityBounds, CityEditorialSource } from './cities';
 
 export type AwardLevel = 1 | 2 | 3;
 
@@ -282,11 +283,14 @@ export const demoVenues: Venue[] = [
   },
 ];
 
-export interface LiveCity {
+export interface LiveCity extends CityEditorialSource {
   id: string;
-  name: string;
-  slug: string;
-  country: string;
+  /**
+   * True when this city is backed by a real `cities` record. Cities derived
+   * only from venue city-name strings join venues to a route but are never
+   * offered in the chooser — a typo in one venue row must not publish a city.
+   */
+  hasRecord: boolean;
 }
 
 export interface LiveCatalogue {
@@ -324,6 +328,26 @@ type VenueAwardRecord = Record<string, unknown> & {
   rank?: number | string;
   source_url?: string;
   current?: boolean;
+};
+
+type CityRecord = Record<string, unknown> & {
+  id: string;
+  name?: string;
+  slug?: string;
+  country?: string;
+  title?: string;
+  tagline?: string;
+  footer?: string;
+  meta_title?: string;
+  meta_description?: string;
+  presentation?: string;
+  center_lat?: number | string;
+  center_lng?: number | string;
+  zoom?: number | string;
+  bounds_lat_min?: number | string;
+  bounds_lat_max?: number | string;
+  bounds_lng_min?: number | string;
+  bounds_lng_max?: number | string;
 };
 
 const COMMUNITY_SOURCE_SLUG = 'detour-community';
@@ -393,7 +417,7 @@ function sortAwards(awards: VenueAward[]): VenueAward[] {
  * to the recognition that supplied them.
  */
 export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
-  const [venueRecords, awardRecords, sourceRecords] = await Promise.all([
+  const [venueRecords, awardRecords, sourceRecords, cityRecords] = await Promise.all([
     pb.collection('venues').getFullList<VenueRecord>({
       fields: 'id,name,city,country,address,lat,lng,category,official_url,approx_location',
       sort: 'city,name',
@@ -409,10 +433,60 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       sort: 'name',
       requestKey: null,
     }),
+    // The `cities` collection is the authority on which cities exist and how
+    // they present. Tolerate a backend that predates it so the catalogue
+    // still renders (no city records → no chooser entries, venues keep
+    // joining by name).
+    pb
+      .collection('cities')
+      .getFullList<CityRecord>({ sort: 'name', requestKey: null })
+      .catch(() => [] as CityRecord[]),
   ]);
 
   const sourceById = new Map(sourceRecords.map((source) => [source.id, source]));
   const citiesByName = new Map<string, LiveCity>();
+
+  for (const record of cityRecords) {
+    const name = cleanString(record.name);
+    const slug = cleanString(record.slug).toLowerCase() || citySlug(name);
+    if (!name || !slug) continue;
+    const key = name.toLowerCase();
+    if (citiesByName.has(key)) continue;
+
+    const centerLat = cleanNumber(record.center_lat);
+    const centerLng = cleanNumber(record.center_lng);
+    const zoom = cleanNumber(record.zoom);
+    const latMin = cleanNumber(record.bounds_lat_min);
+    const latMax = cleanNumber(record.bounds_lat_max);
+    const lngMin = cleanNumber(record.bounds_lng_min);
+    const lngMax = cleanNumber(record.bounds_lng_max);
+    // A 0/0 centre is the catalogue's non-location sentinel — never a view.
+    const center: [number, number] | null =
+      centerLat !== null && centerLng !== null && !(centerLat === 0 && centerLng === 0)
+        ? [centerLat, centerLng]
+        : null;
+    const bounds: CityBounds | null =
+      latMin !== null && latMax !== null && lngMin !== null && lngMax !== null && latMin < latMax && lngMin < lngMax
+        ? { latMin, latMax, lngMin, lngMax }
+        : null;
+
+    citiesByName.set(key, {
+      id: record.id,
+      hasRecord: true,
+      name,
+      slug,
+      country: cleanString(record.country),
+      title: cleanString(record.title),
+      tagline: cleanString(record.tagline),
+      footer: cleanString(record.footer),
+      metaTitle: cleanString(record.meta_title),
+      metaDescription: cleanString(record.meta_description),
+      presentation: cleanString(record.presentation),
+      center,
+      zoom,
+      bounds,
+    });
+  }
 
   for (const record of venueRecords) {
     const name = cleanString(record.city);
@@ -428,6 +502,7 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     if (!slug) continue;
     citiesByName.set(key, {
       id: `legacy-city-${slug}`,
+      hasRecord: false,
       name,
       slug,
       country,

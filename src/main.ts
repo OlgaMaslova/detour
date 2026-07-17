@@ -4,10 +4,9 @@ import L from 'leaflet';
 import { GUIDE_YEAR, loadLiveCatalogue } from './data';
 import type { LiveCity, Venue, VenueAward } from './data';
 import {
-  CITIES,
   GLOBAL_META_DESCRIPTION,
   GLOBAL_META_TITLE,
-  cityBySlug,
+  cityConfigFromLive,
   citySlugFromUrl,
 } from './cities';
 import type { CityConfig, CitySlug } from './cities';
@@ -26,7 +25,7 @@ interface State {
   mode: DataMode;
   /** Active city route; null renders the city chooser. */
   city: CitySlug | null;
-  /** Public city records loaded with the catalogue; static configs only supply presentation metadata. */
+  /** Public city records loaded with the catalogue; editorial copy and map settings come from the records themselves. */
   cities: LiveCity[];
   /** Every loaded place, across all cities. Never rendered directly — see cityVenues(). */
   venues: Venue[];
@@ -239,7 +238,7 @@ function sourceBadgeClass(label: string): string {
 /* ---------- city scoping ---------- */
 
 function activeCity(): CityConfig | null {
-  if (state.mode === 'loading') return cityBySlug(state.city);
+  if (state.mode === 'loading') return null;
   return availableCities().find((city) => city.slug === state.city) ?? null;
 }
 
@@ -253,13 +252,11 @@ function venuesForCity(city: CityConfig): Venue[] {
 /** Cities backed by both a live `cities` record and at least one joined live place. */
 function availableCities(): CityConfig[] {
   if (state.mode !== 'live') return [];
-  const liveBySlug = new Map(state.cities.map((city) => [city.slug, city]));
-  return CITIES.flatMap((config) => {
-    const live = liveBySlug.get(config.slug);
-    if (!live) return [];
-    const city: CityConfig = { ...config, name: live.name, country: live.country };
-    return venuesForCity(city).length > 0 ? [city] : [];
-  });
+  return state.cities
+    .filter((live) => live.hasRecord)
+    .map(cityConfigFromLive)
+    .filter((city) => venuesForCity(city).length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function cityIsAvailable(slug: CitySlug): boolean {
@@ -418,6 +415,7 @@ type MappableVenue = Venue & { lat: number; lng: number };
 
 function withinCity(city: CityConfig, p: UserLocation): boolean {
   const b = city.bounds;
+  if (!b) return false;
   return p.lat > b.latMin && p.lat < b.latMax && p.lng > b.lngMin && p.lng < b.lngMax;
 }
 
@@ -450,7 +448,8 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
   if (!container) return;
 
   const city = activeCity();
-  if (!city) return;
+  // The factory only marks a city 'map' when its fallback view is complete.
+  if (!city || !city.center || city.zoom == null) return;
   const mappable = mappableVenues(list);
   // Include the active city in the key so a city switch always refits the map.
   const pinKey = `${city.slug}::${mappable.map((v) => v.id).join('|')}`;
@@ -894,10 +893,10 @@ function bindRouteLinks(root: HTMLElement): void {
   root.querySelectorAll<HTMLAnchorElement>('[data-choose-city]').forEach((link) => {
     link.addEventListener('click', (event) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const city = cityBySlug(link.dataset.chooseCity);
-      if (!city || !cityIsAvailable(city.slug)) return;
+      const slug = link.dataset.chooseCity?.trim().toLowerCase() ?? '';
+      if (!slug || !cityIsAvailable(slug)) return;
       event.preventDefault();
-      switchCity(root, city.slug);
+      switchCity(root, slug);
     });
   });
   root.querySelector<HTMLAnchorElement>('[data-all-cities]')?.addEventListener('click', (event) => {
@@ -1094,8 +1093,8 @@ function render(root: HTMLElement) {
   });
   const citySelect = root.querySelector<HTMLSelectElement>('[data-city]');
   citySelect?.addEventListener('change', () => {
-    const next = cityBySlug(citySelect.value);
-    if (next) switchCity(root, next.slug);
+    const next = citySelect.value.trim().toLowerCase();
+    if (cityIsAvailable(next)) switchCity(root, next);
   });
   root.querySelectorAll<HTMLButtonElement>('[data-venue]').forEach((btn) => {
     btn.addEventListener('click', () => {

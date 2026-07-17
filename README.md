@@ -293,6 +293,33 @@ The frontend is a Vite + TypeScript static app (`src/`, `index.html`,
 conventions (layout surfaces, the sticker button system, map pin colors) are
 documented in `docs/frontend-design-conventions.md`.
 
+## Cities are data-driven
+
+Since migration `1767986000_add_city_editorial_config.js`, the public
+`cities` collection is the authority on which cities exist and how they
+present. The frontend holds no hard-coded city list (`src/cities.ts` only
+defines the config shape, fallback copy, and slug helpers), so **adding a
+city is a content operation — no frontend deploy**:
+
+1. Create a `cities` record: `name`, unique `slug`, `country`. That is the
+   minimum; the city appears in the chooser as soon as at least one published
+   venue's `city` field matches its `name`.
+2. Optional editorial fields on the record: `title`, `tagline` (may contain
+   the literal `{count}` placeholder, replaced with the current venue count),
+   `footer`, `meta_title`, `meta_description`. Blank fields fall back to
+   neutral copy generated from the city name.
+3. A city starts as a **list-first preview**. To make it map-led, set
+   `presentation = map` **and** supply the map fields: `center_lat`,
+   `center_lng`, `zoom`, plus the conservative metro box `bounds_lat_min`,
+   `bounds_lat_max`, `bounds_lng_min`, `bounds_lng_max` (used only to gate
+   visitor-position framing). If any map field is missing — or the centre is
+   the `0/0` sentinel — the frontend keeps the city list-first rather than
+   render a broken map, consistent with the coordinates policy below.
+
+Cities derived only from venue `city` strings (without a `cities` record)
+still route venues correctly but are never offered in the chooser, so a typo
+in one venue row cannot publish a city.
+
 - Configure the API URL explicitly via `VITE_POCKETBASE_URL` (see
   `.env.example`); the client never assumes same-origin.
 - Local dev: `npm install`, then `npm run dev` (Vite dev server).

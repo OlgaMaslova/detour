@@ -17,9 +17,14 @@ same change that alters the CSS.
   community panel, map panel, and detail panel all have right-angle corners.
   Buttons, chips, and small cards keep `--radius-sm` (8px). Do not reintroduce
   large-radius rounding on layout containers.
-- **Hero is flush and square.** The hero starts at the very top of the page
-  (no top margin) with square corners on every page, sitting directly against
-  whatever follows it (city-chooser sheet, discovery bar).
+- **Hero is flush, square, and full-bleed.** The hero starts at the very top
+  of the page (no top margin) with square corners on every page, sitting
+  directly against whatever follows it (city-chooser sheet, discovery bar).
+  The hero and the discovery bar bleed across the `#app` column's horizontal
+  padding (`margin: 0 calc(-1 * var(--gutter))`) so their color meets the
+  tinted page gutters directly — no white sliver between a color block and
+  the page background. `--gutter` is the shared token for the column padding;
+  use it for any future full-bleed block.
 
 ## Color
 

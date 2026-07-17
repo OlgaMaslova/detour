@@ -37,6 +37,7 @@
   --olive: oklch(0.39 0.055 145);
   --radius: 0px;
   --radius-sm: 8px;
+  --gutter: clamp(0.85rem, 2.5vw, 1.5rem);
   --shadow-soft: 0 1px 2px rgb(37 27 43 / 0.08), 0 12px 30px rgb(37 27 43 / 0.08);
   --shadow-lift: 0 14px 36px rgb(134 35 30 / 0.2);
   --focus-ring: 3px solid var(--violet);
@@ -1075,7 +1076,7 @@ body {
 #app {
   min-height: 100vh;
   max-width: 1240px;
-  padding: 0 clamp(0.85rem, 2.5vw, 1.5rem) 4rem;
+  padding: 0 var(--gutter) 4rem;
   background: var(--surface);
 }
 
@@ -1102,7 +1103,7 @@ a:hover { color: var(--violet); }
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  margin: 0;
+  margin: 0 calc(-1 * var(--gutter));
   padding: clamp(1.5rem, 4vw, 3rem);
   background: var(--violet);
   color: white;
@@ -1393,8 +1394,8 @@ a:hover { color: var(--violet); }
 /* Discovery bar: summary first, controls remain familiar and thumb-sized. */
 .discovery {
   position: relative;
-  margin: 0;
-  padding: 1rem clamp(0.8rem, 2vw, 1.2rem) 0.85rem;
+  margin: 0 calc(-1 * var(--gutter));
+  padding: 1rem max(var(--gutter), clamp(0.8rem, 2vw, 1.2rem)) 0.85rem;
   gap: 0.75rem;
   border-bottom: 2px solid var(--ink);
   background: var(--mint-soft);
@@ -1886,7 +1887,7 @@ a:hover { color: var(--violet); }
 
 @media (max-width: 620px) {
   #app { padding-inline: 0.75rem; }
-  .hero { margin: 0; padding: 1.35rem 1.1rem 1.5rem; }
+  .hero { margin: 0 calc(-1 * var(--gutter)); padding: 1.35rem 1.1rem 1.5rem; }
   .hero::after { width: 5rem; height: 23%; }
   .city-chooser-hero { min-height: auto; padding-block: clamp(2.75rem, 13vw, 4rem); }
   .city-chooser-hero h1 { font-size: clamp(2.45rem, 12vw, 3.3rem); }
