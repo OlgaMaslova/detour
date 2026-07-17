@@ -922,7 +922,7 @@ function syncDocumentMeta(city: CityConfig | null, account = false): void {
     meta.setAttribute(
       'content',
       account
-        ? 'Sign in to Detour membership, manage invitations, record visits, and share recommendations for editorial review.'
+        ? 'Sign in to Detour membership, follow endorsement progress, exchange private place shares, and build the shared community selection.'
         : city?.metaDescription ?? GLOBAL_META_DESCRIPTION
     );
   }
@@ -981,13 +981,13 @@ function renderAccount(root: HTMLElement): void {
       </div>
       <div class="account-intro">
         <p class="account-kicker">Detour membership</p>
-        <h1 id="account-title" tabindex="-1">Your Detour, kept in one place.</h1>
-        <p>Sign in, record the tables that stayed with you, and keep trusted introductions and recommendations together.</p>
+        <h1 id="account-title" tabindex="-1">Trusted introductions, shared detours.</h1>
+        <p>Follow your endorsement progress, recommend places to the shared waiting list, and pass a pending find privately to another member.</p>
       </div>
     </header>
     ${communityPanel(state.venues)}
     <footer class="footer account-footer">
-      <p>Membership notes and recommendations stay private while the editorial team considers them.</p>
+      <p>Introductions, personal notes, and participant identities stay private. Three independent recommendations publish a place into the shared selection.</p>
     </footer>
   `;
 

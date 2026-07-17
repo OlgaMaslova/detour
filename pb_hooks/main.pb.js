@@ -4,6 +4,101 @@ routerAdd("GET", "/api/supernaut/ready", (event) => {
   return event.json(200, { ok: true });
 });
 
+// These private routes bypass member rules only for explicit safe projections.
+routerAdd(
+  "GET",
+  "/api/detour/community/me",
+  (e) => {
+    const memberId = e.auth.id;
+    let qualifyingCount = 0;
+    let offset = 0;
+
+    while (true) {
+      const qualifying = e.app.findRecordsByFilter(
+        "endorsements",
+        "endorsee = {:endorsee} && active = true && endorser.community_status = 'verified'",
+        "id",
+        1000,
+        offset,
+        { endorsee: memberId }
+      );
+      qualifyingCount += qualifying.length;
+      if (qualifying.length < 1000) {
+        break;
+      }
+      offset += qualifying.length;
+    }
+
+    let outgoingActiveCount = 0;
+    offset = 0;
+    while (true) {
+      const outgoing = e.app.findRecordsByFilter(
+        "endorsements",
+        "endorser = {:endorser} && active = true",
+        "id",
+        1000,
+        offset,
+        { endorser: memberId }
+      );
+      outgoingActiveCount += outgoing.length;
+      if (outgoing.length < 1000) {
+        break;
+      }
+      offset += outgoing.length;
+    }
+
+    return e.json(200, {
+      member: {
+        id: memberId,
+        display_name: e.auth.getString("display_name"),
+        community_status: e.auth.getString("community_status"),
+      },
+      endorsements: {
+        qualifying_count: qualifyingCount,
+        outgoing_active_count: outgoingActiveCount,
+        limit: 3,
+      },
+    });
+  },
+  $apis.requireAuth("members")
+);
+
+routerAdd(
+  "GET",
+  "/api/detour/member-directory",
+  (e) => {
+    const rawQuery = e.request.url.query().get("q") || "";
+    const query = rawQuery
+      .slice(0, 100)
+      .replace(/[\x00-\x1F\x7F%_]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (query.length < 2) {
+      throw new BadRequestError("q must contain at least two searchable characters.");
+    }
+
+    const matches = e.app.findRecordsByFilter(
+      "members",
+      "id != {:member} && display_name ~ {:query}",
+      "display_name",
+      12,
+      0,
+      { member: e.auth.id, query: query }
+    );
+    const candidates = [];
+    for (const match of matches) {
+      candidates.push({
+        id: match.id,
+        display_name: match.getString("display_name"),
+      });
+    }
+
+    return e.json(200, candidates);
+  },
+  $apis.requireAuth("members")
+);
+
 // A public member account is valid only when it redeems an unused, server-
 // generated invitation. `redeemed_invite` has a partial unique index, so a
 // simultaneous second redemption cannot create another member account.
