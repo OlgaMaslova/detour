@@ -3,6 +3,7 @@ import type { Venue } from './data';
 
 type CommunityMode = 'sign-in' | 'join';
 type MemberTab = 'invitations' | 'detours' | 'settings';
+type DetourTab = 'recommendations' | 'shares';
 type NoticeKind = 'success' | 'error' | 'info';
 
 interface MemberRecord {
@@ -80,6 +81,7 @@ const MEMBER_TABS: MemberTab[] = ['invitations', 'detours', 'settings'];
 
 let mode: CommunityMode = 'sign-in';
 let memberTab: MemberTab = 'invitations';
+let detourTab: DetourTab = 'recommendations';
 let notice: Notice | null = null;
 let knownVenues: Venue[] = [];
 let waitlistEntries: WaitlistEntry[] = [];
@@ -397,12 +399,20 @@ function invitesPanel(): string {
 }
 
 function detoursPanel(): string {
+  const unseen = unseenShareCount();
   return `<div class="community-tab-panel community-detours-panel" id="member-panel-detours" role="tabpanel" aria-labelledby="member-tab-detours" tabindex="0">
     <div class="community-tab-heading">
       <div><h3>My detours</h3></div>
     </div>
-    ${recommendationPanel()}
-    ${sharesPanel()}
+    <div class="community-tabs community-detour-tabs" role="tablist" aria-label="My detours sections">
+      <button class="community-tab ${detourTab === 'recommendations' ? 'is-active' : ''}" type="button" role="tab" id="detour-tab-recommendations" aria-selected="${detourTab === 'recommendations'}" aria-controls="detour-panel-recommendations" data-detour-tab="recommendations">Recommendations</button>
+      <button class="community-tab ${detourTab === 'shares' ? 'is-active' : ''}" type="button" role="tab" id="detour-tab-shares" aria-selected="${detourTab === 'shares'}" aria-controls="detour-panel-shares" data-detour-tab="shares">Shares${unseen ? `<span class="community-tab-badge" aria-label="${unseen} new shares">${unseen}</span>` : ''}</button>
+    </div>
+    ${
+      detourTab === 'recommendations'
+        ? `<div id="detour-panel-recommendations" role="tabpanel" aria-labelledby="detour-tab-recommendations">${recommendationPanel()}</div>`
+        : `<div id="detour-panel-shares" role="tabpanel" aria-labelledby="detour-tab-shares">${sharesPanel()}</div>`
+    }
   </div>`;
 }
 
@@ -416,7 +426,6 @@ function settingsPanel(record: MemberRecord): string {
       <button class="community-signout" type="button" data-community-sign-out>Sign out</button>
     </div>
     <div class="community-session-row community-danger-row">
-      <p>Remove your account and everything you added.</p>
       <button class="community-danger" type="button" data-community-remove-account ${submitting ? 'disabled' : ''}>${submitting ? 'Removing…' : 'Remove account'}</button>
     </div>
   </section>`;
@@ -448,9 +457,6 @@ function signedInPanel(): string {
   if (!record) return signedOutPanel();
   const panel = memberTab === 'invitations' ? invitesPanel() : memberTab === 'detours' ? detoursPanel() : settingsPanel(record);
   return `<section class="community-panel community-panel-member" aria-label="Detour member area">
-    <div class="community-member-head">
-      <p>Signed in as <strong>${esc(memberName(record))}</strong></p>
-    </div>
     ${memberTabsMarkup()}
     ${noticeMarkup()}
     ${panel}
@@ -470,6 +476,7 @@ export function communityPanel(venues: Venue[]): string {
 
 function resetCommunityState(): void {
   memberTab = 'invitations';
+  detourTab = 'recommendations';
   waitlistEntries = [];
   shares = [];
   communityLoaded = false;
@@ -662,10 +669,20 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     });
   });
 
+  root.querySelectorAll<HTMLButtonElement>('[data-detour-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const nextTab = button.dataset.detourTab === 'shares' ? 'shares' : 'recommendations';
+      if (detourTab === nextTab) return;
+      detourTab = nextTab;
+      if (nextTab === 'shares' && communityLoaded) void markIncomingSharesSeen();
+      render();
+    });
+  });
+
   const activateMemberTab = (nextTab: MemberTab, focusTab: boolean) => {
     if (memberTab === nextTab) return;
     memberTab = nextTab;
-    if (nextTab === 'detours' && communityLoaded) void markIncomingSharesSeen();
+    if (nextTab === 'detours' && detourTab === 'shares' && communityLoaded) void markIncomingSharesSeen();
     render();
     if (focusTab) {
       window.requestAnimationFrame(() => {
@@ -734,7 +751,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     try {
       await pb.collection('members').authWithPassword(String(values.get('email') || '').trim(), String(values.get('password') || ''));
       resetCommunityState();
-      notice = { kind: 'success', text: 'Welcome back.' };
+      notice = null;
     } catch (error) {
       notice = { kind: 'error', text: readableError(error, 'Those sign-in details were not recognised.') };
     } finally {
@@ -898,7 +915,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
 
   if (member() && !communityLoaded && !loadingCommunity) {
     void loadCommunity(render).then(() => {
-      if (memberTab === 'detours') void markIncomingSharesSeen();
+      if (memberTab === 'detours' && detourTab === 'shares') void markIncomingSharesSeen();
     });
   }
   if (member() && !invitesLoaded && !loadingInvites) void loadInvites(render);

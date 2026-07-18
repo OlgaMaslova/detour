@@ -1282,9 +1282,9 @@ a:hover { color: var(--violet); }
 .community-member-head strong { color: var(--ink); font-weight: 750; }
 .community-panel-member > .community-notice { margin: 1rem clamp(1rem, 4vw, 2.5rem) 0; }
 .community-member-tabs {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding-inline: clamp(0.35rem, 2vw, 1rem);
+  display: flex;
+  gap: clamp(0.25rem, 1.5vw, 0.75rem);
+  padding-inline: clamp(1rem, 4vw, 2.5rem);
   background: color-mix(in oklch, var(--violet-soft) 22%, var(--surface));
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line-strong);
@@ -2215,7 +2215,7 @@ a:hover { color: var(--violet); }
   .community-panel-intro,
   .community-form-wrap { padding: 1.25rem; }
   .community-panel-member { padding: 1rem 0; }
-  .community-member-tabs { padding-inline: 0; }
+  .community-member-tabs { justify-content: space-between; gap: 0; padding-inline: 1rem; }
   .community-member-tab { min-height: 50px; padding-inline: 0.35rem; font-size: 0.8rem; }
   .community-member-tab::after { right: 0.35rem; left: 0.35rem; }
   .community-tab-panel { min-height: 17rem; padding: 1.25rem; }
