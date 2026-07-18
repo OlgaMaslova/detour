@@ -2,27 +2,13 @@ import { pb } from './pocketbase';
 import type { Venue } from './data';
 
 type CommunityMode = 'sign-in' | 'join';
+type MemberTab = 'invitations' | 'detours' | 'settings';
 type NoticeKind = 'success' | 'error' | 'info';
-type CommunityStatus = 'unverified' | 'verified';
 
 interface MemberRecord {
   id: string;
   email?: string;
   display_name?: string;
-  community_status?: CommunityStatus;
-}
-
-interface CommunitySnapshot {
-  member: {
-    id: string;
-    display_name?: string;
-    community_status: CommunityStatus;
-  };
-  endorsements: {
-    qualifying_count: number;
-    outgoing_active_count: number;
-    limit: number;
-  };
 }
 
 interface InviteRecord {
@@ -86,9 +72,11 @@ interface Notice {
   text: string;
 }
 
+const MEMBER_TABS: MemberTab[] = ['invitations', 'detours', 'settings'];
+
 let mode: CommunityMode = 'sign-in';
+let memberTab: MemberTab = 'invitations';
 let notice: Notice | null = null;
-let snapshot: CommunitySnapshot | null = null;
 let waitlistEntries: WaitlistEntry[] = [];
 let recommendations: RecommendationRecord[] = [];
 let shares: ShareRecord[] = [];
@@ -114,12 +102,8 @@ function member(): MemberRecord | null {
   return pb.authStore.record as unknown as MemberRecord;
 }
 
-function currentStatus(): CommunityStatus {
-  return snapshot?.member.community_status || member()?.community_status || 'unverified';
-}
-
 function memberName(record: MemberRecord): string {
-  return snapshot?.member.display_name?.trim() || record.display_name?.trim() || record.email?.split('@')[0] || 'Member';
+  return record.display_name?.trim() || record.email?.split('@')[0] || 'Member';
 }
 
 function readableError(error: unknown, fallback: string): string {
@@ -209,11 +193,11 @@ function signedOutPanel(): string {
   return `<section class="community-panel community-panel-auth" aria-label="Detour membership">
     <div class="community-panel-intro">
       <p class="community-kicker">The detourist circle</p>
-      <h2>${isJoin ? 'Join through a trusted introduction.' : 'Return to your Detour.'}</h2>
+      <h2>${isJoin ? 'Join with your personal invitation.' : 'Return to your Detour.'}</h2>
       <p>${
         isJoin
-          ? 'Membership begins with a personal invitation from an existing detourist.'
-          : 'Sign in to see trusted introductions, private place shares, and the shared waiting list.'
+          ? 'Redeeming a one-time invitation makes you an active member immediately.'
+          : 'Sign in to see community recommendations, private place shares, and the shared waiting list.'
       }</p>
     </div>
     <div class="community-form-wrap">
@@ -232,77 +216,16 @@ function signedOutPanel(): string {
                 <label>Confirm password<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" required></label>
               </div>
               <label>Invitation code<input name="invite_code" autocomplete="off" spellcheck="false" maxlength="80" placeholder="DTR-…" required></label>
-              <p class="community-form-note">Every invitation is personal and can be used once.</p>
+              <p class="community-form-note">Every invitation is personal, works once, and activates your membership immediately.</p>
               <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Joining…' : 'Join Detour'}</button>
             </form>`
           : `<form class="community-form" data-community-sign-in>
               <label>Email address<input name="email" type="email" autocomplete="email" required></label>
               <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
               <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Signing in…' : 'Sign in'}</button>
-              <p class="community-form-note">New here? You’ll need a personal invitation to join.</p>
+              <p class="community-form-note">New here? A personal invitation is all you need to join.</p>
             </form>`
       }
-    </div>
-  </section>`;
-}
-
-function verificationPanel(): string {
-  const status = currentStatus();
-  const verified = status === 'verified';
-  const qualifying = cleanCount(snapshot?.endorsements.qualifying_count, 2);
-  const outgoing = cleanCount(snapshot?.endorsements.outgoing_active_count, 3);
-  const limit = snapshot?.endorsements.limit || 3;
-
-  return `<section class="community-status-ledger" aria-labelledby="community-status-title">
-    <div class="community-status-copy">
-      <p class="community-kicker">Community standing</p>
-      <h3 id="community-status-title">${verified ? 'Verified member' : 'Endorsement progress'}</h3>
-      <p>${
-        verified
-          ? 'Your community membership is active. You can recommend places, share pending entries privately, and endorse other members.'
-          : 'Recommendations and private sharing unlock after two active endorsements from verified members.'
-      }</p>
-      <p class="community-trust-note">Olga curates founding members. After the founding circle, verification comes from two active endorsements by verified members. Email confirmation only secures account access; it is not community trust.</p>
-    </div>
-    <div class="community-status-metrics">
-      <div class="community-progress" aria-label="Qualifying endorsement progress">
-        <p class="community-progress-label">Qualifying endorsements</p>
-        <p class="community-progress-count"><strong>${snapshot ? qualifying : '—'}</strong><span>/2</span></p>
-        <div class="community-progress-track" aria-hidden="true"><span style="width: ${snapshot ? (qualifying / 2) * 100 : 0}%"></span></div>
-        <p>${snapshot ? (verified ? (qualifying >= 2 ? 'Endorsement threshold met' : 'Founding verification active') : `${2 - qualifying} more needed`) : 'Checking your community status…'}</p>
-      </div>
-      ${
-        verified
-          ? `<div class="community-allowance" aria-label="Outgoing endorsement allowance">
-              <p class="community-progress-label">Active endorsements given</p>
-              <p class="community-allowance-count"><strong>${snapshot ? outgoing : '—'}</strong><span>of ${limit}</span></p>
-              <p>${snapshot ? `${Math.max(0, limit - outgoing)} endorsement ${Math.max(0, limit - outgoing) === 1 ? 'place' : 'places'} available.` : 'Checking your allowance…'}</p>
-            </div>`
-          : ''
-      }
-    </div>
-  </section>`;
-}
-
-function endorsementPanel(): string {
-  if (currentStatus() !== 'verified') return '';
-  const outgoing = cleanCount(snapshot?.endorsements.outgoing_active_count, 3);
-  const limit = snapshot?.endorsements.limit || 3;
-  const atCap = outgoing >= limit;
-  return `<section class="community-ledger-section" aria-labelledby="endorse-member-title">
-    <div class="community-section-heading">
-      <div><p class="community-kicker">Trusted introductions</p><h3 id="endorse-member-title">Endorse a member</h3></div>
-      <p>An endorsement is an active vote of confidence, not a public profile signal.</p>
-    </div>
-    <div class="community-action-grid">
-      <form class="community-form community-endorsement-form" data-community-endorsement>
-        ${directoryMarkup('endorsement', 'Find a member by name', 'Search is private and returns display names only.')}
-        <button class="community-primary" type="submit" ${submitting || atCap ? 'disabled' : ''}>${atCap ? 'Allowance reached' : submitting ? 'Endorsing…' : 'Create endorsement'}</button>
-      </form>
-      <div class="community-guidance ${atCap ? 'is-warning' : ''}">
-        <strong>${atCap ? 'Three active endorsements reached' : `${Math.max(0, limit - outgoing)} of ${limit} available`}</strong>
-        <p>${atCap ? 'The server will prevent another active endorsement until your allowance changes.' : 'Only the member you choose and the private community system can use this endorsement. No trust graph is shown here.'}</p>
-      </div>
     </div>
   </section>`;
 }
@@ -322,7 +245,6 @@ function outgoingShares(): ShareRecord[] {
 }
 
 function waitlistCard(entry: WaitlistEntry): string {
-  const verified = currentStatus() === 'verified';
   const progress = cleanCount(entry.signal_count, 3);
   const published = entry.status === 'published';
   const ownRecommendation = recommendationFor(entry.id);
@@ -347,7 +269,7 @@ function waitlistCard(entry: WaitlistEntry): string {
             : 'You can see this entry because you are a private participant.'
     }</p>
     ${
-      verified && !published
+      !published
         ? `<details class="community-share-disclosure">
             <summary>Share this pending place privately</summary>
             <form class="community-form community-share-form" data-community-share data-waitlist="${esc(entry.id)}">
@@ -362,33 +284,24 @@ function waitlistCard(entry: WaitlistEntry): string {
 }
 
 function recommendationPanel(): string {
-  const verified = currentStatus() === 'verified';
   return `<section class="community-ledger-section" aria-labelledby="community-waitlist-title">
     <div class="community-section-heading">
       <div><p class="community-kicker">Shared publishing</p><h3 id="community-waitlist-title">Community waiting list</h3></div>
       <p>Three independent member recommendations publish a place into the shared selection.</p>
     </div>
-    ${
-      verified
-        ? `<div class="community-action-grid community-recommend-action">
-            <form class="community-form" data-community-recommendation>
-              <label>Place name<input name="venue_name" maxlength="200" required placeholder="The place you would send someone"></label>
-              <div class="community-form-grid community-place-grid">
-                <label>City<input name="city" maxlength="120" required placeholder="Madrid"></label>
-                <label>Country<input name="country" maxlength="120" required placeholder="Spain"></label>
-              </div>
-              <label>Your recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this place worth a deliberate detour?"></textarea></label>
-              <p class="community-field-help">Use at least 24 characters and five meaningful words. Your note stays private.</p>
-              <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Add to the waiting list'}</button>
-            </form>
-            <div class="community-guidance"><strong>Recommend, then share</strong><p>Your recommendation creates or updates the matching waiting-list entry. To involve someone else, return to its queue card and share that pending entry privately.</p></div>
-          </div>`
-        : `<div class="community-locked">
-            <p class="community-kicker">Unlocks at two endorsements</p>
-            <h4>Recommendations and private sharing are not active yet.</h4>
-            <p>Your qualifying endorsement progress appears above. Once two active endorsements from verified members are in place, you can add places and privately share pending entries.</p>
-          </div>`
-    }
+    <div class="community-action-grid community-recommend-action">
+      <form class="community-form" data-community-recommendation>
+        <label>Place name<input name="venue_name" maxlength="200" required placeholder="The place you would send someone"></label>
+        <div class="community-form-grid community-place-grid">
+          <label>City<input name="city" maxlength="120" required placeholder="Madrid"></label>
+          <label>Country<input name="country" maxlength="120" required placeholder="Spain"></label>
+        </div>
+        <label>Your recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this place worth a deliberate detour?"></textarea></label>
+        <p class="community-field-help">Use at least 24 characters and five meaningful words. Your note stays private.</p>
+        <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Add to the waiting list'}</button>
+      </form>
+      <div class="community-guidance"><strong>Recommend, then share</strong><p>Your recommendation creates or updates the matching waiting-list entry. To involve someone else, return to its queue card and share that pending entry privately.</p></div>
+    </div>
     <div class="community-queue" aria-labelledby="your-community-queue-title">
       <div class="community-subheading"><h4 id="your-community-queue-title">Your private queue</h4><p>Only entries you participate in appear here.</p></div>
       ${
@@ -407,7 +320,6 @@ function incomingShareCard(share: ShareRecord): string {
   const waitlistId = share.waitlist || '';
   const ownRecommendation = waitlistId ? recommendationFor(waitlistId) : undefined;
   const published = entry?.status === 'published';
-  const verified = currentStatus() === 'verified';
   return `<article class="community-share-card">
     <div class="community-share-heading"><div><h4>${esc(share.venue_name || entry?.venue_name || 'Shared place')}</h4><p>${esc([share.city || entry?.city, share.country || entry?.country].filter(Boolean).join(', '))}</p></div><span>Shared with you</span></div>
     <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
@@ -416,14 +328,14 @@ function incomingShareCard(share: ShareRecord): string {
         ? '<p class="community-share-state is-success">This place is now published in the shared selection.</p>'
         : ownRecommendation
           ? '<p class="community-share-state is-success">Your independent recommendation is already counted.</p>'
-          : verified && waitlistId
+          : waitlistId
             ? `<form class="community-form community-recipient-form" data-community-recipient-recommendation>
                 <input type="hidden" name="waitlist" value="${esc(waitlistId)}">
                 <label>Add your independent recommendation<textarea name="note" rows="4" maxlength="2400" minlength="24" required placeholder="Add your own reason for recommending this place"></textarea></label>
                 <p class="community-field-help">At least 24 characters and five meaningful words. Your note is private and separate from the note above.</p>
                 <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Add my recommendation'}</button>
               </form>`
-            : '<p class="community-share-state">Your recommendation form unlocks when you reach two qualifying endorsements.</p>'
+            : '<p class="community-share-state">This shared place is no longer linked to a waiting-list entry.</p>'
     }
   </article>`;
 }
@@ -452,52 +364,89 @@ function sharesPanel(): string {
               <div class="community-share-column"><div class="community-subheading"><h4>Received</h4><p>Private notes sent directly to you.</p></div>${incoming.length ? incoming.map(incomingShareCard).join('') : '<p class="community-empty">No private shares received.</p>'}</div>
               <div class="community-share-column"><div class="community-subheading"><h4>Sent</h4><p>Your private handoffs, without recipient profiles.</p></div>${outgoing.length ? outgoing.map(outgoingShareCard).join('') : '<p class="community-empty">No private shares sent.</p>'}</div>
             </div>`
-          : '<p class="community-empty">No private shares yet. Verified members can share a pending place from its waiting-list card.</p>'
+          : '<p class="community-empty">No private shares yet. Share a pending place from its waiting-list card.</p>'
     }
   </section>`;
 }
 
 function invitesPanel(): string {
-  return `<section class="community-invites" aria-labelledby="community-invites-title">
-    <div>
-      <p class="community-kicker">Personal invitations</p>
-      <h3 id="community-invites-title">Invite a detourist</h3>
-      <p>Each code is personal and works once. An invitation opens an account; community verification still follows the endorsement model above.</p>
+  const unclaimed = openInvites();
+  const available = Math.max(0, 3 - unclaimed.length);
+  const allowanceKnown = invitesLoaded && !loadingInvites;
+  const atLimit = allowanceKnown && available === 0;
+  return `<section class="community-tab-panel community-invitation-panel" id="member-panel-invitations" role="tabpanel" aria-labelledby="member-tab-invitations" tabindex="0">
+    <div class="community-tab-heading">
+      <div>
+        <h3>Personal invitations</h3>
+        <p>Issue one-time codes for people you want to welcome to Detour.</p>
+      </div>
+      <div class="community-invite-allowance" aria-live="polite">
+        <strong>${allowanceKnown ? available : '—'}</strong>
+        <span>${allowanceKnown ? (available === 1 ? 'place available' : 'places available') : 'checking allowance'}</span>
+      </div>
     </div>
+    <p class="community-invite-explainer">You can keep up to three invitations unclaimed. When someone redeems a code, that place becomes available again.</p>
     <div class="community-invite-actions">
-      <button class="community-secondary" type="button" data-community-invite ${submitting ? 'disabled' : ''}>${submitting ? 'Preparing…' : 'Issue a personal invitation'}</button>
+      <button class="community-secondary" type="button" data-community-invite ${submitting || !allowanceKnown || atLimit ? 'disabled' : ''}>${submitting ? 'Preparing…' : atLimit ? 'Invitation limit reached' : 'Issue a personal invitation'}</button>
       ${
         loadingInvites || !invitesLoaded
           ? '<p class="community-loading" role="status">Checking your invitations…</p>'
-          : openInvites().length
-            ? `<ul class="community-invite-codes" aria-label="Your unclaimed invitation codes">${openInvites()
+          : unclaimed.length
+            ? `<div class="community-invite-list"><h4>Unclaimed codes</h4><ul class="community-invite-codes" aria-label="Your unclaimed invitation codes">${unclaimed
                 .map((invite) => `<li><code>${esc(invite.code || '')}</code><span>Unclaimed</span></li>`)
-                .join('')}</ul>`
-            : '<p class="community-empty">No unclaimed invitations yet.</p>'
+                .join('')}</ul></div>`
+            : '<p class="community-empty">You have no unclaimed invitation codes.</p>'
       }
     </div>
   </section>`;
 }
 
+function detoursPanel(): string {
+  return `<div class="community-tab-panel community-detours-panel" id="member-panel-detours" role="tabpanel" aria-labelledby="member-tab-detours" tabindex="0">
+    <div class="community-tab-heading">
+      <div><h3>My detours</h3><p>Recommend places, follow your private queue, and exchange private shares.</p></div>
+    </div>
+    ${recommendationPanel()}
+    ${sharesPanel()}
+  </div>`;
+}
+
+function settingsPanel(record: MemberRecord): string {
+  return `<section class="community-tab-panel community-settings-panel" id="member-panel-settings" role="tabpanel" aria-labelledby="member-tab-settings" tabindex="0">
+    <div class="community-tab-heading">
+      <div><h3>Settings</h3><p>Session controls for this device.</p></div>
+    </div>
+    <div class="community-session-row">
+      <p>Signed in as <strong>${esc(record.email || memberName(record))}</strong></p>
+      <button class="community-signout" type="button" data-community-sign-out>Sign out</button>
+    </div>
+  </section>`;
+}
+
+function memberTabsMarkup(): string {
+  const labels: Record<MemberTab, string> = {
+    invitations: 'Invitations',
+    detours: 'My detours',
+    settings: 'Settings',
+  };
+  return `<div class="community-member-tabs" role="tablist" aria-label="Member areas">
+    ${MEMBER_TABS.map(
+      (tab) => `<button class="community-member-tab${memberTab === tab ? ' is-active' : ''}" type="button" role="tab" id="member-tab-${tab}" aria-selected="${memberTab === tab}" aria-controls="member-panel-${tab}" tabindex="${memberTab === tab ? '0' : '-1'}" data-member-tab="${tab}">${labels[tab]}</button>`
+    ).join('')}
+  </div>`;
+}
+
 function signedInPanel(): string {
   const record = member();
   if (!record) return signedOutPanel();
-  const verified = currentStatus() === 'verified';
-  return `<section class="community-panel community-panel-member" aria-label="Your Detour membership">
+  const panel = memberTab === 'invitations' ? invitesPanel() : memberTab === 'detours' ? detoursPanel() : settingsPanel(record);
+  return `<section class="community-panel community-panel-member" aria-label="Detour member area">
     <div class="community-member-head">
-      <div>
-        <p class="community-kicker">Your community account</p>
-        <h2>${esc(memberName(record))}</h2>
-        <p class="community-status ${verified ? 'is-verified' : ''}"><span aria-hidden="true"></span>${verified ? 'Verified member' : 'Awaiting endorsements'}</p>
-      </div>
-      <button class="community-signout" type="button" data-community-sign-out>Sign out</button>
+      <p>Signed in as <strong>${esc(memberName(record))}</strong></p>
     </div>
+    ${memberTabsMarkup()}
     ${noticeMarkup()}
-    ${verificationPanel()}
-    ${endorsementPanel()}
-    ${recommendationPanel()}
-    ${sharesPanel()}
-    ${invitesPanel()}
+    ${panel}
   </section>`;
 }
 
@@ -512,7 +461,7 @@ export function communityPanel(_venues: Venue[]): string {
 }
 
 function resetCommunityState(): void {
-  snapshot = null;
+  memberTab = 'invitations';
   waitlistEntries = [];
   recommendations = [];
   shares = [];
@@ -533,16 +482,14 @@ async function loadCommunity(render: () => void): Promise<void> {
   loadingCommunity = true;
   render();
   const results = await Promise.allSettled([
-    pb.send<CommunitySnapshot>('/api/detour/community/me', { requestKey: null }),
     pb.collection('community_waitlist_entries').getFullList<WaitlistEntry>({ sort: '-updated', requestKey: null }),
     pb.collection('community_recommendations').getFullList<RecommendationRecord>({ sort: '-created', requestKey: null }),
     pb.collection('community_shares').getFullList<ShareRecord>({ sort: '-created', requestKey: null }),
   ]);
 
-  if (results[0].status === 'fulfilled') snapshot = results[0].value;
-  if (results[1].status === 'fulfilled') waitlistEntries = results[1].value;
-  if (results[2].status === 'fulfilled') recommendations = results[2].value;
-  if (results[3].status === 'fulfilled') shares = results[3].value;
+  if (results[0].status === 'fulfilled') waitlistEntries = results[0].value;
+  if (results[1].status === 'fulfilled') recommendations = results[1].value;
+  if (results[2].status === 'fulfilled') shares = results[2].value;
 
   const failure = results.find((result) => result.status === 'rejected');
   if (failure?.status === 'rejected') {
@@ -695,6 +642,37 @@ export function bindCommunity(root: HTMLElement, _venues: Venue[], render: () =>
     });
   });
 
+  const activateMemberTab = (nextTab: MemberTab, focusTab: boolean) => {
+    if (memberTab === nextTab) return;
+    memberTab = nextTab;
+    render();
+    if (focusTab) {
+      window.requestAnimationFrame(() => {
+        root.querySelector<HTMLButtonElement>(`[data-member-tab="${nextTab}"]`)?.focus({ preventScroll: true });
+      });
+    }
+  };
+
+  root.querySelectorAll<HTMLButtonElement>('[data-member-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const nextTab = button.dataset.memberTab as MemberTab | undefined;
+      if (nextTab && MEMBER_TABS.includes(nextTab)) activateMemberTab(nextTab, true);
+    });
+    button.addEventListener('keydown', (event) => {
+      const currentTab = button.dataset.memberTab as MemberTab | undefined;
+      const currentIndex = currentTab ? MEMBER_TABS.indexOf(currentTab) : -1;
+      if (currentIndex < 0) return;
+      let nextIndex = currentIndex;
+      if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % MEMBER_TABS.length;
+      else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + MEMBER_TABS.length) % MEMBER_TABS.length;
+      else if (event.key === 'Home') nextIndex = 0;
+      else if (event.key === 'End') nextIndex = MEMBER_TABS.length - 1;
+      else return;
+      event.preventDefault();
+      activateMemberTab(MEMBER_TABS[nextIndex], true);
+    });
+  });
+
   root.querySelector<HTMLFormElement>('[data-community-join]')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const values = new FormData(event.currentTarget as HTMLFormElement);
@@ -717,7 +695,7 @@ export function bindCommunity(root: HTMLElement, _venues: Venue[], render: () =>
         invite_code: String(values.get('invite_code') || '').trim().toUpperCase(),
       });
       mode = 'sign-in';
-      notice = { kind: 'success', text: 'Your membership is ready. Sign in to see your endorsement progress and community queue.' };
+      notice = { kind: 'success', text: 'Your active membership is ready. Sign in to see community recommendations, private shares, and your waiting-list queue.' };
     } catch (error) {
       notice = { kind: 'error', text: readableError(error, 'That invitation could not be accepted. Check the code and try again.') };
     } finally {
@@ -752,7 +730,7 @@ export function bindCommunity(root: HTMLElement, _venues: Venue[], render: () =>
   });
 
   root.querySelector<HTMLButtonElement>('[data-community-invite]')?.addEventListener('click', async () => {
-    if (!member()) return;
+    if (!member() || !invitesLoaded || loadingInvites || openInvites().length >= 3) return;
     submitting = true;
     notice = null;
     render();
@@ -763,31 +741,6 @@ export function bindCommunity(root: HTMLElement, _venues: Venue[], render: () =>
       await loadInvites(render);
     } catch (error) {
       notice = { kind: 'error', text: readableError(error, 'That invitation could not be prepared. Please try again.') };
-    } finally {
-      submitting = false;
-      render();
-    }
-  });
-
-  root.querySelector<HTMLFormElement>('[data-community-endorsement]')?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const selected = directoryState('endorsement').selected;
-    if (!selected) {
-      notice = { kind: 'error', text: 'Search for a member and choose their name before creating an endorsement.' };
-      render();
-      return;
-    }
-    submitting = true;
-    notice = null;
-    render();
-    try {
-      await pb.collection('endorsements').create({ endorsee: selected.id });
-      directories.delete('endorsement');
-      notice = { kind: 'success', text: `Your endorsement of ${selected.display_name} is active.` };
-      communityLoaded = false;
-      await loadCommunity(render);
-    } catch (error) {
-      notice = { kind: 'error', text: readableError(error, 'That endorsement could not be created. Please check your allowance and try again.') };
     } finally {
       submitting = false;
       render();

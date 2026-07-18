@@ -9,54 +9,11 @@ routerAdd(
   "GET",
   "/api/detour/community/me",
   (e) => {
-    const memberId = e.auth.id;
-    let qualifyingCount = 0;
-    let offset = 0;
-
-    while (true) {
-      const qualifying = e.app.findRecordsByFilter(
-        "endorsements",
-        "endorsee = {:endorsee} && active = true && endorser.community_status = 'verified'",
-        "id",
-        1000,
-        offset,
-        { endorsee: memberId }
-      );
-      qualifyingCount += qualifying.length;
-      if (qualifying.length < 1000) {
-        break;
-      }
-      offset += qualifying.length;
-    }
-
-    let outgoingActiveCount = 0;
-    offset = 0;
-    while (true) {
-      const outgoing = e.app.findRecordsByFilter(
-        "endorsements",
-        "endorser = {:endorser} && active = true",
-        "id",
-        1000,
-        offset,
-        { endorser: memberId }
-      );
-      outgoingActiveCount += outgoing.length;
-      if (outgoing.length < 1000) {
-        break;
-      }
-      offset += outgoing.length;
-    }
-
     return e.json(200, {
       member: {
-        id: memberId,
+        id: e.auth.id,
         display_name: e.auth.getString("display_name"),
         community_status: e.auth.getString("community_status"),
-      },
-      endorsements: {
-        qualifying_count: qualifyingCount,
-        outgoing_active_count: outgoingActiveCount,
-        limit: 3,
       },
     });
   },
@@ -126,7 +83,7 @@ onRecordCreateRequest((e) => {
   e.record.set("invite_code", "");
   e.record.set("invited_by", invite.getString("issued_by"));
   e.record.set("redeemed_invite", invite.id);
-  e.record.set("community_status", "unverified");
+  e.record.set("community_status", "verified");
   e.next();
 }, "members");
 
@@ -167,13 +124,24 @@ onRecordUpdateRequest((e) => {
 }, "members");
 
 // Invitation codes are generated server-side and are always assigned to the
-// authenticated member who created the invite.
+// authenticated member who created the invite. Each member may keep up to
+// three invitations open at once; redeeming one frees a slot.
 onRecordCreateRequest((e) => {
   if (!e.auth || e.hasSuperuserAuth()) {
     if (e.hasSuperuserAuth()) {
       return e.next();
     }
     throw new BadRequestError("Sign in to issue an invitation.");
+  }
+
+  const openInviteCount = e.app.countRecords(
+    "invites",
+    $dbx.hashExp({ issued_by: e.auth.id, claimed_by: "" })
+  );
+  if (openInviteCount >= 3) {
+    throw new BadRequestError(
+      "You already have three unclaimed invitations. An invitation slot becomes available once someone redeems a code."
+    );
   }
 
   e.record.set("issued_by", e.auth.id);
@@ -198,68 +166,6 @@ onRecordCreateRequest((e) => {
   e.record.set("curator_note", "");
   e.next();
 }, "visit_evidence");
-
-// Endorsements are private trust records. Public creation is available only to
-// verified member accounts; the server owns attribution and active state.
-onRecordCreateRequest((e) => {
-  if (!e.auth || e.hasSuperuserAuth()) {
-    throw new BadRequestError("Sign in with a verified Detour member account to endorse someone.");
-  }
-  if (e.auth.getString("community_status") !== "verified") {
-    throw new BadRequestError("Only verified Detour members can create endorsements.");
-  }
-
-  const endorseeId = e.record.getString("endorsee");
-  if (!endorseeId) {
-    throw new BadRequestError("Choose a Detour member to endorse.");
-  }
-  if (endorseeId === e.auth.id) {
-    throw new BadRequestError("You cannot endorse yourself.");
-  }
-
-  let duplicate = false;
-  try {
-    e.app.findFirstRecordByFilter(
-      "endorsements",
-      "endorser = {:endorser} && endorsee = {:endorsee}",
-      { endorser: e.auth.id, endorsee: endorseeId }
-    );
-    duplicate = true;
-  } catch {
-    duplicate = false;
-  }
-  if (duplicate) {
-    throw new BadRequestError("You have already endorsed this member.");
-  }
-
-  const activeOutgoing = e.app.findRecordsByFilter(
-    "endorsements",
-    "endorser = {:endorser} && active = true",
-    "",
-    3,
-    0,
-    { endorser: e.auth.id }
-  );
-  if (activeOutgoing.length >= 3) {
-    throw new BadRequestError("You can have at most three active outgoing endorsements.");
-  }
-
-  e.record.set("endorser", e.auth.id);
-  e.record.set("active", true);
-  e.next();
-}, "endorsements");
-
-onRecordAfterCreateSuccess((e) => {
-  const { recalculateVerification } = require(__hooks + "/endorsement_verification.js");
-  recalculateVerification(e.app, e.record.getString("endorsee"));
-  e.next();
-}, "endorsements");
-
-onRecordAfterDeleteSuccess((e) => {
-  const { recalculateVerification } = require(__hooks + "/endorsement_verification.js");
-  recalculateVerification(e.app, e.record.getString("endorsee"));
-  e.next();
-}, "endorsements");
 
 // PocketBase select fields do not have a schema-level default. Normalize every
 // public recommendation to pending before validation, regardless of any status
@@ -396,14 +302,13 @@ onRecordCreateRequest((e) => {
   e.next();
 }, "detour_submissions");
 
-// Olga and other authorized curators can explicitly preserve or revoke a
-// member's founding-cohort verification. Endorsement consequences are
-// recalculated immediately and propagated through the private trust graph.
+// Olga and other authorized curators can retain the historic founding-cohort
+// marker. Invitation redemption remains the membership requirement, so this
+// legacy field never revokes active membership.
 routerAdd(
   "POST",
   "/api/detour/curation/members/{id}/founding-verification",
   (e) => {
-    const { recalculateVerification } = require(__hooks + "/endorsement_verification.js");
     const body = e.requestInfo().body || {};
     const memberId = e.request.pathValue("id");
     const verified = body.verified === undefined ? true : body.verified;
@@ -414,8 +319,8 @@ routerAdd(
 
     const member = e.app.findRecordById("members", memberId);
     member.set("founding_verified", verified);
+    member.set("community_status", "verified");
     e.app.save(member);
-    recalculateVerification(e.app, member.id);
 
     const updated = e.app.findRecordById("members", member.id);
     return e.json(200, {

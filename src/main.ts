@@ -922,7 +922,7 @@ function syncDocumentMeta(city: CityConfig | null, account = false): void {
     meta.setAttribute(
       'content',
       account
-        ? 'Sign in to Detour membership, follow endorsement progress, exchange private place shares, and build the shared community selection.'
+        ? 'Sign in to Detour membership to manage invitations, recommend places, and exchange private place shares.'
         : city?.metaDescription ?? GLOBAL_META_DESCRIPTION
     );
   }
@@ -970,19 +970,19 @@ function renderAccount(root: HTMLElement): void {
   const returnLabel = city ? `Back to ${city.name} discovery` : 'Back to city discovery';
 
   root.innerHTML = `
-    <a class="skip-link" href="#community-area">Skip to membership</a>
+    <a class="skip-link" href="#community-area">Skip to member area</a>
     <header class="account-masthead">
       <div class="account-nav-row">
         <a class="account-brand" href="${esc(cityHref(state.city))}" data-return-discovery>Detour</a>
-        <nav class="account-nav" aria-label="Account navigation">
+        <nav class="account-nav" aria-label="Member navigation">
           <a class="account-return" href="${esc(cityHref(state.city))}" data-return-discovery><span aria-hidden="true">←</span> ${esc(returnLabel)}</a>
           ${communityControl(accountHref(), true)}
         </nav>
       </div>
       <div class="account-intro">
-        <p class="account-kicker">Detour membership</p>
-        <h1 id="account-title" tabindex="-1">Trusted introductions, shared detours.</h1>
-        <p>Follow your endorsement progress, recommend places to the shared waiting list, and pass a pending find privately to another member.</p>
+        <p class="account-kicker">Private member area</p>
+        <h1 id="account-title" tabindex="-1">Your Detour, one thing at a time.</h1>
+        <p>Move between invitations, your place activity, and settings without the rest competing for attention.</p>
       </div>
     </header>
     ${communityPanel(state.venues)}
