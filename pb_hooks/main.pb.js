@@ -233,9 +233,10 @@ onRecordAfterDeleteSuccess((e) => {
   e.next();
 }, "community_recommendations");
 
-// Shares are private invitations into an existing waiting-list entry. A share
-// creates no recommendation signal; it only links the sender and recipient as
-// private participants so the recipient can add their own independent note.
+// A share sends a place to another member with a personal note. The place is
+// either an existing catalogue venue (referenced directly) or the sender's own
+// place, which enters the shared waiting list. A share never counts as a
+// recommendation signal.
 onRecordCreateRequest((e) => {
   if (e.hasSuperuserAuth()) {
     return e.next();
@@ -251,38 +252,84 @@ onRecordCreateRequest((e) => {
   if (recipientId === e.auth.id) {
     throw new BadRequestError("You cannot share a place with yourself.");
   }
+  let recipient;
   try {
-    e.app.findRecordById("members", recipientId);
+    recipient = e.app.findRecordById("members", recipientId);
   } catch {
     throw new BadRequestError("The share recipient is not a valid Detour member.");
   }
 
   const note = community.validateShareNote(e.record.getString("personal_note"));
-  const requestedWaitlistId = e.record.getString("waitlist");
-  const resolved = community.resolveEntry(e.app, requestedWaitlistId, {
-    venueName: e.record.getString("venue_name"),
-    city: e.record.getString("city"),
-    country: e.record.getString("country"),
-  });
-  community.ensureEntryPending(resolved.entry, "shared from the waiting list");
 
-  // Supplying safe place fields may create a new entry, but if those fields
-  // resolve to someone else's existing queue entry the sender must already be
-  // a participant before they can share it.
-  if (!resolved.created && !community.isParticipant(resolved.entry, e.auth.id)) {
-    throw new BadRequestError(
-      "Only a participant can share an existing waiting-list entry."
-    );
+  const venueId = e.record.getString("venue");
+  if (venueId) {
+    let venue;
+    try {
+      venue = e.app.findRecordById("venues", venueId);
+    } catch {
+      throw new BadRequestError("The shared place is not in the Detour selection.");
+    }
+    e.record.set("waitlist", "");
+    e.record.set("venue_name", venue.getString("name"));
+    e.record.set("city", venue.getString("city"));
+    e.record.set("country", venue.getString("country"));
+  } else {
+    const resolved = community.resolveEntry(e.app, e.record.getString("waitlist"), {
+      venueName: e.record.getString("venue_name"),
+      city: e.record.getString("city"),
+      country: e.record.getString("country"),
+    });
+    // A place that already published is shared as its catalogue venue; an
+    // unpublished one links the sender to its waiting-list entry.
+    const publishedVenue = resolved.entry.getString("published_venue");
+    if (resolved.entry.getString("status") === "published" && publishedVenue) {
+      e.record.set("venue", publishedVenue);
+      e.record.set("waitlist", "");
+    } else {
+      community.addParticipants(e.app, resolved.entry, [e.auth.id]);
+      e.record.set("waitlist", resolved.entry.id);
+    }
+    e.record.set("venue_name", resolved.entry.getString("venue_name"));
+    e.record.set("city", resolved.entry.getString("city"));
+    e.record.set("country", resolved.entry.getString("country"));
   }
 
-  community.addParticipants(e.app, resolved.entry, [e.auth.id, recipientId]);
   e.record.set("sender", e.auth.id);
   e.record.set("recipient", recipientId);
-  e.record.set("waitlist", resolved.entry.id);
+  e.record.set("sender_name", e.auth.getString("display_name") || "A Detour member");
+  e.record.set("recipient_name", recipient.getString("display_name") || "A Detour member");
   e.record.set("personal_note", note);
-  e.record.set("venue_name", resolved.entry.getString("venue_name"));
-  e.record.set("city", resolved.entry.getString("city"));
-  e.record.set("country", resolved.entry.getString("country"));
+  e.record.set("seen", false);
+  e.next();
+}, "community_shares");
+
+// The recipient's inbox marks shares as seen; every other share field is
+// server-owned and immutable after creation.
+onRecordUpdateRequest((e) => {
+  if (e.hasSuperuserAuth()) {
+    return e.next();
+  }
+  if (!e.auth || e.auth.id !== e.record.getString("recipient")) {
+    throw new BadRequestError("Only the recipient can update a share.");
+  }
+  const original = e.record.original();
+  const frozen = [
+    "sender",
+    "recipient",
+    "waitlist",
+    "venue",
+    "personal_note",
+    "venue_name",
+    "city",
+    "country",
+    "sender_name",
+    "recipient_name",
+  ];
+  for (const field of frozen) {
+    if (e.record.getString(field) !== original.getString(field)) {
+      throw new BadRequestError("Only the seen state of a share can change.");
+    }
+  }
   e.next();
 }, "community_shares");
 

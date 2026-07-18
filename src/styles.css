@@ -783,6 +783,10 @@ a:hover { color: var(--wine-deep); }
 .community-member-head h2 { font-size: clamp(1.5rem, 2.5vw, 1.9rem); }
 .community-signout { min-height: 38px; padding: 0.35rem 0.65rem; color: var(--ink-soft); background: transparent; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
 .community-signout:hover { color: var(--wine); border-color: var(--wine); }
+.community-danger-row { border-top: none; }
+.community-danger { min-height: 38px; padding: 0.35rem 0.65rem; color: var(--wine); background: transparent; border: 1px solid var(--wine); border-radius: var(--radius-sm); font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+.community-danger:hover { color: var(--parchment); background: var(--wine); }
+.community-danger:disabled { opacity: 0.56; cursor: not-allowed; }
 .community-invites { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 0.9fr); gap: 1rem; align-items: start; padding: 1rem; background: #f8f1e4; border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .community-invites h3 { margin: 0; color: var(--plum); font-family: var(--serif); font-size: 1.18rem; }
 .community-invites > div:first-child > p:last-child { max-width: 43ch; margin: 0.42rem 0 0; color: var(--ink-soft); font-size: 0.86rem; }
@@ -1047,7 +1051,7 @@ a:hover { color: var(--wine-deep); }
   .community-panel { padding: 1.1rem; }
   .community-form-grid { grid-template-columns: 1fr; }
   .community-member-head { align-items: start; flex-direction: column; }
-  .community-signout { width: 100%; }
+  .community-signout, .community-danger { width: 100%; }
   .community-primary { width: 100%; justify-self: stretch; }
   .community-evidence-list li, .community-submission-list li { flex-direction: column; }
   .community-evidence-status, .community-submission-status { align-self: flex-start; }
@@ -1511,7 +1515,12 @@ a:hover { color: var(--violet); }
 .community-share-card blockquote p { margin: 0; }
 .community-share-state { margin: 0; color: var(--ink-soft); font-size: 0.78rem; }
 .community-share-state.is-success { color: var(--success); font-weight: 700; }
-.community-recipient-form { padding-top: 0.2rem; border-top: 1px solid var(--line); }
+.community-share-from { margin: 0; color: var(--ink-soft); font-size: 0.82rem; }
+.community-share-from strong { color: var(--ink); }
+.community-share-card.is-new { border-color: var(--violet); }
+.community-share-card.is-new .community-share-heading > span { color: var(--parchment); background: var(--violet); }
+.community-share-place-form { max-width: 34rem; }
+.community-tab-badge { display: inline-grid; place-items: center; min-width: 1.15rem; height: 1.15rem; margin-left: 0.4rem; padding-inline: 0.25rem; color: var(--parchment); background: var(--violet); border-radius: 999px; font-size: 0.68rem; font-weight: 800; line-height: 1; }
 .community-invites { border-radius: 0; }
 
 /* City chooser: an oxblood editorial cover opens directly into the selection sheet. */

@@ -45,6 +45,10 @@ interface ShareRecord {
   sender?: string;
   recipient?: string;
   waitlist?: string;
+  venue?: string;
+  sender_name?: string;
+  recipient_name?: string;
+  seen?: boolean;
   personal_note?: string;
   venue_name?: string;
   city?: string;
@@ -77,8 +81,8 @@ const MEMBER_TABS: MemberTab[] = ['invitations', 'detours', 'settings'];
 let mode: CommunityMode = 'sign-in';
 let memberTab: MemberTab = 'invitations';
 let notice: Notice | null = null;
+let knownVenues: Venue[] = [];
 let waitlistEntries: WaitlistEntry[] = [];
-let recommendations: RecommendationRecord[] = [];
 let shares: ShareRecord[] = [];
 let communityLoaded = false;
 let loadingCommunity = false;
@@ -163,7 +167,7 @@ function directoryResultsMarkup(key: string): string {
     return `<p class="member-directory-selected"><span>Selected</span><strong>${esc(state.selected.display_name)}</strong></p>`;
   }
   if (state.query.trim().length < 2) {
-    return '<p class="member-directory-hint">Type at least two characters. Results show names only.</p>';
+    return '<p class="member-directory-hint">Type at least two characters.</p>';
   }
   if (state.loading) return '<p class="member-directory-hint" role="status">Searching member names…</p>';
   if (state.error) return `<p class="member-directory-error" role="alert">${esc(state.error)}</p>`;
@@ -176,14 +180,13 @@ function directoryResultsMarkup(key: string): string {
     .join('')}</ul>`;
 }
 
-function directoryMarkup(key: string, label: string, help: string): string {
+function directoryMarkup(key: string, label: string): string {
   const state = directoryState(key);
   const listId = directoryListId(key);
   return `<div class="member-directory" data-member-directory="${esc(key)}">
     <label>${esc(label)}
       <input type="search" value="${esc(state.query)}" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="${state.items.length > 0}" aria-controls="${listId}" ${state.activeIndex >= 0 ? `aria-activedescendant="${listId}-option-${state.activeIndex}"` : ''} data-member-search>
     </label>
-    <p class="community-field-help">${esc(help)}</p>
     <div id="${listId}" class="member-directory-output" data-member-results>${directoryResultsMarkup(key)}</div>
   </div>`;
 }
@@ -194,11 +197,7 @@ function signedOutPanel(): string {
     <div class="community-panel-intro">
       <p class="community-kicker">The detourist circle</p>
       <h2>${isJoin ? 'Join with your personal invitation.' : 'Return to your Detour.'}</h2>
-      <p>${
-        isJoin
-          ? 'Redeeming a one-time invitation makes you an active member immediately.'
-          : 'Sign in to see community recommendations, private place shares, and the shared waiting list.'
-      }</p>
+      <p>${isJoin ? 'Enter your invitation code to become a member.' : 'Sign in to your member account.'}</p>
     </div>
     <div class="community-form-wrap">
       <div class="community-tabs" role="tablist" aria-label="Membership options">
@@ -216,7 +215,6 @@ function signedOutPanel(): string {
                 <label>Confirm password<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" required></label>
               </div>
               <label>Invitation code<input name="invite_code" autocomplete="off" spellcheck="false" maxlength="80" placeholder="DTR-…" required></label>
-              <p class="community-form-note">Every invitation is personal, works once, and activates your membership immediately.</p>
               <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Joining…' : 'Join Detour'}</button>
             </form>`
           : `<form class="community-form" data-community-sign-in>
@@ -228,10 +226,6 @@ function signedOutPanel(): string {
       }
     </div>
   </section>`;
-}
-
-function recommendationFor(waitlistId: string): RecommendationRecord | undefined {
-  return recommendations.find((item) => item.waitlist === waitlistId);
 }
 
 function incomingShares(): ShareRecord[] {
@@ -247,33 +241,22 @@ function outgoingShares(): ShareRecord[] {
 function waitlistCard(entry: WaitlistEntry): string {
   const progress = cleanCount(entry.signal_count, 3);
   const published = entry.status === 'published';
-  const ownRecommendation = recommendationFor(entry.id);
-  const incoming = incomingShares().some((share) => share.waitlist === entry.id);
   const directoryKey = `share-${entry.id}`;
   return `<article class="community-queue-card${highlightedWaitlistId === entry.id ? ' is-highlighted' : ''}" id="waitlist-${esc(entry.id)}" tabindex="-1">
     <div class="community-queue-head">
       <div><h4>${esc(entry.venue_name || 'Unnamed place')}</h4><p>${esc([entry.city, entry.country].filter(Boolean).join(', '))}</p></div>
-      <span class="community-queue-status is-${published ? 'published' : 'pending'}">${published ? 'Published' : 'Waiting list'}</span>
+      <span class="community-queue-status is-${published ? 'published' : 'pending'}">${published ? 'Published' : 'Pending'}</span>
     </div>
-    <div class="community-signal" aria-label="${progress} of 3 independent recommendations">
-      <div class="community-signal-label"><span>Independent signals</span><strong>${progress}/3</strong></div>
+    <div class="community-signal" aria-label="${progress} of 3 recommendations">
+      <div class="community-signal-label"><span>Recommendations</span><strong>${progress}/3</strong></div>
       <div class="community-signal-track" aria-hidden="true"><span style="width: ${(progress / 3) * 100}%"></span></div>
     </div>
-    <p class="community-queue-context">${
-      published
-        ? 'Three independent recommendations brought this place into the shared Detour selection.'
-        : ownRecommendation
-          ? 'Your recommendation is counted here. Other members’ identities and notes remain private.'
-          : incoming
-            ? 'This place was shared with you privately. Add your own recommendation from the share below.'
-            : 'You can see this entry because you are a private participant.'
-    }</p>
     ${
       !published
         ? `<details class="community-share-disclosure">
-            <summary>Share this pending place privately</summary>
+            <summary>Share with a member</summary>
             <form class="community-form community-share-form" data-community-share data-waitlist="${esc(entry.id)}">
-              ${directoryMarkup(directoryKey, 'Share with a member', 'Only the recipient sees your note. Search results show names only.')}
+              ${directoryMarkup(directoryKey, 'Share with a member')}
               <label>Personal note<textarea name="personal_note" rows="3" maxlength="1200" minlength="8" required placeholder="Why you thought of them for this place"></textarea></label>
               <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sharing…' : 'Share privately'}</button>
             </form>
@@ -286,8 +269,8 @@ function waitlistCard(entry: WaitlistEntry): string {
 function recommendationPanel(): string {
   return `<section class="community-ledger-section" aria-labelledby="community-waitlist-title">
     <div class="community-section-heading">
-      <div><p class="community-kicker">Shared publishing</p><h3 id="community-waitlist-title">Community waiting list</h3></div>
-      <p>Three independent member recommendations publish a place into the shared selection.</p>
+      <div><h3 id="community-waitlist-title">Recommend a place</h3></div>
+      <p>A place joins the Detour list once 3 members recommend it.</p>
     </div>
     <div class="community-action-grid community-recommend-action">
       <form class="community-form" data-community-recommendation>
@@ -297,55 +280,65 @@ function recommendationPanel(): string {
           <label>Country<input name="country" maxlength="120" required placeholder="Spain"></label>
         </div>
         <label>Your recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this place worth a deliberate detour?"></textarea></label>
-        <p class="community-field-help">Use at least 24 characters and five meaningful words. Your note stays private.</p>
-        <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Add to the waiting list'}</button>
+        <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend'}</button>
       </form>
-      <div class="community-guidance"><strong>Recommend, then share</strong><p>Your recommendation creates or updates the matching waiting-list entry. To involve someone else, return to its queue card and share that pending entry privately.</p></div>
     </div>
     <div class="community-queue" aria-labelledby="your-community-queue-title">
-      <div class="community-subheading"><h4 id="your-community-queue-title">Your private queue</h4><p>Only entries you participate in appear here.</p></div>
+      <div class="community-subheading"><h4 id="your-community-queue-title">Your recommendations</h4></div>
       ${
         loadingCommunity || !communityLoaded
-          ? '<p class="community-loading" role="status">Loading your waiting-list entries…</p>'
+          ? '<p class="community-loading" role="status">Loading…</p>'
           : waitlistEntries.length
             ? `<div class="community-queue-list">${waitlistEntries.map(waitlistCard).join('')}</div>`
-            : '<p class="community-empty">No waiting-list entries yet. A recommendation or private share will place one here.</p>'
+            : '<p class="community-empty">Nothing here yet.</p>'
       }
     </div>
   </section>`;
 }
 
 function incomingShareCard(share: ShareRecord): string {
-  const entry = waitlistEntries.find((item) => item.id === share.waitlist);
-  const waitlistId = share.waitlist || '';
-  const ownRecommendation = waitlistId ? recommendationFor(waitlistId) : undefined;
-  const published = entry?.status === 'published';
-  return `<article class="community-share-card">
-    <div class="community-share-heading"><div><h4>${esc(share.venue_name || entry?.venue_name || 'Shared place')}</h4><p>${esc([share.city || entry?.city, share.country || entry?.country].filter(Boolean).join(', '))}</p></div><span>Shared with you</span></div>
+  return `<article class="community-share-card${share.seen ? '' : ' is-new'}">
+    <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared place')}</h4><p>${esc([share.city, share.country].filter(Boolean).join(', '))}</p></div><span>${share.seen ? 'Shared with you' : 'New'}</span></div>
+    <p class="community-share-from"><strong>${esc(share.sender_name || 'A Detour member')}</strong> shared this place with you.</p>
     <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
-    ${
-      published
-        ? '<p class="community-share-state is-success">This place is now published in the shared selection.</p>'
-        : ownRecommendation
-          ? '<p class="community-share-state is-success">Your independent recommendation is already counted.</p>'
-          : waitlistId
-            ? `<form class="community-form community-recipient-form" data-community-recipient-recommendation>
-                <input type="hidden" name="waitlist" value="${esc(waitlistId)}">
-                <label>Add your independent recommendation<textarea name="note" rows="4" maxlength="2400" minlength="24" required placeholder="Add your own reason for recommending this place"></textarea></label>
-                <p class="community-field-help">At least 24 characters and five meaningful words. Your note is private and separate from the note above.</p>
-                <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Add my recommendation'}</button>
-              </form>`
-            : '<p class="community-share-state">This shared place is no longer linked to a waiting-list entry.</p>'
-    }
+    ${share.venue ? '<p class="community-share-state is-success">In the Detour selection.</p>' : ''}
   </article>`;
 }
 
 function outgoingShareCard(share: ShareRecord): string {
   return `<article class="community-share-card community-share-card-sent">
-    <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared place')}</h4><p>${esc([share.city, share.country].filter(Boolean).join(', '))}</p></div><span>Privately shared</span></div>
+    <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared place')}</h4><p>${esc([share.city, share.country].filter(Boolean).join(', '))}</p></div><span>Sent</span></div>
+    <p class="community-share-from">Shared with <strong>${esc(share.recipient_name || 'a member')}</strong>.</p>
     <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
-    <p class="community-share-state">Your note is visible only to the recipient. Their identity and any recommendation remain private.</p>
   </article>`;
+}
+
+function matchVenue(placeInput: string, city: string): Venue | undefined {
+  const norm = (value: string) => value.trim().toLowerCase();
+  const input = norm(placeInput);
+  if (!input) return undefined;
+  const byCombo = knownVenues.find((venue) => norm(`${venue.name} — ${venue.city}`) === input);
+  if (byCombo) return byCombo;
+  const byName = knownVenues.filter((venue) => norm(venue.name) === input);
+  if (byName.length === 1) return byName[0];
+  if (city) return byName.find((venue) => norm(venue.city) === norm(city));
+  return undefined;
+}
+
+function sharePlaceForm(): string {
+  return `<form class="community-form community-share-place-form" data-community-share-place>
+    ${directoryMarkup('share-place', 'Share with a member')}
+    <label>Place<input name="place" list="community-share-place-options" autocomplete="off" maxlength="200" required placeholder="Pick from the list or type your own"></label>
+    <datalist id="community-share-place-options">${knownVenues
+      .map((venue) => `<option value="${esc(`${venue.name} — ${venue.city}`)}"></option>`)
+      .join('')}</datalist>
+    <div class="community-form-grid community-place-grid">
+      <label>City<input name="city" maxlength="120" placeholder="Madrid"></label>
+      <label>Country<input name="country" maxlength="120" placeholder="Spain"></label>
+    </div>
+    <label>Personal note<textarea name="personal_note" rows="3" maxlength="1200" minlength="8" required placeholder="Why you thought of them for this place"></textarea></label>
+    <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sharing…' : 'Share place'}</button>
+  </form>`;
 }
 
 function sharesPanel(): string {
@@ -353,18 +346,21 @@ function sharesPanel(): string {
   const outgoing = outgoingShares();
   return `<section class="community-ledger-section" aria-labelledby="private-shares-title">
     <div class="community-section-heading">
-      <div><p class="community-kicker">Private handoff</p><h3 id="private-shares-title">Place shares</h3></div>
-      <p>Shares invite a personal recommendation; they never count as a signal on their own.</p>
+      <div><h3 id="private-shares-title">Share a place</h3></div>
+      <p>Send any place to a member with a note — from the list, or one of your own.</p>
+    </div>
+    <div class="community-action-grid community-share-place-action">
+      ${sharePlaceForm()}
     </div>
     ${
       loadingCommunity || !communityLoaded
-        ? '<p class="community-loading" role="status">Loading your private shares…</p>'
+        ? '<p class="community-loading" role="status">Loading…</p>'
         : incoming.length || outgoing.length
           ? `<div class="community-shares-grid">
-              <div class="community-share-column"><div class="community-subheading"><h4>Received</h4><p>Private notes sent directly to you.</p></div>${incoming.length ? incoming.map(incomingShareCard).join('') : '<p class="community-empty">No private shares received.</p>'}</div>
-              <div class="community-share-column"><div class="community-subheading"><h4>Sent</h4><p>Your private handoffs, without recipient profiles.</p></div>${outgoing.length ? outgoing.map(outgoingShareCard).join('') : '<p class="community-empty">No private shares sent.</p>'}</div>
+              <div class="community-share-column"><div class="community-subheading"><h4>Received</h4></div>${incoming.length ? incoming.map(incomingShareCard).join('') : '<p class="community-empty">No shares received.</p>'}</div>
+              <div class="community-share-column"><div class="community-subheading"><h4>Sent</h4></div>${outgoing.length ? outgoing.map(outgoingShareCard).join('') : '<p class="community-empty">No shares sent.</p>'}</div>
             </div>`
-          : '<p class="community-empty">No private shares yet. Share a pending place from its waiting-list card.</p>'
+          : '<p class="community-empty">No shares yet.</p>'
     }
   </section>`;
 }
@@ -377,20 +373,19 @@ function invitesPanel(): string {
   return `<section class="community-tab-panel community-invitation-panel" id="member-panel-invitations" role="tabpanel" aria-labelledby="member-tab-invitations" tabindex="0">
     <div class="community-tab-heading">
       <div>
-        <h3>Personal invitations</h3>
-        <p>Issue one-time codes for people you want to welcome to Detour.</p>
+        <h3>Invitations</h3>
+        <p>Invite people to Detour.</p>
       </div>
       <div class="community-invite-allowance" aria-live="polite">
         <strong>${allowanceKnown ? available : '—'}</strong>
-        <span>${allowanceKnown ? (available === 1 ? 'place available' : 'places available') : 'checking allowance'}</span>
+        <span>${allowanceKnown ? (available === 1 ? 'invitation left' : 'invitations left') : 'loading'}</span>
       </div>
     </div>
-    <p class="community-invite-explainer">You can keep up to three invitations unclaimed. When someone redeems a code, that place becomes available again.</p>
     <div class="community-invite-actions">
-      <button class="community-secondary" type="button" data-community-invite ${submitting || !allowanceKnown || atLimit ? 'disabled' : ''}>${submitting ? 'Preparing…' : atLimit ? 'Invitation limit reached' : 'Issue a personal invitation'}</button>
+      <button class="community-secondary" type="button" data-community-invite ${submitting || !allowanceKnown || atLimit ? 'disabled' : ''}>${submitting ? 'Preparing…' : atLimit ? 'Invitation limit reached' : 'New invitation'}</button>
       ${
         loadingInvites || !invitesLoaded
-          ? '<p class="community-loading" role="status">Checking your invitations…</p>'
+          ? '<p class="community-loading" role="status">Loading…</p>'
           : unclaimed.length
             ? `<div class="community-invite-list"><h4>Unclaimed codes</h4><ul class="community-invite-codes" aria-label="Your unclaimed invitation codes">${unclaimed
                 .map((invite) => `<li><code>${esc(invite.code || '')}</code><span>Unclaimed</span></li>`)
@@ -404,7 +399,7 @@ function invitesPanel(): string {
 function detoursPanel(): string {
   return `<div class="community-tab-panel community-detours-panel" id="member-panel-detours" role="tabpanel" aria-labelledby="member-tab-detours" tabindex="0">
     <div class="community-tab-heading">
-      <div><h3>My detours</h3><p>Recommend places, follow your private queue, and exchange private shares.</p></div>
+      <div><h3>My detours</h3></div>
     </div>
     ${recommendationPanel()}
     ${sharesPanel()}
@@ -414,13 +409,21 @@ function detoursPanel(): string {
 function settingsPanel(record: MemberRecord): string {
   return `<section class="community-tab-panel community-settings-panel" id="member-panel-settings" role="tabpanel" aria-labelledby="member-tab-settings" tabindex="0">
     <div class="community-tab-heading">
-      <div><h3>Settings</h3><p>Session controls for this device.</p></div>
+      <div><h3>Settings</h3></div>
     </div>
     <div class="community-session-row">
       <p>Signed in as <strong>${esc(record.email || memberName(record))}</strong></p>
       <button class="community-signout" type="button" data-community-sign-out>Sign out</button>
     </div>
+    <div class="community-session-row community-danger-row">
+      <p>Remove your account and everything you added.</p>
+      <button class="community-danger" type="button" data-community-remove-account ${submitting ? 'disabled' : ''}>${submitting ? 'Removing…' : 'Remove account'}</button>
+    </div>
   </section>`;
+}
+
+function unseenShareCount(): number {
+  return incomingShares().filter((share) => !share.seen).length;
 }
 
 function memberTabsMarkup(): string {
@@ -429,9 +432,13 @@ function memberTabsMarkup(): string {
     detours: 'My detours',
     settings: 'Settings',
   };
+  const unseen = unseenShareCount();
   return `<div class="community-member-tabs" role="tablist" aria-label="Member areas">
     ${MEMBER_TABS.map(
-      (tab) => `<button class="community-member-tab${memberTab === tab ? ' is-active' : ''}" type="button" role="tab" id="member-tab-${tab}" aria-selected="${memberTab === tab}" aria-controls="member-panel-${tab}" tabindex="${memberTab === tab ? '0' : '-1'}" data-member-tab="${tab}">${labels[tab]}</button>`
+      (tab) =>
+        `<button class="community-member-tab${memberTab === tab ? ' is-active' : ''}" type="button" role="tab" id="member-tab-${tab}" aria-selected="${memberTab === tab}" aria-controls="member-panel-${tab}" tabindex="${memberTab === tab ? '0' : '-1'}" data-member-tab="${tab}">${labels[tab]}${
+          tab === 'detours' && unseen ? `<span class="community-tab-badge" aria-label="${unseen} new shares">${unseen}</span>` : ''
+        }</button>`
     ).join('')}
   </div>`;
 }
@@ -456,14 +463,14 @@ export function communityControl(href: string, current = false): string {
   return `<a class="community-toggle${current ? ' is-current' : ''}" href="${esc(href)}" data-community-route${current ? ' aria-current="page"' : ''}>${esc(label)}<span aria-hidden="true">${current ? '•' : '↗'}</span></a>`;
 }
 
-export function communityPanel(_venues: Venue[]): string {
+export function communityPanel(venues: Venue[]): string {
+  knownVenues = venues;
   return `<div id="community-area" class="community-area">${member() ? signedInPanel() : signedOutPanel()}</div>`;
 }
 
 function resetCommunityState(): void {
   memberTab = 'invitations';
   waitlistEntries = [];
-  recommendations = [];
   shares = [];
   communityLoaded = false;
   loadingCommunity = false;
@@ -483,13 +490,11 @@ async function loadCommunity(render: () => void): Promise<void> {
   render();
   const results = await Promise.allSettled([
     pb.collection('community_waitlist_entries').getFullList<WaitlistEntry>({ sort: '-updated', requestKey: null }),
-    pb.collection('community_recommendations').getFullList<RecommendationRecord>({ sort: '-created', requestKey: null }),
     pb.collection('community_shares').getFullList<ShareRecord>({ sort: '-created', requestKey: null }),
   ]);
 
   if (results[0].status === 'fulfilled') waitlistEntries = results[0].value;
-  if (results[1].status === 'fulfilled') recommendations = results[1].value;
-  if (results[2].status === 'fulfilled') shares = results[2].value;
+  if (results[1].status === 'fulfilled') shares = results[1].value;
 
   const failure = results.find((result) => result.status === 'rejected');
   if (failure?.status === 'rejected') {
@@ -633,7 +638,22 @@ function focusWaitlistEntry(id: string): void {
   });
 }
 
-export function bindCommunity(root: HTMLElement, _venues: Venue[], render: () => void): void {
+// Marks the recipient's new shares as seen once the inbox is on screen. Local
+// state is updated without re-rendering so the "New" markers stay visible
+// until the next render; the tab badge clears then too.
+async function markIncomingSharesSeen(): Promise<void> {
+  const unseen = incomingShares().filter((share) => !share.seen);
+  if (!unseen.length) return;
+  const results = await Promise.allSettled(
+    unseen.map((share) => pb.collection('community_shares').update(share.id, { seen: true }, { requestKey: null }))
+  );
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') unseen[index].seen = true;
+  });
+}
+
+export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => void): void {
+  knownVenues = venues;
   root.querySelectorAll<HTMLButtonElement>('[data-community-mode]').forEach((button) => {
     button.addEventListener('click', () => {
       mode = button.dataset.communityMode === 'join' ? 'join' : 'sign-in';
@@ -645,6 +665,7 @@ export function bindCommunity(root: HTMLElement, _venues: Venue[], render: () =>
   const activateMemberTab = (nextTab: MemberTab, focusTab: boolean) => {
     if (memberTab === nextTab) return;
     memberTab = nextTab;
+    if (nextTab === 'detours' && communityLoaded) void markIncomingSharesSeen();
     render();
     if (focusTab) {
       window.requestAnimationFrame(() => {
@@ -695,7 +716,7 @@ export function bindCommunity(root: HTMLElement, _venues: Venue[], render: () =>
         invite_code: String(values.get('invite_code') || '').trim().toUpperCase(),
       });
       mode = 'sign-in';
-      notice = { kind: 'success', text: 'Your active membership is ready. Sign in to see community recommendations, private shares, and your waiting-list queue.' };
+      notice = { kind: 'success', text: 'Your membership is ready. Sign in to continue.' };
     } catch (error) {
       notice = { kind: 'error', text: readableError(error, 'That invitation could not be accepted. Check the code and try again.') };
     } finally {
@@ -713,7 +734,7 @@ export function bindCommunity(root: HTMLElement, _venues: Venue[], render: () =>
     try {
       await pb.collection('members').authWithPassword(String(values.get('email') || '').trim(), String(values.get('password') || ''));
       resetCommunityState();
-      notice = { kind: 'success', text: 'Welcome back. Your private community account is ready.' };
+      notice = { kind: 'success', text: 'Welcome back.' };
     } catch (error) {
       notice = { kind: 'error', text: readableError(error, 'Those sign-in details were not recognised.') };
     } finally {
@@ -729,6 +750,27 @@ export function bindCommunity(root: HTMLElement, _venues: Venue[], render: () =>
     render();
   });
 
+  root.querySelector<HTMLButtonElement>('[data-community-remove-account]')?.addEventListener('click', async () => {
+    const record = member();
+    if (!record || submitting) return;
+    if (!window.confirm('Remove your account? Your recommendations, shares, and invitations will be deleted. This cannot be undone.')) return;
+    submitting = true;
+    notice = null;
+    render();
+    try {
+      await pb.collection('members').delete(record.id);
+      pb.authStore.clear();
+      resetCommunityState();
+      mode = 'sign-in';
+      notice = { kind: 'info', text: 'Your account has been removed.' };
+    } catch (error) {
+      notice = { kind: 'error', text: readableError(error, 'Your account could not be removed. Please try again.') };
+    } finally {
+      submitting = false;
+      render();
+    }
+  });
+
   root.querySelector<HTMLButtonElement>('[data-community-invite]')?.addEventListener('click', async () => {
     if (!member() || !invitesLoaded || loadingInvites || openInvites().length >= 3) return;
     submitting = true;
@@ -737,7 +779,7 @@ export function bindCommunity(root: HTMLElement, _venues: Venue[], render: () =>
     try {
       await pb.collection('invites').create({});
       invitesLoaded = false;
-      notice = { kind: 'success', text: 'A personal invitation is ready to share.' };
+      notice = { kind: 'success', text: 'Your invitation code is ready.' };
       await loadInvites(render);
     } catch (error) {
       notice = { kind: 'error', text: readableError(error, 'That invitation could not be prepared. Please try again.') };
@@ -767,7 +809,7 @@ export function bindCommunity(root: HTMLElement, _venues: Venue[], render: () =>
         note,
       });
       highlightedWaitlistId = created.waitlist || '';
-      notice = { kind: 'success', text: 'Your recommendation entered or updated the shared waiting list. Its private queue card is highlighted below.' };
+      notice = { kind: 'success', text: 'Recommendation added.' };
       communityLoaded = false;
       await loadCommunity(render);
       focusWaitlistEntry(highlightedWaitlistId);
@@ -800,11 +842,11 @@ export function bindCommunity(root: HTMLElement, _venues: Venue[], render: () =>
           personal_note: String(values.get('personal_note') || '').trim(),
         });
         directories.delete(`share-${waitlist}`);
-        notice = { kind: 'success', text: `This waiting-list entry was shared privately with ${selected.display_name}. The share itself did not add a signal.` };
+        notice = { kind: 'success', text: `Shared with ${selected.display_name}.` };
         communityLoaded = false;
         await loadCommunity(render);
       } catch (error) {
-        notice = { kind: 'error', text: readableError(error, 'That private share could not be sent. Check the recipient and note, then try again.') };
+        notice = { kind: 'error', text: readableError(error, 'That share could not be sent. Check the recipient and note, then try again.') };
       } finally {
         submitting = false;
         render();
@@ -812,38 +854,52 @@ export function bindCommunity(root: HTMLElement, _venues: Venue[], render: () =>
     });
   });
 
-  root.querySelectorAll<HTMLFormElement>('[data-community-recipient-recommendation]').forEach((form) => {
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const values = new FormData(form);
-      const waitlist = String(values.get('waitlist') || '');
-      const note = String(values.get('note') || '').trim();
-      if (!meaningfulRecommendation(note)) {
-        notice = { kind: 'error', text: 'Add your own recommendation using at least 24 characters and five meaningful words.' };
-        render();
-        return;
-      }
-      submitting = true;
-      notice = null;
+  root.querySelector<HTMLFormElement>('[data-community-share-place]')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const selected = directoryState('share-place').selected;
+    if (!selected) {
+      notice = { kind: 'error', text: 'Search for a member and choose their name before sharing.' };
       render();
-      try {
-        await pb.collection('community_recommendations').create({ waitlist, note });
-        highlightedWaitlistId = waitlist;
-        notice = { kind: 'success', text: 'Your independent recommendation is now counted. The matching queue card shows the refreshed signal progress.' };
-        communityLoaded = false;
-        await loadCommunity(render);
-        focusWaitlistEntry(waitlist);
-      } catch (error) {
-        notice = { kind: 'error', text: readableError(error, 'Your recommendation could not be added. Check your note and try again.') };
-      } finally {
-        submitting = false;
-        render();
-      }
-    });
+      return;
+    }
+    const values = new FormData(event.currentTarget as HTMLFormElement);
+    const place = String(values.get('place') || '').trim();
+    const city = String(values.get('city') || '').trim();
+    const country = String(values.get('country') || '').trim();
+    const note = String(values.get('personal_note') || '').trim();
+    const venue = matchVenue(place, city);
+    if (!venue && (!city || !country)) {
+      notice = { kind: 'error', text: 'That place is not in the list yet — add its city and country to share it.' };
+      render();
+      return;
+    }
+    submitting = true;
+    notice = null;
+    render();
+    try {
+      await pb.collection('community_shares').create(
+        venue
+          ? { venue: venue.id, recipient: selected.id, personal_note: note }
+          : { venue_name: place, city, country, recipient: selected.id, personal_note: note }
+      );
+      directories.delete('share-place');
+      notice = { kind: 'success', text: `Shared with ${selected.display_name}.` };
+      communityLoaded = false;
+      await loadCommunity(render);
+    } catch (error) {
+      notice = { kind: 'error', text: readableError(error, 'That share could not be sent. Check the details and try again.') };
+    } finally {
+      submitting = false;
+      render();
+    }
   });
 
   bindDirectories(root);
 
-  if (member() && !communityLoaded && !loadingCommunity) void loadCommunity(render);
+  if (member() && !communityLoaded && !loadingCommunity) {
+    void loadCommunity(render).then(() => {
+      if (memberTab === 'detours') void markIncomingSharesSeen();
+    });
+  }
   if (member() && !invitesLoaded && !loadingInvites) void loadInvites(render);
 }
