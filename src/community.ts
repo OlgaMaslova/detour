@@ -272,7 +272,7 @@ function recommendationPanel(): string {
   return `<section class="community-ledger-section" aria-labelledby="community-waitlist-title">
     <div class="community-section-heading">
       <div><h3 id="community-waitlist-title">Recommend a place</h3></div>
-      <p>A place joins the Detour list once 3 members recommend it.</p>
+      <p>Detour is driven by its members — your recommendations are what build the selection. A place joins the list once 3 members recommend it.</p>
     </div>
     <div class="community-action-grid community-recommend-action">
       <form class="community-form" data-community-recommendation>
@@ -373,12 +373,11 @@ function invitesPanel(): string {
   const allowanceKnown = invitesLoaded && !loadingInvites;
   const atLimit = allowanceKnown && available === 0;
   return `<section class="community-tab-panel community-invitation-panel" id="member-panel-invitations" role="tabpanel" aria-labelledby="member-tab-invitations" tabindex="0">
-    <div class="community-invite-allowance" aria-live="polite">
-      <strong>${allowanceKnown ? available : '—'}</strong>
-      <span>${allowanceKnown ? (available === 1 ? 'invitation left' : 'invitations left') : 'loading'}</span>
-    </div>
     <div class="community-invite-actions">
-      <button class="community-secondary" type="button" data-community-invite ${submitting || !allowanceKnown || atLimit ? 'disabled' : ''}>${submitting ? 'Preparing…' : atLimit ? 'Invitation limit reached' : 'New invitation'}</button>
+      <div class="community-invite-bar">
+        <button class="community-secondary" type="button" data-community-invite ${submitting || !allowanceKnown || atLimit ? 'disabled' : ''}>${submitting ? 'Preparing…' : atLimit ? 'Invitation limit reached' : 'New invitation'}</button>
+        <p class="community-invite-allowance" aria-live="polite"><strong>${allowanceKnown ? available : '—'}</strong> ${allowanceKnown ? (available === 1 ? 'invitation left' : 'invitations left') : 'checking…'}</p>
+      </div>
       ${
         loadingInvites || !invitesLoaded
           ? '<p class="community-loading" role="status">Loading…</p>'
@@ -386,7 +385,7 @@ function invitesPanel(): string {
             ? `<div class="community-invite-list"><h4>Unclaimed codes</h4><ul class="community-invite-codes" aria-label="Your unclaimed invitation codes">${unclaimed
                 .map((invite) => `<li><code>${esc(invite.code || '')}</code><span>Unclaimed</span></li>`)
                 .join('')}</ul></div>`
-            : '<p class="community-empty">You have no unclaimed invitation codes.</p>'
+            : '<p class="community-empty">No unclaimed codes.</p>'
       }
     </div>
   </section>`;

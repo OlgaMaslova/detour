@@ -1341,22 +1341,17 @@ a:hover { color: var(--violet); }
   text-wrap: balance;
 }
 .community-tab-heading p { max-width: 58ch; margin: 0.38rem 0 0; color: var(--ink-soft); font-size: 0.88rem; }
+.community-invite-bar { display: flex; align-items: center; gap: 0.9rem; }
 .community-invite-allowance {
-  display: flex;
-  flex: none;
-  justify-self: start;
-  align-items: baseline;
-  gap: 0.38rem;
-  padding: 0.45rem 0.65rem;
-  color: oklch(0.33 0.06 310);
-  background: var(--violet-soft);
-  border-radius: 4px;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.community-invite-allowance strong { font-size: 1rem; }
-.community-invite-allowance span { font-size: 0.72rem; font-weight: 750; }
+.community-invite-allowance strong { color: var(--ink); font-size: 1rem; }
 .community-invite-explainer { max-width: 62ch; margin: 0; color: var(--ink-soft); font-size: 0.88rem; }
-.community-invite-actions { display: grid; gap: 1.4rem; justify-items: start; }
+.community-invite-actions { display: grid; gap: 1rem; justify-items: start; }
 .community-invite-list { display: grid; width: min(100%, 42rem); gap: 0.65rem; padding-top: 1.1rem; border-top: 1px solid var(--line); }
 .community-invite-list h4 { margin: 0; color: var(--ink); font-family: var(--serif); font-size: 1.05rem; }
 .community-invite-codes li { min-height: 44px; padding: 0.6rem 0.7rem; background: white; border-color: var(--line-strong); }
@@ -2229,7 +2224,7 @@ a:hover { color: var(--violet); }
   .community-member-tab::after { right: 0.35rem; left: 0.35rem; }
   .community-tab-panel { min-height: 17rem; padding: 1.25rem; }
   .community-tab-heading { flex-direction: column; gap: 0.75rem; }
-  .community-invite-allowance { align-self: flex-start; }
+  .community-invite-bar { align-items: center; flex-wrap: wrap; }
   .community-session-row { align-items: stretch; flex-direction: column; }
   .community-session-row .community-signout { width: 100%; }
   .community-subheading { grid-template-columns: 1fr; gap: 0.2rem; }
