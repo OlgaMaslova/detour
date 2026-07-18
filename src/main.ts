@@ -966,16 +966,12 @@ function bindRouteLinks(root: HTMLElement): void {
 function renderAccount(root: HTMLElement): void {
   destroyMap();
   syncDocumentMeta(null, true);
-  const city = state.city ? availableCities().find((item) => item.slug === state.city) ?? null : null;
-  const returnLabel = city ? `Back to ${city.name} discovery` : 'Back to city discovery';
-
   root.innerHTML = `
     <a class="skip-link" href="#community-area">Skip to member area</a>
     <header class="account-masthead">
       <div class="account-nav-row">
         <a class="account-brand" href="${esc(cityHref(state.city))}" data-return-discovery>Detour</a>
         <nav class="account-nav" aria-label="Member navigation">
-          <a class="account-return" href="${esc(cityHref(state.city))}" data-return-discovery><span aria-hidden="true">←</span> ${esc(returnLabel)}</a>
           ${communityControl(accountHref(), true)}
         </nav>
       </div>
@@ -1037,8 +1033,8 @@ function renderCityChooser(root: HTMLElement): void {
         <p class="brand">Detour</p>
         <h1>Trust the experts. Great food is never a straight line.</h1>
         <p class="tagline city-chooser-intro">Detour is a collection of exceptional tables across cities, chosen for the recognition they hold now. Choose a city to explore its current selection.</p>
-        <div class="hero-account">${communityControl(accountHref())}</div>
       </div>
+      <div class="hero-account">${communityControl(accountHref())}</div>
     </header>
     <section class="city-chooser" aria-labelledby="city-chooser-title">
       <div class="city-chooser-heading">
@@ -1089,8 +1085,8 @@ function render(root: HTMLElement) {
         <p class="brand">Detour</p>
         <h1>${esc(city.title)}</h1>
         <p class="tagline">${esc(cityTagline(city))}</p>
-        <div class="hero-account">${communityControl(accountHref())}</div>
       </div>
+      <div class="hero-account">${communityControl(accountHref())}</div>
     </header>
     ${discoveryBar(city, list)}
     ${city.presentation === 'map' ? mapStage(list) : listPreviewStage()}

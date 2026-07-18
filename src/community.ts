@@ -373,15 +373,9 @@ function invitesPanel(): string {
   const allowanceKnown = invitesLoaded && !loadingInvites;
   const atLimit = allowanceKnown && available === 0;
   return `<section class="community-tab-panel community-invitation-panel" id="member-panel-invitations" role="tabpanel" aria-labelledby="member-tab-invitations" tabindex="0">
-    <div class="community-tab-heading">
-      <div>
-        <h3>Invitations</h3>
-        <p>Invite people to Detour.</p>
-      </div>
-      <div class="community-invite-allowance" aria-live="polite">
-        <strong>${allowanceKnown ? available : '—'}</strong>
-        <span>${allowanceKnown ? (available === 1 ? 'invitation left' : 'invitations left') : 'loading'}</span>
-      </div>
+    <div class="community-invite-allowance" aria-live="polite">
+      <strong>${allowanceKnown ? available : '—'}</strong>
+      <span>${allowanceKnown ? (available === 1 ? 'invitation left' : 'invitations left') : 'loading'}</span>
     </div>
     <div class="community-invite-actions">
       <button class="community-secondary" type="button" data-community-invite ${submitting || !allowanceKnown || atLimit ? 'disabled' : ''}>${submitting ? 'Preparing…' : atLimit ? 'Invitation limit reached' : 'New invitation'}</button>
@@ -401,9 +395,6 @@ function invitesPanel(): string {
 function detoursPanel(): string {
   const unseen = unseenShareCount();
   return `<div class="community-tab-panel community-detours-panel" id="member-panel-detours" role="tabpanel" aria-labelledby="member-tab-detours" tabindex="0">
-    <div class="community-tab-heading">
-      <div><h3>My detours</h3></div>
-    </div>
     <div class="community-tabs community-detour-tabs" role="tablist" aria-label="My detours sections">
       <button class="community-tab ${detourTab === 'recommendations' ? 'is-active' : ''}" type="button" role="tab" id="detour-tab-recommendations" aria-selected="${detourTab === 'recommendations'}" aria-controls="detour-panel-recommendations" data-detour-tab="recommendations">Recommendations</button>
       <button class="community-tab ${detourTab === 'shares' ? 'is-active' : ''}" type="button" role="tab" id="detour-tab-shares" aria-selected="${detourTab === 'shares'}" aria-controls="detour-panel-shares" data-detour-tab="shares">Shares${unseen ? `<span class="community-tab-badge" aria-label="${unseen} new shares">${unseen}</span>` : ''}</button>
@@ -418,9 +409,6 @@ function detoursPanel(): string {
 
 function settingsPanel(record: MemberRecord): string {
   return `<section class="community-tab-panel community-settings-panel" id="member-panel-settings" role="tabpanel" aria-labelledby="member-tab-settings" tabindex="0">
-    <div class="community-tab-heading">
-      <div><h3>Settings</h3></div>
-    </div>
     <div class="community-session-row">
       <p>Signed in as <strong>${esc(record.email || memberName(record))}</strong></p>
       <button class="community-signout" type="button" data-community-sign-out>Sign out</button>

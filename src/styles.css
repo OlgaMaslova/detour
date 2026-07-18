@@ -1168,7 +1168,13 @@ a:hover { color: var(--violet); }
 }
 
 /* Membership is a dedicated route: compact navigation above a quiet account ledger. */
-.hero-account { margin-top: 1.4rem; }
+.hero-account {
+  position: absolute;
+  z-index: 2;
+  top: clamp(1.25rem, 3vw, 2.25rem);
+  right: clamp(1rem, 4vw, 2.5rem);
+  margin: 0;
+}
 .community-toggle {
   display: inline-flex;
   align-items: center;
@@ -1338,6 +1344,7 @@ a:hover { color: var(--violet); }
 .community-invite-allowance {
   display: flex;
   flex: none;
+  justify-self: start;
   align-items: baseline;
   gap: 0.38rem;
   padding: 0.45rem 0.65rem;
@@ -1354,8 +1361,8 @@ a:hover { color: var(--violet); }
 .community-invite-list h4 { margin: 0; color: var(--ink); font-family: var(--serif); font-size: 1.05rem; }
 .community-invite-codes li { min-height: 44px; padding: 0.6rem 0.7rem; background: white; border-color: var(--line-strong); }
 .community-detours-panel { gap: 0; }
-.community-detours-panel > .community-tab-heading { padding-bottom: 1.4rem; }
-.community-detours-panel > .community-ledger-section { padding-top: clamp(1.4rem, 4vw, 2.4rem); }
+.community-detours-panel .community-ledger-section { padding-top: 0; border-top: 0; }
+.community-detour-tabs { margin-bottom: 0.25rem; }
 .community-settings-panel { align-content: start; }
 .community-session-row {
   display: flex;
@@ -2178,6 +2185,8 @@ a:hover { color: var(--violet); }
 @media (max-width: 620px) {
   #app { padding-inline: 0.75rem; }
   .hero { margin: 0 calc(-1 * var(--gutter)); padding: 1.35rem 1.1rem 1.5rem; }
+  .hero-account { top: 1rem; right: 1rem; }
+  .hero-account .community-toggle { min-height: 38px; padding: 0.35rem 0.65rem; font-size: 0.78rem; }
   .hero::after { width: 5rem; height: 23%; }
   .city-chooser-hero { min-height: auto; padding-block: clamp(2.75rem, 13vw, 4rem); }
   .city-chooser-hero h1 { font-size: clamp(2.45rem, 12vw, 3.3rem); }
