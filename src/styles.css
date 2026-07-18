@@ -1543,6 +1543,44 @@ a:hover { color: var(--violet); }
   letter-spacing: -0.035em;
 }
 .city-chooser-intro { max-width: 55ch; color: white; opacity: 0.92; }
+.destination-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  max-width: 40rem;
+  margin-top: 1.4rem;
+}
+.destination-search input[type='search'] {
+  flex: 1 1 16rem;
+  min-height: 48px;
+  padding: 0.55rem 0.9rem;
+  color: var(--ink);
+  background: var(--parchment);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 0.95rem;
+}
+.destination-search input[type='search']:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.destination-go,
+.destination-near {
+  min-height: 48px;
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--parchment);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+.destination-go { color: var(--ink); background: var(--parchment); }
+.destination-go:hover { background: white; }
+.destination-near { color: var(--parchment); background: transparent; }
+.destination-near:hover { color: var(--ink); background: var(--parchment); }
+.destination-go:disabled,
+.destination-near:disabled { opacity: 0.55; cursor: not-allowed; }
+.city-chooser-hero .geo-status { max-width: 55ch; margin: 0.8rem 0 0; color: var(--parchment); opacity: 0.9; font-size: 0.88rem; }
+.community-cta .city-chooser-heading a { color: var(--wine-deep); font-weight: 750; }
 .city-chooser {
   width: 100%;
   margin: 0 auto;

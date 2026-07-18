@@ -193,6 +193,7 @@ onRecordCreateRequest((e) => {
     venueName: e.record.getString("venue_name"),
     city: e.record.getString("city"),
     country: e.record.getString("country"),
+    address: e.record.getString("address"),
   });
   community.ensureEntryPending(resolved.entry, "recommended again");
 
@@ -215,14 +216,51 @@ onRecordCreateRequest((e) => {
   e.record.set("venue_name", resolved.entry.getString("venue_name"));
   e.record.set("city", resolved.entry.getString("city"));
   e.record.set("country", resolved.entry.getString("country"));
+  e.record.set("address", resolved.entry.getString("address"));
   e.next();
 }, "community_recommendations");
 
 onRecordAfterCreateSuccess((e) => {
-  const { recalculateAndPublish } = require(__hooks + "/community_waitlist.js");
-  recalculateAndPublish(e.app, e.record.getString("waitlist"));
+  const community = require(__hooks + "/community_waitlist.js");
+  const waitlistId = e.record.getString("waitlist");
+  community.recalculateAndPublish(e.app, waitlistId);
+  // Publication happened inside the transaction above; the external
+  // address/location validation runs after it so a geocoder outage can never
+  // block or roll back the publish. Failures are retried by the nightly sweep.
+  try {
+    const entry = e.app.findRecordById("community_waitlist_entries", waitlistId);
+    const publishedVenue = entry.getString("published_venue");
+    if (entry.getString("status") === "published" && publishedVenue) {
+      community.geocodeVenue(e.app, publishedVenue);
+    }
+  } catch {
+    // Entry lookup is best-effort; the sweep covers anything missed.
+  }
   e.next();
 }, "community_recommendations");
+
+// Nightly retry for published community venues that still lack verified
+// coordinates (geocoder outage, no-match addresses corrected later, …).
+// geocodeVenue exits early for venues that already have coordinates.
+cronAdd("community_geocode_sweep", "0 4 * * *", () => {
+  const community = require(__hooks + "/community_waitlist.js");
+  let awards = [];
+  try {
+    awards = $app.findRecordsByFilter(
+      "venue_awards",
+      "level = 'Detour community selection' && current = true",
+      "-created",
+      50,
+      0
+    );
+  } catch {
+    return;
+  }
+  for (const award of awards) {
+    const venueId = award.getString("venue");
+    if (venueId) community.geocodeVenue($app, venueId);
+  }
+});
 
 // Deleting a pending signal updates the server-maintained count. A place that
 // has already auto-published remains a public selection and is never
@@ -273,11 +311,13 @@ onRecordCreateRequest((e) => {
     e.record.set("venue_name", venue.getString("name"));
     e.record.set("city", venue.getString("city"));
     e.record.set("country", venue.getString("country"));
+    e.record.set("address", venue.getString("address"));
   } else {
     const resolved = community.resolveEntry(e.app, e.record.getString("waitlist"), {
       venueName: e.record.getString("venue_name"),
       city: e.record.getString("city"),
       country: e.record.getString("country"),
+      address: e.record.getString("address"),
     });
     // A place that already published is shared as its catalogue venue; an
     // unpublished one links the sender to its waiting-list entry.
@@ -292,6 +332,7 @@ onRecordCreateRequest((e) => {
     e.record.set("venue_name", resolved.entry.getString("venue_name"));
     e.record.set("city", resolved.entry.getString("city"));
     e.record.set("country", resolved.entry.getString("country"));
+    e.record.set("address", resolved.entry.getString("address"));
   }
 
   e.record.set("sender", e.auth.id);
@@ -322,6 +363,7 @@ onRecordUpdateRequest((e) => {
     "venue_name",
     "city",
     "country",
+    "address",
     "sender_name",
     "recipient_name",
   ];

@@ -25,6 +25,7 @@ interface WaitlistEntry {
   venue_name?: string;
   city?: string;
   country?: string;
+  address?: string;
   status?: 'pending' | 'published';
   signal_count?: number;
   created?: string;
@@ -54,6 +55,7 @@ interface ShareRecord {
   venue_name?: string;
   city?: string;
   country?: string;
+  address?: string;
   created?: string;
 }
 
@@ -246,7 +248,7 @@ function waitlistCard(entry: WaitlistEntry): string {
   const directoryKey = `share-${entry.id}`;
   return `<article class="community-queue-card${highlightedWaitlistId === entry.id ? ' is-highlighted' : ''}" id="waitlist-${esc(entry.id)}" tabindex="-1">
     <div class="community-queue-head">
-      <div><h4>${esc(entry.venue_name || 'Unnamed place')}</h4><p>${esc([entry.city, entry.country].filter(Boolean).join(', '))}</p></div>
+      <div><h4>${esc(entry.venue_name || 'Unnamed place')}</h4><p>${esc([entry.address, entry.city, entry.country].filter(Boolean).join(', '))}</p></div>
       <span class="community-queue-status is-${published ? 'published' : 'pending'}">${published ? 'Published' : 'Pending'}</span>
     </div>
     <div class="community-signal" aria-label="${progress} of 3 recommendations">
@@ -277,6 +279,7 @@ function recommendationPanel(): string {
     <div class="community-action-grid community-recommend-action">
       <form class="community-form" data-community-recommendation>
         <label>Place name<input name="venue_name" maxlength="200" required placeholder="The place you would send someone"></label>
+        <label>Address<input name="address" maxlength="300" required placeholder="Street and number"></label>
         <div class="community-form-grid community-place-grid">
           <label>City<input name="city" maxlength="120" required placeholder="Madrid"></label>
           <label>Country<input name="country" maxlength="120" required placeholder="Spain"></label>
@@ -300,7 +303,7 @@ function recommendationPanel(): string {
 
 function incomingShareCard(share: ShareRecord): string {
   return `<article class="community-share-card${share.seen ? '' : ' is-new'}">
-    <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared place')}</h4><p>${esc([share.city, share.country].filter(Boolean).join(', '))}</p></div><span>${share.seen ? 'Shared with you' : 'New'}</span></div>
+    <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared place')}</h4><p>${esc([share.address, share.city, share.country].filter(Boolean).join(', '))}</p></div><span>${share.seen ? 'Shared with you' : 'New'}</span></div>
     <p class="community-share-from"><strong>${esc(share.sender_name || 'A Detour member')}</strong> shared this place with you.</p>
     <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
     ${share.venue ? '<p class="community-share-state is-success">In the Detour selection.</p>' : ''}
@@ -309,7 +312,7 @@ function incomingShareCard(share: ShareRecord): string {
 
 function outgoingShareCard(share: ShareRecord): string {
   return `<article class="community-share-card community-share-card-sent">
-    <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared place')}</h4><p>${esc([share.city, share.country].filter(Boolean).join(', '))}</p></div><span>Sent</span></div>
+    <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared place')}</h4><p>${esc([share.address, share.city, share.country].filter(Boolean).join(', '))}</p></div><span>Sent</span></div>
     <p class="community-share-from">Shared with <strong>${esc(share.recipient_name || 'a member')}</strong>.</p>
     <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
   </article>`;
@@ -334,6 +337,7 @@ function sharePlaceForm(): string {
     <datalist id="community-share-place-options">${knownVenues
       .map((venue) => `<option value="${esc(`${venue.name} — ${venue.city}`)}"></option>`)
       .join('')}</datalist>
+    <label>Address<input name="address" maxlength="300" placeholder="Street and number — needed for a place not in the list"></label>
     <div class="community-form-grid community-place-grid">
       <label>City<input name="city" maxlength="120" placeholder="Madrid"></label>
       <label>Country<input name="country" maxlength="120" placeholder="Spain"></label>
@@ -808,6 +812,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     try {
       const created = await pb.collection('community_recommendations').create<RecommendationRecord>({
         venue_name: String(values.get('venue_name') || '').trim(),
+        address: String(values.get('address') || '').trim(),
         city: String(values.get('city') || '').trim(),
         country: String(values.get('country') || '').trim(),
         note,
@@ -870,10 +875,11 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     const place = String(values.get('place') || '').trim();
     const city = String(values.get('city') || '').trim();
     const country = String(values.get('country') || '').trim();
+    const address = String(values.get('address') || '').trim();
     const note = String(values.get('personal_note') || '').trim();
     const venue = matchVenue(place, city);
-    if (!venue && (!city || !country)) {
-      notice = { kind: 'error', text: 'That place is not in the list yet — add its city and country to share it.' };
+    if (!venue && (!city || !country || !address)) {
+      notice = { kind: 'error', text: 'That place is not in the list yet — add its address, city, and country to share it.' };
       render();
       return;
     }
@@ -884,7 +890,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
       await pb.collection('community_shares').create(
         venue
           ? { venue: venue.id, recipient: selected.id, personal_note: note }
-          : { venue_name: place, city, country, recipient: selected.id, personal_note: note }
+          : { venue_name: place, address, city, country, recipient: selected.id, personal_note: note }
       );
       directories.delete('share-place');
       notice = { kind: 'success', text: `Shared with ${selected.display_name}.` };

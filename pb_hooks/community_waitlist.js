@@ -75,6 +75,7 @@ function sanitizePlaceInput(app, input) {
   let venueName = cleanText(input.venueName, 200);
   let city = cleanText(input.city, 120);
   let country = cleanText(input.country, 120);
+  let address = cleanText(input.address, 300);
   const normalizedName = normalizePlacePart(venueName);
   const normalizedCity = normalizePlacePart(city);
 
@@ -99,6 +100,8 @@ function sanitizePlaceInput(app, input) {
     venueName = cleanText(canonicalVenue.getString("name"), 200);
     city = cleanText(canonicalVenue.getString("city"), 120);
     country = canonicalCountry;
+    const canonicalAddress = cleanText(canonicalVenue.getString("address"), 300);
+    if (canonicalAddress) address = canonicalAddress;
   }
 
   if (country.length < 2) {
@@ -111,6 +114,7 @@ function sanitizePlaceInput(app, input) {
     venueName,
     city,
     country,
+    address,
     normalizedName: normalizePlacePart(venueName),
     normalizedCity: normalizePlacePart(city),
     canonicalVenue,
@@ -170,8 +174,16 @@ function createOrResolveEntry(app, input) {
       existing.set("canonical_venue", place.canonicalVenue.id);
       changed = true;
     }
+    if (!existing.getString("address") && place.address) {
+      existing.set("address", place.address);
+      changed = true;
+    }
     if (changed) app.save(existing);
     return { entry: existing, created: false };
+  }
+
+  if (!place.address) {
+    throw new BadRequestError("A street address is required for a new place.");
   }
 
   const collection = app.findCollectionByNameOrId("community_waitlist_entries");
@@ -179,6 +191,7 @@ function createOrResolveEntry(app, input) {
   entry.set("venue_name", place.venueName);
   entry.set("city", place.city);
   entry.set("country", place.country);
+  entry.set("address", place.address);
   entry.set("normalized_name", place.normalizedName);
   entry.set("normalized_city", place.normalizedCity);
   entry.set("status", "pending");
@@ -294,6 +307,7 @@ function publishEntry(app, entry) {
   }
   if (!venue) venue = findCanonicalVenue(app, normalizedName, normalizedCity);
 
+  const entryAddress = cleanText(entry.getString("address"), 300);
   if (venue) {
     if (!cleanText(venue.getString("country"), 120)) {
       throw new BadRequestError("The canonical venue is missing its required country.");
@@ -305,13 +319,17 @@ function publishEntry(app, entry) {
         "The waiting-list country does not match the canonical venue country."
       );
     }
+    if (!cleanText(venue.getString("address"), 300) && entryAddress) {
+      venue.set("address", entryAddress);
+      app.save(venue);
+    }
   } else {
     const venues = app.findCollectionByNameOrId("venues");
     venue = new Record(venues);
     venue.set("name", cleanText(entry.getString("venue_name"), 200));
     venue.set("city", cleanText(entry.getString("city"), 120));
     venue.set("country", country);
-    venue.set("address", "");
+    venue.set("address", entryAddress);
     venue.set("official_url", "");
     venue.set("category", "");
     venue.set("approx_location", false);
@@ -425,12 +443,90 @@ function recalculateAndPublish(app, entryId) {
   });
 }
 
+// Validates a published venue's address by geocoding it via OpenStreetMap
+// Nominatim and stores verified coordinates. Never throws: publication must
+// not depend on an external service. Outcomes:
+//   - street-level match in the claimed city → lat/lng + provenance note
+//   - city mismatch or no match → coordinates withheld, note explains why
+//   - network failure → nothing written; the nightly sweep retries
+function geocodeVenue(app, venueId) {
+  let venue;
+  try {
+    venue = app.findRecordById("venues", venueId);
+  } catch {
+    return;
+  }
+  const existingLat = Number(venue.get("lat"));
+  const existingLng = Number(venue.get("lng"));
+  if ((existingLat !== 0 || existingLng !== 0) && Number.isFinite(existingLat) && Number.isFinite(existingLng)) {
+    return; // already located
+  }
+  const address = cleanText(venue.getString("address"), 300);
+  const city = cleanText(venue.getString("city"), 120);
+  const country = cleanText(venue.getString("country"), 120);
+  if (!address || !city) return;
+
+  let response;
+  try {
+    response = $http.send({
+      // accept-language=en keeps returned place names in English exonyms
+      // (Lisbon, not Lisboa) so they compare cleanly against member input.
+      url:
+        "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&accept-language=en&q=" +
+        encodeURIComponent(address + ", " + city + ", " + country),
+      method: "GET",
+      headers: { "User-Agent": "Detour community place verification (contact: olga@supernaut.dev)" },
+      timeout: 10,
+    });
+  } catch {
+    return;
+  }
+  if (!response || response.statusCode !== 200) return;
+
+  let results;
+  try {
+    results = response.json;
+  } catch {
+    return;
+  }
+  if (!Array.isArray(results) || results.length === 0) {
+    venue.set("coord_verification_note", "Geocoding found no match for the submitted address.");
+    app.save(venue);
+    return;
+  }
+
+  const hit = results[0];
+  const lat = parseFloat(hit.lat);
+  const lng = parseFloat(hit.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
+
+  const parts = hit.address || {};
+  const hitCity = String(parts.city || parts.town || parts.village || parts.municipality || "");
+  if (hitCity && normalizePlacePart(hitCity) !== normalizePlacePart(city)) {
+    venue.set(
+      "coord_verification_note",
+      "Geocoded city (" + hitCity + ") does not match the submitted city; coordinates withheld."
+    );
+    app.save(venue);
+    return;
+  }
+
+  venue.set("lat", lat);
+  venue.set("lng", lng);
+  venue.set(
+    "coord_verification_note",
+    cleanText("Geocoded via OpenStreetMap Nominatim: " + String(hit.display_name || ""), 300)
+  );
+  app.save(venue);
+}
+
 module.exports = {
   addParticipants,
   cleanText,
   createOrResolveEntry,
   ensureEntryPending,
   findMemberRecommendation,
+  geocodeVenue,
   isParticipant,
   normalizePlacePart,
   recalculateAndPublish,

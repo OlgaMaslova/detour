@@ -42,6 +42,8 @@ export interface Venue {
   name: string;
   /** City name as stored in the catalogue (e.g. 'Madrid'); scopes every view to one city. */
   city: string;
+  /** Country as stored on the venue record; '' when unknown. */
+  country: string;
   /** Every current recognition for this canonical venue, one entry per guide. */
   awards: VenueAward[];
   /** Stable venue category from the catalogue (e.g. 'Pizza', 'Coffee'); '' when unspecified. */
@@ -158,6 +160,7 @@ export const demoVenues: Venue[] = [
       id,
       name,
       city: 'Madrid',
+      country: 'Spain',
       awards: [
         {
           awardLevel: solLabel(award),
@@ -184,6 +187,7 @@ export const demoVenues: Venue[] = [
       id,
       name,
       city: 'Madrid',
+      country: 'Spain',
       awards: [
         {
           awardLevel: solLabel(award),
@@ -213,6 +217,7 @@ export const demoVenues: Venue[] = [
     id: 'demo-baldoria',
     name: 'Baldoria',
     city: 'Madrid',
+    country: 'Spain',
     awards: [
       {
         awardLevel: `${PIZZA_EDITION} — No. 2`,
@@ -237,6 +242,7 @@ export const demoVenues: Venue[] = [
     id: 'demo-fratelli-figurato',
     name: 'Fratelli Figurato',
     city: 'Madrid',
+    country: 'Spain',
     awards: [
       {
         awardLevel: `${PIZZA_EDITION} — No. 11`,
@@ -261,6 +267,7 @@ export const demoVenues: Venue[] = [
     id: 'demo-hola-coffee-lagasca',
     name: 'Hola Coffee Lagasca',
     city: 'Madrid',
+    country: 'Spain',
     awards: [
       {
         awardLevel: `${COFFEE_EDITION} — No. 19`,
@@ -370,7 +377,7 @@ function positiveInteger(value: unknown): number | null {
   return number !== null && Number.isInteger(number) && number > 0 ? number : null;
 }
 
-function citySlug(name: string): string {
+export function citySlug(name: string): string {
   return name
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -528,6 +535,7 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       cityId: city.id,
       citySlug: city.slug,
       city: city.name,
+      country: cleanString(record.country) || city.country,
       awards: [],
       category: cleanString(record.category),
       neighborhood: '',
