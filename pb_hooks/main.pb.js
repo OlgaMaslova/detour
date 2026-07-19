@@ -657,3 +657,131 @@ routerAdd(
   },
   $apis.requireSuperuserAuth()
 );
+
+// Member-contributed places use a distinct curator-reviewed lane. The request
+// hook owns attribution, private moderation state, normalization, rate limits,
+// and open-submission duplicate protection; it never writes catalogue venues.
+onRecordCreateRequest((e) => {
+  if (e.hasSuperuserAuth()) {
+    return e.next();
+  }
+  if (!e.auth || e.auth.getString("community_status") !== "verified") {
+    throw new BadRequestError(
+      "Verified Detour membership is required before contributing a place."
+    );
+  }
+
+  function cleanText(value, max, label) {
+    let cleaned = String(value || "");
+    if (typeof cleaned.normalize === "function") {
+      cleaned = cleaned.normalize("NFKC");
+    }
+    cleaned = cleaned
+      .replace(/[\u0000-\u001f\u007f]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (cleaned.length > max) {
+      throw new BadRequestError(label + " is too long.");
+    }
+    return cleaned;
+  }
+
+  function normalizePlacePart(value) {
+    let normalized = value;
+    if (typeof normalized.normalize === "function") {
+      normalized = normalized.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+    }
+    return normalized
+      .toLowerCase()
+      .replace(/[’'`´]/g, "")
+      .replace(/&/g, " and ")
+      .replace(/[\u2010-\u2015]/g, " ")
+      .replace(/[.,/#!$%^*;:{}=\-_~()\[\]"?<>\\|+]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  const privateInput = new DynamicModel({ recommendation_note: "" });
+  e.bindBody(privateInput);
+  const placeName = cleanText(e.record.getString("place_name"), 200, "Place name");
+  const city = cleanText(e.record.getString("city"), 120, "City");
+  const country = cleanText(e.record.getString("country"), 120, "Country");
+  const address = cleanText(e.record.getString("address"), 300, "Address");
+  // Hidden fields are not hydrated from the public record input, so read the
+  // private recommendation directly from this create request and then set it
+  // on the record after validation.
+  const recommendationNote = cleanText(
+    privateInput.recommendation_note,
+    2400,
+    "Recommendation note"
+  );
+  const normalizedName = normalizePlacePart(placeName);
+  const normalizedCity = normalizePlacePart(city);
+
+  if (placeName.length < 2 || !normalizedName) {
+    throw new BadRequestError("A valid place name is required.");
+  }
+  if (city.length < 2 || !normalizedCity) {
+    throw new BadRequestError("A valid city is required.");
+  }
+  if (country.length < 2) {
+    throw new BadRequestError("A valid country is required.");
+  }
+
+  const noteWords = recommendationNote
+    .split(/\s+/)
+    .map((word) => word.replace(/[.,!?;:'"()\[\]{}<>/\\|`~@#$%^&*+=_-]+/g, ""))
+    .filter((word) => word.length >= 2);
+  if (recommendationNote.length < 24 || noteWords.length < 5) {
+    throw new BadRequestError(
+      "Add a meaningful recommendation of at least 24 characters and five words."
+    );
+  }
+
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .replace("T", " ");
+  const recentContributions = e.app.findRecordsByFilter(
+    "member_place_contributions",
+    "member = {:member} && created >= {:cutoff}",
+    "-created",
+    5,
+    0,
+    { member: e.auth.id, cutoff: cutoff }
+  );
+  if (recentContributions.length >= 5) {
+    throw new BadRequestError(
+      "You can contribute up to five places in any seven-day period."
+    );
+  }
+
+  let duplicate = null;
+  try {
+    duplicate = e.app.findFirstRecordByFilter(
+      "member_place_contributions",
+      "normalized_name = {:name} && normalized_city = {:city} && (status = 'in_review' || status = 'approved')",
+      { name: normalizedName, city: normalizedCity }
+    );
+  } catch {
+    // No open contribution currently has this normalized place identity.
+  }
+  if (duplicate) {
+    throw new BadRequestError(
+      "This place already has a contribution in review or approved for this city."
+    );
+  }
+
+  e.record.set("place_name", placeName);
+  e.record.set("city", city);
+  e.record.set("country", country);
+  e.record.set("address", address);
+  e.record.set("recommendation_note", recommendationNote);
+  e.record.set("normalized_name", normalizedName);
+  e.record.set("normalized_city", normalizedCity);
+  e.record.set("member", e.auth.id);
+  e.record.set("source", "member_recommended");
+  e.record.set("status", "in_review");
+  e.record.set("curator_note", "");
+  e.record.set("reviewed_at", "");
+  e.next();
+}, "member_place_contributions");
