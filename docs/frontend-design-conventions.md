@@ -85,16 +85,18 @@ buttons.
 - The account masthead uses ink with a slim violet rule and a small eucalyptus
   Detour tag. It includes both an explicit “Back to … discovery” link and the
   engaged Members navigation item.
-- Signed-out sign-in/invitation tabs and all signed-in invitation, endorsement,
-  waiting-list recommendation, and private-share workflows remain on this
-  route. Legacy visit-evidence and editorial-submission forms are not part of
-  the member interface. The page must never render a map, city chooser,
-  discovery controls, or catalogue below it.
+- Signed-out sign-in/invitation tabs and all signed-in invitation,
+  waiting-list recommendation, private-share, settings, and eligible member
+  contribution workflows remain on this route. Legacy visit-evidence and
+  editorial-submission forms are not part of the member interface. The page
+  must never render a map, city chooser, discovery controls, or catalogue below
+  it.
 - The member area is a continuous ledger, not a bordered/shadowed card attached
-  to a hero. It opens with community standing and endorsement progress, then
-  moves through endorsements, the member's private queue, private shares, and
-  invitations. Broad support surfaces use `--canvas`, while success, warning,
-  and error colors remain semantically separate from brand accents.
+  to a hero. Invitations, the member's private recommendation queue, private
+  shares, eligible contribution intake/history, and account settings remain
+  separated by the existing tabs. Broad support surfaces use `--canvas`, while
+  success, warning, and error colors remain semantically separate from brand
+  accents.
 - Privacy is expressed structurally: member search is a names-only typeahead;
   queue cards show place, status, and 0–3 signal progress; incoming shares show
   only the private note and place. Other members' status, email, identities,
@@ -104,10 +106,25 @@ buttons.
   need two active endorsements from verified members. Verified members also see
   their active outgoing allowance out of three.
 - A recommendation creates or updates a matching waiting-list entry. The UI
-  refreshes and highlights that queue card, where verified members can then
-  share the pending entry privately. Three independent recommendations publish
-  the place automatically into the shared selection; there is no editor-approval
-  promise in member-facing copy.
+  refreshes and highlights that queue card, where members can then share the
+  pending entry privately. Three independent recommendations publish the place
+  automatically into the shared selection; there is no editor-approval promise
+  in member-facing copy.
+- **Member contributions are a separate review lane.** Only a signed-in member
+  whose community status is `verified` sees the “Places I love” prompt, tab,
+  and form. The form sends only place name, city, country, optional address,
+  optional category, selected occasions, and a meaningful private recommendation
+  note; it never sends member, source, status, normalization, or curator fields.
+  The member's own contribution history loads independently from recommendations,
+  shares, and invitations so a contribution-list error becomes an account notice
+  without breaking those workflows.
+- Contribution confirmation and `in_review` records must say plainly that the
+  place is visible only in the contributor's account and is not public before
+  approval. The history is filtered to the signed-in contributor, shows review
+  status in both words and semantic color, and never renders recommendation or
+  curator notes. After successful intake, refresh the history and focus the new
+  in-review record. Approved details may be public; rejected details remain
+  non-public.
 
 ## Map pins
 
