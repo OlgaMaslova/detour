@@ -177,6 +177,22 @@ onRecordCreateRequest((e) => {
   e.next();
 }, "recommendations");
 
+// Every server-side Detour community award creation carries the catalogue lane
+// marker, including automatic waiting-list publication and the legacy curator
+// route below. Other award sources keep their explicitly supplied provenance.
+onRecordCreate((e) => {
+  if (!e.record.getString("provenance")) {
+    const sourceId = e.record.getString("source");
+    if (sourceId) {
+      const source = e.app.findRecordById("guide_sources", sourceId);
+      if (source.getString("slug") === "detour-community") {
+        e.record.set("provenance", "community_selection");
+      }
+    }
+  }
+  e.next();
+}, "venue_awards");
+
 // A verified member recommendation is one independent signal on the shared,
 // normalized waiting-list entry. All attribution, place resolution, private
 // participant state, and publication state are server-owned.

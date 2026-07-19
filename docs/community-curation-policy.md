@@ -1,7 +1,7 @@
 # Detour community waiting-list and membership policy
 
 **Status:** governing policy for the active community place workflow.
-**Applies to:** invitation-only membership, private legacy endorsements, community waiting-list entries, recommendations, shares, review-gated member place contributions, historical visit evidence/submissions, and public community selections.
+**Applies to:** invitation-only membership, private legacy endorsements, community waiting-list entries, recommendations, shares, review-gated member place contributions, source-attributed editorial local picks, historical visit evidence/submissions, and public community selections.
 
 ## 1. Active community place workflow
 
@@ -27,6 +27,10 @@ A published entry does not accept new community recommendations. The automatic t
 - Members cannot update or delete contributions through the records API. Curators review with superuser operations; contribution intake does not create, alter, or grant members edit rights over guide-backed `venues`, `guide_sources`, or `venue_awards` records.
 
 For San Francisco, discovery acceptance is inspectable: high-recognition guide-backed tables must remain present, while the approved local `member_recommended` lane must build queryable coverage across `celebration`, `casual_local_favorite`, `coffee`, `bakery`, `drinks_nightcap`, `neighborhood_meal`, `date_night`, `group_gathering`, and `quick_bite` occasions.
+
+`editorial_local_pick` is a separate catalogue lane for factual, source-attributed local selections made outside member workflows. It is neither a member contribution/community signal nor a backfill of guide-backed awards. It may publish only independently verified place facts plus public source attribution; editorial descriptions or other page prose are not copied.
+
+The San Francisco starter layer in this lane is inspectable on `venue_awards`: `provenance = 'editorial_local_pick'` distinguishes it from `guide_backed` and `community_selection`, while `occasions` uses the same controlled taxonomy as `member_place_contributions`. This addition does not change any existing guide-backed, contribution-review, community-threshold, privacy, or publication rule.
 
 ## 3. Private shares
 
@@ -131,6 +135,7 @@ A backend release satisfies this policy only when all of the following are true:
 - contribution source is always `member_recommended`, contributor linkage and recommendation notes remain private, and only approved contribution records are publicly readable;
 - member contribution requests never edit or create guide-backed catalogue records; and
 - San Francisco discovery retains high-recognition guide-backed tables while approved local contribution coverage is inspectable across celebration, casual local favorite, coffee, bakery, drinks/nightcap, neighborhood meal, date night, group gathering, and quick bite;
+- the separate San Francisco editorial starter layer is source-attributed, contains no copied editorial descriptions, and is inspectable through `venue_awards.provenance = 'editorial_local_pick'` plus the shared `occasions` taxonomy;
 - community membership activates immediately only when a person redeems a valid, one-time personal invitation from an existing member;
 - members may have at most three unclaimed personal invitations at a time, a redeemed invitation frees one slot, and no endorsement threshold, founding-verification status, or trust graph controls membership;
 - existing endorsement records remain private legacy records with no current role in membership or publication;
