@@ -22,6 +22,39 @@ routerAdd(
 
 routerAdd(
   "GET",
+  "/api/detour/member-place-contributions",
+  (e) => {
+    const records = e.app.findRecordsByFilter(
+      "member_place_contributions",
+      "member = {:member}",
+      "-created",
+      10000,
+      0,
+      { member: e.auth.id }
+    );
+    const items = [];
+    for (const record of records) {
+      items.push({
+        id: record.id,
+        place_name: record.getString("place_name"),
+        city: record.getString("city"),
+        country: record.getString("country"),
+        address: record.getString("address"),
+        category: record.getString("category"),
+        occasions: record.getStringSlice("occasions"),
+        status: record.getString("status"),
+        created: record.getString("created"),
+        updated: record.getString("updated"),
+      });
+    }
+
+    return e.json(200, { items: items });
+  },
+  $apis.requireAuth("members")
+);
+
+routerAdd(
+  "GET",
   "/api/detour/member-directory",
   (e) => {
     const rawQuery = e.request.url.query().get("q") || "";

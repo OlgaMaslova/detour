@@ -693,11 +693,11 @@ async function loadContributions(render: () => void): Promise<void> {
   loadingContributions = true;
   render();
   try {
-    contributions = await pb.collection('member_place_contributions').getFullList<ContributionRecord>({
-      filter: pb.filter('member = {:member}', { member: record.id }),
-      sort: '-created',
+    const response = await pb.send<{ items: ContributionRecord[] }>('/api/detour/member-place-contributions', {
+      method: 'GET',
       requestKey: null,
     });
+    contributions = response.items;
     contributionsLoaded = true;
   } catch (error) {
     contributions = [];
