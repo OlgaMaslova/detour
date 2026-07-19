@@ -2,8 +2,12 @@ import { pb } from './pocketbase';
 import type { CityBounds, CityEditorialSource } from './cities';
 
 export type AwardLevel = 1 | 2 | 3;
+export type AwardProvenance =
+  | 'guide_backed'
+  | 'editorial_local_pick'
+  | 'community_selection';
 
-/** One guide award held by a venue, with its own source attribution. */
+/** One published recognition held by a venue, with its own source attribution. */
 export interface VenueAward {
   /** Literal award-level label exactly as published by the guide, e.g. '1 Sol', '3 Soles', '2 Stars'. */
   awardLevel: string;
@@ -26,6 +30,12 @@ export interface VenueAward {
   sourceUrl: string;
   note: string;
   /**
+   * Public origin of this recognition. Backends that predate this field are
+   * normalized to `guide_backed`, except for the established Detour community
+   * source which retains its existing community behavior.
+   */
+  provenance: AwardProvenance;
+  /**
    * True when this recognition is a Detour community selection — public
    * provenance from the Detour community itself (guide source slug
    * 'detour-community'), not an award from an external guide. Community
@@ -44,7 +54,7 @@ export interface Venue {
   city: string;
   /** Country as stored on the venue record; '' when unknown. */
   country: string;
-  /** Every current recognition for this canonical venue, one entry per guide. */
+  /** Every current recognition for this canonical venue, one entry per attributed source. */
   awards: VenueAward[];
   /** Stable venue category from the catalogue (e.g. 'Pizza', 'Coffee'); '' when unspecified. */
   category: string;
@@ -171,6 +181,7 @@ export const demoVenues: Venue[] = [
           sourceName: SOURCE_NAME,
           sourceUrl: AWARD_PAGE_URLS[award],
           note: NEW_AWARD_NOTE,
+          provenance: 'guide_backed',
           community: false,
         },
       ],
@@ -198,6 +209,7 @@ export const demoVenues: Venue[] = [
           sourceName: SOURCE_NAME,
           sourceUrl: BOOKLET_URL,
           note: CONTINUING_NOTE,
+          provenance: 'guide_backed',
           community: false,
         },
       ],
@@ -228,6 +240,7 @@ export const demoVenues: Venue[] = [
         sourceName: PIZZA_SOURCE_NAME,
         sourceUrl: PIZZA_RANKING_URL,
         note: 'Rank verified on the official 50 Top Pizza Europa 2026 ranking page. Coordinates are OpenStreetMap-sourced (© OpenStreetMap contributors, ODbL), not taken from the guide.',
+        provenance: 'guide_backed',
         community: false,
       },
     ],
@@ -253,6 +266,7 @@ export const demoVenues: Venue[] = [
         sourceName: PIZZA_SOURCE_NAME,
         sourceUrl: PIZZA_RANKING_URL,
         note: 'Rank verified on the official 50 Top Pizza Europa 2026 ranking page; the ranking names the venue without a specific branch. Shown location is the operator’s primary pizzeria, corroborated via the official site and OpenStreetMap (© OpenStreetMap contributors, ODbL).',
+        provenance: 'guide_backed',
         community: false,
       },
     ],
@@ -278,6 +292,7 @@ export const demoVenues: Venue[] = [
         sourceName: COFFEE_SOURCE_NAME,
         sourceUrl: COFFEE_RECORD_URL,
         note: 'Rank verified on the official global top-100 ranking page and the official venue record. Coordinates are OpenStreetMap/Nominatim-sourced (© OpenStreetMap contributors, ODbL), not taken from the guide.',
+        provenance: 'guide_backed',
         community: false,
       },
     ],
@@ -334,6 +349,7 @@ type VenueAwardRecord = Record<string, unknown> & {
   level?: string;
   rank?: number | string;
   source_url?: string;
+  provenance?: string;
   current?: boolean;
 };
 
@@ -361,6 +377,7 @@ const COMMUNITY_SOURCE_SLUG = 'detour-community';
 const COMMUNITY_SOURCE_NAME = 'detour community';
 const COMMUNITY_LEVEL = 'detour community selection';
 const COMMUNITY_LABEL = 'Detour community selection';
+const EDITORIAL_LABEL = 'Editorial local pick';
 const LIST_RANK_RE = /\bNo\.\s*(\d+)\b/i;
 
 function cleanString(value: unknown): string {
@@ -407,6 +424,21 @@ function isCommunityRecognition(level: string, source: GuideSourceRecord | undef
   );
 }
 
+function provenanceOf(
+  value: unknown,
+  level: string,
+  source: GuideSourceRecord | undefined
+): AwardProvenance {
+  const provenance = cleanString(value).toLowerCase();
+  if (provenance === 'editorial_local_pick') return 'editorial_local_pick';
+  if (provenance === 'community_selection' || isCommunityRecognition(level, source)) {
+    return 'community_selection';
+  }
+  // Preserve the established guide-backed presentation for records loaded
+  // from backends that predate `venue_awards.provenance` (and unknown values).
+  return 'guide_backed';
+}
+
 function sortAwards(awards: VenueAward[]): VenueAward[] {
   return [...awards].sort(
     (a, b) =>
@@ -420,8 +452,8 @@ function sortAwards(awards: VenueAward[]): VenueAward[] {
 /**
  * Load the established public catalogue. `venues` is the canonical place list;
  * each current `venue_awards` row is joined to its `guide_sources` record so
- * guide names, literal levels, ranks, years, and official links stay attached
- * to the recognition that supplied them.
+ * guide/publication names, provenance, literal levels, ranks, years, and source
+ * links stay attached to the recognition that supplied them.
  */
 export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
   const [venueRecords, awardRecords, sourceRecords, cityRecords] = await Promise.all([
@@ -431,7 +463,7 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       requestKey: null,
     }),
     pb.collection('venue_awards').getFullList<VenueAwardRecord>({
-      fields: 'id,source,venue,year,level,rank,source_url,current',
+      fields: 'id,source,venue,year,level,rank,source_url,provenance,current',
       sort: 'venue,source,year',
       requestKey: null,
     }),
@@ -554,24 +586,29 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     if (!venue || !level) continue;
 
     const source = sourceById.get(cleanString(record.source));
-    const sourceName = cleanString(source?.name) || 'Unknown guide';
-    const community = isCommunityRecognition(level, source);
+    const provenance = provenanceOf(record.provenance, level, source);
+    const sourceName =
+      cleanString(source?.name) ||
+      (provenance === 'editorial_local_pick' ? 'Unknown publication' : 'Unknown guide');
+    const community = provenance === 'community_selection';
+    const editorial = provenance === 'editorial_local_pick';
     const explicitRank = positiveInteger(record.rank);
     const parsedListRank = listRankOf(level);
     const isRankedList = explicitRank !== null || parsedListRank !== null;
     const awardYear = positiveInteger(record.year) ?? positiveInteger(source?.current_year) ?? GUIDE_YEAR;
 
     venue.awards.push({
-      awardLevel: community ? COMMUNITY_LABEL : level,
-      awardRank: community || isRankedList ? null : awardRankOf(level),
-      listRank: community || !isRankedList ? null : (explicitRank ?? parsedListRank),
-      edition: community || !isRankedList ? '' : editionOf(level),
+      awardLevel: community ? COMMUNITY_LABEL : editorial ? EDITORIAL_LABEL : level,
+      awardRank: community || editorial || isRankedList ? null : awardRankOf(level),
+      listRank: community || editorial || !isRankedList ? null : (explicitRank ?? parsedListRank),
+      edition: community || editorial || !isRankedList ? '' : editionOf(level),
       awardYear,
       sourceName: community ? 'Detour community' : sourceName,
       sourceUrl: community
         ? ''
         : cleanString(record.source_url) || cleanString(source?.official_url),
       note: '',
+      provenance,
       community,
     });
   }

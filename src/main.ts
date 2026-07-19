@@ -117,10 +117,16 @@ function bestListRank(v: Venue): number {
   );
 }
 
-/* ---------- Detour community provenance (public only) ---------- */
+/* ---------- recognition provenance (public only) ---------- */
 
 /** The exact visible phrase used everywhere a community selection is shown. */
 const COMMUNITY_LABEL = 'Detour community selection';
+/** The exact visible phrase used everywhere a publication-backed local pick is shown. */
+const EDITORIAL_LABEL = 'Editorial local pick';
+
+function isEditorialAward(a: VenueAward): boolean {
+  return a.provenance === 'editorial_local_pick';
+}
 
 /** Whether the venue holds a current Detour community selection. */
 function hasCommunityAward(v: Venue): boolean {
@@ -132,9 +138,24 @@ function onlyCommunityAwards(v: Venue): boolean {
   return v.awards.length > 0 && v.awards.every((a) => a.community);
 }
 
-/** Plain-text award label: 'No. N — edition' for ranked awards, else the literal level. */
+function hasEditorialAward(v: Venue): boolean {
+  return v.awards.some(isEditorialAward);
+}
+
+function onlyEditorialAwards(v: Venue): boolean {
+  return v.awards.length > 0 && v.awards.every(isEditorialAward);
+}
+
+function hasGuideBackedAward(v: Venue): boolean {
+  return v.awards.some(
+    (a) => a.provenance === 'guide_backed' && !a.community && !a.sourceBadge
+  );
+}
+
+/** Plain-text award/source label: ranked guide wording, provenance label, or literal level. */
 function awardText(a: VenueAward): string {
   if (a.community) return COMMUNITY_LABEL;
+  if (isEditorialAward(a)) return EDITORIAL_LABEL;
   return a.listRank !== null ? `No. ${a.listRank} — ${a.edition}` : a.awardLevel;
 }
 
@@ -142,6 +163,7 @@ function awardText(a: VenueAward): string {
 function awardSummary(v: Venue): string {
   const summary = v.awards.map((a) => {
     if (a.community) return COMMUNITY_LABEL;
+    if (isEditorialAward(a)) return `${EDITORIAL_LABEL} — ${a.sourceName}`;
     if (a.sourceBadge) return `Source badge: ${a.sourceName}`;
     return `${awardText(a)} — ${a.sourceName} ${a.awardYear}`;
   });
@@ -153,7 +175,19 @@ function guideNames(v: Venue): string[] {
   return [
     ...new Set(
       v.awards
-        .filter((a) => !a.community && !a.sourceBadge)
+        .filter((a) => !a.community && !isEditorialAward(a) && !a.sourceBadge)
+        .map((a) => a.sourceName)
+        .filter(Boolean)
+    ),
+  ];
+}
+
+/** Unique publication names behind editorial local picks. */
+function editorialSourceNames(v: Venue): string[] {
+  return [
+    ...new Set(
+      v.awards
+        .filter(isEditorialAward)
         .map((a) => a.sourceName)
         .filter(Boolean)
     ),
@@ -476,7 +510,11 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
         ? `${markerRank}-level guide recognition`
         : onlyCommunityAwards(v)
           ? 'Detour community selection'
-          : 'ranked guide selection';
+          : onlyEditorialAwards(v)
+            ? EDITORIAL_LABEL
+            : hasEditorialAward(v) && !hasGuideBackedAward(v)
+              ? 'Editorial and Detour selections'
+              : 'ranked guide selection';
     const icon = L.divIcon({
       className: '',
       html: `<span class="map-pin ${markerClass}${selected ? ' pin-selected' : ''}" data-pin="${esc(v.id)}">
@@ -499,9 +537,11 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
         .map((a) =>
           a.community
             ? `<br><span class="popup-community"><span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)}</span>`
-            : a.sourceBadge
-              ? `<br>Source badge · ${esc(a.sourceName)}`
-              : `<br>${awardIcons(a)} ${esc(awardText(a))} · ${esc(a.sourceName)} ${a.awardYear}`
+            : isEditorialAward(a)
+              ? `<br>${esc(EDITORIAL_LABEL)} · ${esc(a.sourceName)}`
+              : a.sourceBadge
+                ? `<br>Source badge · ${esc(a.sourceName)}`
+                : `<br>${awardIcons(a)} ${esc(awardText(a))} · ${esc(a.sourceName)} ${a.awardYear}`
         )
         .join('')}`,
       { closeButton: false, offset: [0, -6] }
@@ -735,8 +775,10 @@ function venueCard(v: Venue): string {
                   ? `<span role="listitem" class="award award-community" title="${esc(COMMUNITY_LABEL)}">
                   <span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)}
                 </span>`
-                  : a.sourceBadge
-                    ? `<span role="listitem" class="award award-source ${sourceBadgeClass(a.sourceName)}" title="Source badge: ${esc(a.sourceName)}">${esc(a.sourceName)}</span>`
+                  : isEditorialAward(a)
+                    ? `<span role="listitem" class="award award-ranked" title="${esc(EDITORIAL_LABEL)} — ${esc(a.sourceName)}">${esc(EDITORIAL_LABEL)}</span>`
+                    : a.sourceBadge
+                      ? `<span role="listitem" class="award award-source ${sourceBadgeClass(a.sourceName)}" title="Source badge: ${esc(a.sourceName)}">${esc(a.sourceName)}</span>`
                     : a.listRank !== null
                       ? `<span role="listitem" class="award award-ranked" title="${esc(awardText(a))} — ${esc(a.sourceName)} ${a.awardYear}">
                   <span class="award-rank-no">No. ${a.listRank}</span> ${esc(a.edition)}
@@ -760,6 +802,12 @@ function venueCard(v: Venue): string {
           .map((a) => {
             if (a.community)
               return `<p class="card-source card-source-community"><span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)} — Detour’s editorial selection</p>`;
+            if (isEditorialAward(a))
+              return `<p class="card-source">${esc(EDITORIAL_LABEL)} · ${esc(a.sourceName)}${
+                a.sourceUrl
+                  ? ` — <a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">Source/list ↗</a>`
+                  : ''
+              }</p>`;
             if (a.sourceBadge)
               return `<p class="card-source card-source-badge ${sourceBadgeClass(a.sourceName)}"><span>Source badge</span> · ${esc(a.sourceName)}</p>`;
             const claim =
@@ -788,17 +836,22 @@ function detailPanel(): string {
     return `<p class="map-prompt" aria-live="polite">${prompt}</p>`;
   }
   const guides = guideNames(v);
+  const editorialSources = editorialSourceNames(v);
   const communityHere = hasCommunityAward(v);
   const sentences: string[] = [];
   if (guides.length > 0)
     sentences.push(`A current selection, independently recognised by ${guides.join(' and ')}.`);
+  if (editorialSources.length > 0)
+    sentences.push(
+      `${editorialSources.length === 1 ? 'An editorial local pick' : 'Editorial local picks'} attributed to ${editorialSources.join(' and ')}.`
+    );
   if (communityHere)
     sentences.push(
       guides.length > 0
         ? 'Also a Detour community selection, selected editorially by Detour.'
         : 'A Detour community selection, selected editorially by Detour.'
     );
-  const guideSentence = sentences.join(' ');
+  const provenanceSentence = sentences.join(' ');
   return `<aside class="detail" id="selected-place-detail" aria-live="polite" aria-label="Selected place">
     <div class="detail-head">
       <div>
@@ -818,8 +871,10 @@ function detailPanel(): string {
             .map((a) =>
               a.community
                 ? `<li class="detail-award detail-award-community"><span aria-hidden="true">◆</span> ${esc(COMMUNITY_LABEL)}</li>`
-                : a.sourceBadge
-                  ? `<li class="detail-award detail-source-badge ${sourceBadgeClass(a.sourceName)}"><span>Source badge</span>${esc(a.sourceName)}</li>`
+                : isEditorialAward(a)
+                  ? `<li class="detail-award detail-award-ranked">${esc(EDITORIAL_LABEL)} · ${esc(a.sourceName)}</li>`
+                  : a.sourceBadge
+                    ? `<li class="detail-award detail-source-badge ${sourceBadgeClass(a.sourceName)}"><span>Source badge</span>${esc(a.sourceName)}</li>`
                   : a.listRank !== null
                     ? `<li class="detail-award detail-award-ranked"><span class="award-rank-no">No. ${a.listRank}</span> ${esc(
                         a.edition
@@ -833,7 +888,7 @@ function detailPanel(): string {
             : ''
         }
         ${v.description ? `<p class="detail-description">${esc(v.description)}</p>` : ''}
-        ${guideSentence ? `<p class="detail-note">${esc(guideSentence)}</p>` : ''}
+        ${provenanceSentence ? `<p class="detail-note">${esc(provenanceSentence)}</p>` : ''}
       </section>
       <section class="detail-practical" aria-labelledby="detail-practical-title">
         <h3 id="detail-practical-title">Place details</h3>
@@ -845,7 +900,10 @@ function detailPanel(): string {
           }</dd></div>
           ${(() => {
             // Only retained external-guide recognition belongs under “Official guide”.
-            const external = v.awards.filter((a) => !a.community && !a.sourceBadge);
+            const external = v.awards.filter(
+              (a) => !a.community && !isEditorialAward(a) && !a.sourceBadge
+            );
+            const editorial = v.awards.filter(isEditorialAward);
             const guideRow = external.length
               ? `<div><dt>Official guide${external.length === 1 ? '' : 's'}</dt><dd>${external
                   .map((a) =>
@@ -855,10 +913,19 @@ function detailPanel(): string {
                   )
                   .join('<br>')}</dd></div>`
               : '';
+            const editorialRow = editorial.length
+              ? `<div><dt>Editorial source${editorial.length === 1 ? '' : 's'}</dt><dd>${editorial
+                  .map((a) =>
+                    a.sourceUrl
+                      ? `<a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(a.sourceName)} source/list ↗</a>`
+                      : esc(a.sourceName)
+                  )
+                  .join('<br>')}</dd></div>`
+              : '';
             const communityRow = communityHere
               ? `<div><dt>Community</dt><dd>${esc(COMMUNITY_LABEL)} — Detour’s editorial selection</dd></div>`
               : '';
-            return guideRow + communityRow;
+            return guideRow + editorialRow + communityRow;
           })()}
         </dl>
       </section>
@@ -1161,7 +1228,7 @@ function render(root: HTMLElement) {
       </div>
     </section>
     <footer class="footer">
-      <p>Detour is a current, deliberately edited selection of ${esc(destination.name)}’s exceptional tables. Each recognition belongs to its guide, with official links preserved for the original listings.</p>
+      <p>Detour is a current, deliberately edited selection of ${esc(destination.name)}’s exceptional tables. Guide recognition and editorial picks keep their source attribution, with original links preserved.</p>
     </footer>
   `;
 
