@@ -4,6 +4,7 @@ import L from 'leaflet';
 import { GUIDE_YEAR, citySlug, loadLiveCatalogue } from './data';
 import type { Venue, VenueAward } from './data';
 import { GLOBAL_META_DESCRIPTION, GLOBAL_META_TITLE } from './cities';
+import { OCCASION_OPTIONS, occasionLabel } from './occasions';
 import { bindCommunity, communityControl, communityPanel } from './community';
 
 /** '' = all award levels; otherwise a literal level label present in the loaded data. */
@@ -31,6 +32,8 @@ interface State {
   sourceFilter: string;
   /** '' = all categories; otherwise a venue category present in the loaded data (e.g. 'Pizza', 'Coffee'). */
   categoryFilter: string;
+  /** San Francisco-only multi-select occasion browsing; selected values compose as AND. */
+  occasionFilters: string[];
   selectedId: string | null;
   /** Whether the last selection came from a map pin or a list card — used to restore focus on close. */
   selectedVia: 'pin' | 'card' | null;
@@ -53,6 +56,7 @@ const state: State = {
   filter: '',
   sourceFilter: '',
   categoryFilter: '',
+  occasionFilters: [],
   selectedId: null,
   selectedVia: null,
   trayOpen: false,
@@ -123,6 +127,10 @@ function bestListRank(v: Venue): number {
 const COMMUNITY_LABEL = 'Detour community selection';
 /** The exact visible phrase used everywhere a publication-backed local pick is shown. */
 const EDITORIAL_LABEL = 'Editorial local pick';
+const LOCAL_MEMBER_TEXT = 'Recommended by a local member';
+/** The exact visible phrase used for approved public member contributions. */
+const LOCAL_MEMBER_LABEL = `${LOCAL_MEMBER_TEXT}.`;
+const LOCAL_MEMBER_FILTER = '__local_member_recommendation__';
 
 function isEditorialAward(a: VenueAward): boolean {
   return a.provenance === 'editorial_local_pick';
@@ -152,6 +160,22 @@ function hasGuideBackedAward(v: Venue): boolean {
   );
 }
 
+function hasLocalMemberRecommendation(v: Venue): boolean {
+  return v.localMemberRecommendation === true;
+}
+
+function venueOccasions(v: Venue): string[] {
+  return v.occasions ?? [];
+}
+
+function occasionSummary(v: Venue): string {
+  return venueOccasions(v).map(occasionLabel).join(', ');
+}
+
+function spokenAwardSummary(v: Venue): string {
+  return awardSummary(v).replace(/[.!?]+$/, '');
+}
+
 /** Plain-text award/source label: ranked guide wording, provenance label, or literal level. */
 function awardText(a: VenueAward): string {
   if (a.community) return COMMUNITY_LABEL;
@@ -167,6 +191,7 @@ function awardSummary(v: Venue): string {
     if (a.sourceBadge) return `Source badge: ${a.sourceName}`;
     return `${awardText(a)} — ${a.sourceName} ${a.awardYear}`;
   });
+  if (hasLocalMemberRecommendation(v)) summary.push(LOCAL_MEMBER_LABEL);
   return summary.join('; ') || [v.category, v.city].filter(Boolean).join(' in ');
 }
 
@@ -265,6 +290,7 @@ function resetDestinationState(): void {
   state.filter = '';
   state.sourceFilter = '';
   state.categoryFilter = '';
+  state.occasionFilters = [];
   state.selectedId = null;
   state.selectedVia = null;
   state.trayOpen = false;
@@ -370,10 +396,14 @@ function awardFilters(): { value: Filter; label: string }[] {
   const levels = [...seen.entries()].sort(
     (a, b) => (b[1] ?? -1) - (a[1] ?? -1) || a[0].localeCompare(b[0])
   );
-  return [
+  const filters = [
     { value: '' as Filter, label: 'All' },
     ...levels.map(([level]) => ({ value: level as Filter, label: level })),
   ];
+  if (destinationVenues().some(hasLocalMemberRecommendation)) {
+    filters.push({ value: LOCAL_MEMBER_FILTER, label: LOCAL_MEMBER_LABEL });
+  }
+  return filters;
 }
 
 /** Stable category options present in the loaded data (e.g. 'Coffee', 'Pizza'). */
@@ -391,14 +421,18 @@ function sourceNames(): string[] {
 }
 
 function filteredVenues(): Venue[] {
-  // A filter matches when ANY of the venue's awards matches, so a venue
-  // recognised by several guides stays visible under each guide's filter.
+  // A recognition filter matches when ANY of the venue's awards matches; the
+  // approved local-member lane is explicit and never treated as a guide award.
   const list = destinationVenues().filter(
     (v) =>
-      (state.filter === '' || v.awards.some((a) => a.awardLevel === state.filter)) &&
+      (state.filter === '' ||
+        (state.filter === LOCAL_MEMBER_FILTER
+          ? hasLocalMemberRecommendation(v)
+          : v.awards.some((a) => a.awardLevel === state.filter))) &&
       (state.sourceFilter === '' ||
         v.awards.some((a) => a.sourceName === state.sourceFilter)) &&
-      (state.categoryFilter === '' || v.category === state.categoryFilter)
+      (state.categoryFilter === '' || v.category === state.categoryFilter) &&
+      state.occasionFilters.every((occasion) => venueOccasions(v).includes(occasion))
   );
   return [...list].sort(
     (a, b) =>
@@ -410,19 +444,31 @@ function filteredVenues(): Venue[] {
 }
 
 interface ActiveFilter {
-  kind: 'award' | 'category' | 'source';
+  kind: 'award' | 'category' | 'source' | 'occasion';
   label: string;
   value: string;
 }
 
 function activeFilters(): ActiveFilter[] {
   const chips: ActiveFilter[] = [];
-  if (state.filter) chips.push({ kind: 'award', label: state.filter, value: state.filter });
+  if (state.filter)
+    chips.push({
+      kind: 'award',
+      label: state.filter === LOCAL_MEMBER_FILTER ? LOCAL_MEMBER_LABEL : state.filter,
+      value: state.filter,
+    });
   if (state.categoryFilter)
     chips.push({ kind: 'category', label: state.categoryFilter, value: state.categoryFilter });
   if (state.sourceFilter)
     chips.push({ kind: 'source', label: state.sourceFilter, value: state.sourceFilter });
+  for (const occasion of state.occasionFilters) {
+    chips.push({ kind: 'occasion', label: occasionLabel(occasion), value: occasion });
+  }
   return chips;
+}
+
+function isSanFranciscoDestination(): boolean {
+  return state.destination === 'san-francisco';
 }
 
 /* ---------- interactive map (Leaflet + OpenStreetMap) ---------- */
@@ -505,16 +551,13 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
     // hold an external guide award retain that guide's ranked pearl treatment.
     const markerClass =
       markerRank > 0 ? `pin-${markerRank}` : onlyCommunityAwards(v) ? 'pin-community' : 'pin-ranked';
-    const markerMeaning =
-      markerRank > 0
-        ? `${markerRank}-level guide recognition`
-        : onlyCommunityAwards(v)
-          ? 'Detour community selection'
-          : onlyEditorialAwards(v)
-            ? EDITORIAL_LABEL
-            : hasEditorialAward(v) && !hasGuideBackedAward(v)
-              ? 'Editorial and Detour selections'
-              : 'ranked guide selection';
+    const markerMeanings: string[] = [];
+    if (markerRank > 0) markerMeanings.push(`${markerRank}-level guide recognition`);
+    else if (hasGuideBackedAward(v)) markerMeanings.push('guide selection');
+    if (hasEditorialAward(v)) markerMeanings.push(EDITORIAL_LABEL);
+    if (hasCommunityAward(v)) markerMeanings.push(COMMUNITY_LABEL);
+    if (hasLocalMemberRecommendation(v)) markerMeanings.push(LOCAL_MEMBER_TEXT);
+    const markerMeaning = markerMeanings.join(' · ') || 'current selection';
     const icon = L.divIcon({
       className: '',
       html: `<span class="map-pin ${markerClass}${selected ? ' pin-selected' : ''}" data-pin="${esc(v.id)}">
@@ -543,7 +586,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
                 ? `<br>Source badge · ${esc(a.sourceName)}`
                 : `<br>${awardIcons(a)} ${esc(awardText(a))} · ${esc(a.sourceName)} ${a.awardYear}`
         )
-        .join('')}`,
+        .join('')}${hasLocalMemberRecommendation(v) ? `<br><span class="popup-member">${esc(LOCAL_MEMBER_LABEL)}</span>` : ''}${isSanFranciscoDestination() && venueOccasions(v).length ? `<br><span class="popup-occasions">Good for: ${esc(occasionSummary(v))}</span>` : ''}`,
       { closeButton: false, offset: [0, -6] }
     );
     const select = () => {
@@ -568,7 +611,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
         pin.setAttribute('aria-pressed', String(selected));
         pin.setAttribute(
           'aria-label',
-          `${v.name}, ${awardSummary(v)}. ${selected ? 'Selected.' : 'Select for details.'}`
+          `${v.name}, ${spokenAwardSummary(v)}${isSanFranciscoDestination() && venueOccasions(v).length ? `. Good for ${occasionSummary(v)}` : ''}. ${selected ? 'Selected.' : 'Select for details.'}`
         );
         pin.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -660,13 +703,36 @@ function listPreviewStage(): string {
   </section>`;
 }
 
+function occasionBrowser(): string {
+  if (!isSanFranciscoDestination()) return '';
+  const buttons = OCCASION_OPTIONS.map(([value, label]) => {
+    const active = state.occasionFilters.includes(value);
+    const count = destinationVenues().filter((venue) => venueOccasions(venue).includes(value)).length;
+    return `<button type="button" class="occasion-option${active ? ' occasion-option-active' : ''}" data-occasion="${esc(value)}" aria-pressed="${active}" aria-label="${esc(label)}, ${count} ${count === 1 ? 'place' : 'places'}">
+      <span>${esc(label)}</span><small aria-hidden="true">${count}</small>
+    </button>`;
+  }).join('');
+  return `<section class="occasion-browser" aria-labelledby="occasion-browser-title" aria-describedby="occasion-browser-help">
+    <div class="occasion-browser-copy">
+      <h2 id="occasion-browser-title">What kind of stop is this?</h2>
+      <p id="occasion-browser-help">Choose one or more occasions. Places must match every choice; keep All occasions selected to include guide-backed places without occasion tags.</p>
+    </div>
+    <div class="occasion-options" role="group" aria-label="Browse San Francisco by occasion">
+      <button type="button" class="occasion-option occasion-option-all${state.occasionFilters.length === 0 ? ' occasion-option-active' : ''}" data-occasion="" aria-pressed="${state.occasionFilters.length === 0}">
+        <span>All occasions</span><small aria-hidden="true">${destinationVenues().length}</small>
+      </button>
+      ${buttons}
+    </div>
+  </section>`;
+}
+
 function refineChips(): string {
   const chips = activeFilters();
   if (chips.length === 0) return '';
   return `<div class="chips" aria-label="Active filters">
     ${chips
       .map(
-        (c) => `<button type="button" class="chip" data-chip="${c.kind}"
+        (c) => `<button type="button" class="chip" data-chip="${c.kind}" data-chip-value="${esc(c.value)}"
           aria-label="Remove filter ${esc(c.label)}">${esc(c.label)}<span class="chip-x" aria-hidden="true">×</span></button>`
       )
       .join('')}
@@ -752,6 +818,7 @@ function discoveryBar(list: Venue[], hasMap: boolean): string {
       }
       <span class="count" aria-live="polite">${list.length} ${list.length === 1 ? 'place' : 'places'}</span>
     </div>
+    ${occasionBrowser()}
     ${filterTray()}
     ${refineChips()}
     ${state.geoStatus ? `<p class="geo-status" role="status">${esc(state.geoStatus)}</p>` : ''}
@@ -762,7 +829,13 @@ function venueCard(v: Venue): string {
   const selected = v.id === state.selectedId;
   const rank = maxAwardRank(v);
   const cardTone =
-    rank > 0 ? ` card-rank-${rank}` : onlyCommunityAwards(v) ? ' card-community' : ' card-ranked';
+    rank > 0
+      ? ` card-rank-${rank}`
+      : onlyCommunityAwards(v)
+        ? ' card-community'
+        : hasLocalMemberRecommendation(v) && v.awards.length === 0
+          ? ' card-member'
+          : ' card-ranked';
   return `<li>
     <article class="card${cardTone}${selected ? ' card-selected' : ''}">
       <button type="button" class="card-main" data-venue="${esc(v.id)}" aria-expanded="${selected}">
@@ -788,6 +861,7 @@ function venueCard(v: Venue): string {
                 </span>`
               )
               .join('')}
+            ${hasLocalMemberRecommendation(v) ? `<span role="listitem" class="award award-member" title="${esc(LOCAL_MEMBER_LABEL)}">${esc(LOCAL_MEMBER_LABEL)}</span>` : ''}
           </span>
         </div>
         <p class="card-meta">${esc([v.category, v.neighborhood].filter(Boolean).join(' · '))}</p>
@@ -796,6 +870,7 @@ function venueCard(v: Venue): string {
             ? esc(v.address)
             : '<span class="approx">Map position being refined</span>'
         }</p>
+        ${isSanFranciscoDestination() && venueOccasions(v).length ? `<span class="card-occasions" aria-label="Good for ${esc(occasionSummary(v))}"><span class="card-occasions-label">Good for</span>${venueOccasions(v).map((occasion) => `<span>${esc(occasionLabel(occasion))}</span>`).join('')}</span>` : ''}
       </button>
       <div class="card-sources">
         ${v.awards
@@ -821,6 +896,7 @@ function venueCard(v: Venue): string {
             }</p>`;
           })
           .join('')}
+        ${hasLocalMemberRecommendation(v) ? `<p class="card-source card-source-member">${esc(LOCAL_MEMBER_LABEL)}</p>` : ''}
       </div>
     </article>
   </li>`;
@@ -838,6 +914,7 @@ function detailPanel(): string {
   const guides = guideNames(v);
   const editorialSources = editorialSourceNames(v);
   const communityHere = hasCommunityAward(v);
+  const memberHere = hasLocalMemberRecommendation(v);
   const sentences: string[] = [];
   if (guides.length > 0)
     sentences.push(`A current selection, independently recognised by ${guides.join(' and ')}.`);
@@ -851,6 +928,7 @@ function detailPanel(): string {
         ? 'Also a Detour community selection, selected editorially by Detour.'
         : 'A Detour community selection, selected editorially by Detour.'
     );
+  if (memberHere) sentences.push(LOCAL_MEMBER_LABEL);
   const provenanceSentence = sentences.join(' ');
   return `<aside class="detail" id="selected-place-detail" aria-live="polite" aria-label="Selected place">
     <div class="detail-head">
@@ -865,8 +943,8 @@ function detailPanel(): string {
       <section class="detail-recognition" aria-labelledby="detail-recognition-title">
         <h3 id="detail-recognition-title">Why it’s here</h3>
         ${
-          v.awards.length
-            ? `<ul class="detail-awards" aria-label="Source badges and recognition">
+          v.awards.length || memberHere
+            ? `<ul class="detail-awards" aria-label="Source badges, recognition, and recommendation provenance">
           ${v.awards
             .map((a) =>
               a.community
@@ -884,6 +962,7 @@ function detailPanel(): string {
                       )} · ${esc(a.sourceName)} ${a.awardYear}</li>`
             )
             .join('')}
+          ${memberHere ? `<li class="detail-award detail-award-member">${esc(LOCAL_MEMBER_LABEL)}</li>` : ''}
         </ul>`
             : ''
         }
@@ -898,6 +977,7 @@ function detailPanel(): string {
               ? esc(v.address)
               : '<span class="approx">Map position being refined</span>'
           }</dd></div>
+          ${isSanFranciscoDestination() && venueOccasions(v).length ? `<div><dt>Good for</dt><dd>${esc(venueOccasions(v).map(occasionLabel).join(' · '))}</dd></div>` : ''}
           ${(() => {
             // Only retained external-guide recognition belongs under “Official guide”.
             const external = v.awards.filter(
@@ -925,7 +1005,10 @@ function detailPanel(): string {
             const communityRow = communityHere
               ? `<div><dt>Community</dt><dd>${esc(COMMUNITY_LABEL)} — Detour’s editorial selection</dd></div>`
               : '';
-            return guideRow + editorialRow + communityRow;
+            const memberRow = memberHere
+              ? `<div><dt>Local member</dt><dd>${esc(LOCAL_MEMBER_LABEL)}</dd></div>`
+              : '';
+            return guideRow + editorialRow + communityRow + memberRow;
           })()}
         </dl>
       </section>
@@ -949,7 +1032,9 @@ function syncDocumentMeta(destinationName: string | null, account = false): void
       account
         ? 'Sign in to Detour membership to manage invitations, recommend places, and exchange private place shares.'
         : destinationName
-          ? `Explore Detour’s current ${destinationName} selection: exceptional tables with published recognition from named guides or the Detour community.`
+          ? destinationName === 'San Francisco'
+            ? 'Browse Detour’s San Francisco selection by occasion, with guide recognition, editorial local picks, Detour community selections, and approved local-member recommendations clearly attributed.'
+            : `Explore Detour’s current ${destinationName} selection: exceptional tables with published recognition from named guides or the Detour community.`
           : GLOBAL_META_DESCRIPTION
     );
   }
@@ -1083,7 +1168,7 @@ function renderHome(root: HTMLElement): void {
       <div class="hero-inner city-chooser-header">
         <p class="brand">Detour</p>
         <h1>Where is your next detour?</h1>
-        <p class="tagline city-chooser-intro">A collection of exceptional tables, chosen for the recognition they hold now — from named guides and from Detour’s own members.</p>
+        <p class="tagline city-chooser-intro">A collection of exceptional tables with clear provenance — from named guides and editorial sources to Detour community selections and approved local-member recommendations.</p>
         <form class="destination-search" data-destination-search role="search" aria-label="Find a destination or place">
           <label class="visually-hidden" for="destination-search">Destination or place</label>
           <input id="destination-search" name="query" type="search" list="destination-search-options" autocomplete="off" spellcheck="false" placeholder="A city or a place — Madrid, Casa Botín…" ${state.mode !== 'live' ? 'disabled' : ''}>
@@ -1098,7 +1183,7 @@ function renderHome(root: HTMLElement): void {
     <section class="city-chooser" aria-labelledby="destination-choices-title">
       <div class="city-chooser-heading">
         <h2 id="destination-choices-title">Where Detour is today</h2>
-        <p>Every destination below carries current, published recognition.</p>
+        <p>Every destination below has current published places with clear provenance.</p>
       </div>
       ${status}
       ${coverage}
@@ -1201,14 +1286,21 @@ function render(root: HTMLElement) {
       <button type="button" class="empty-state-reset" data-reset-filters>Show everything</button>
     </div>`;
   const selectionLabel = `${list.length} ${list.length === 1 ? 'place' : 'places'}`;
+  const sanFrancisco = isSanFranciscoDestination();
+  const destinationTitle = sanFrancisco
+    ? 'San Francisco, for the plan you have.'
+    : `${destination.name}’s exceptional tables, selected.`;
+  const destinationTagline = sanFrancisco
+    ? `${destination.count} current ${destination.count === 1 ? 'place' : 'places'}. Browse by occasion, from celebrations and date nights to neighborhood meals and quick local stops.`
+    : `${destination.count} current ${destination.count === 1 ? 'place' : 'places'} holding published recognition.`;
 
   root.innerHTML = `
     <a class="skip-link" href="${hasMap ? '#venue-map' : '#selection-disclosure-title'}">Skip to discovery</a>
     <header class="hero city-detail-hero">
       <div class="hero-inner">
         <p class="brand">Detour</p>
-        <h1 id="destination-title" tabindex="-1">${esc(destination.name)}’s exceptional tables, selected.</h1>
-        <p class="tagline">${destination.count} current ${destination.count === 1 ? 'place' : 'places'} holding published recognition.</p>
+        <h1 id="destination-title" tabindex="-1">${esc(destinationTitle)}</h1>
+        <p class="tagline">${esc(destinationTagline)}</p>
       </div>
       <div class="hero-account">${communityControl(accountHref())}</div>
     </header>
@@ -1228,7 +1320,7 @@ function render(root: HTMLElement) {
       </div>
     </section>
     <footer class="footer">
-      <p>Detour is a current, deliberately edited selection of ${esc(destination.name)}’s exceptional tables. Guide recognition and editorial picks keep their source attribution, with original links preserved.</p>
+      <p>${sanFrancisco ? 'San Francisco places keep their provenance explicit: guide recognition, editorial local picks, Detour community selections, and approved local-member recommendations are distinct. Occasion tags reflect only published catalogue data.' : `Detour is a current, deliberately edited selection of ${esc(destination.name)}’s exceptional tables. Guide recognition and editorial picks keep their source attribution, with original links preserved.`}</p>
     </footer>
   `;
 
@@ -1266,6 +1358,20 @@ function render(root: HTMLElement) {
       render(root);
     });
   });
+  root.querySelectorAll<HTMLButtonElement>('[data-occasion]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const occasion = btn.dataset.occasion ?? '';
+      if (!occasion) state.occasionFilters = [];
+      else if (state.occasionFilters.includes(occasion)) {
+        state.occasionFilters = state.occasionFilters.filter((value) => value !== occasion);
+      } else {
+        state.occasionFilters = [...state.occasionFilters, occasion];
+      }
+      keepSelectionValid();
+      pendingFocus = `[data-occasion="${CSS.escape(occasion)}"]`;
+      render(root);
+    });
+  });
   root.querySelector<HTMLButtonElement>('[data-tray-toggle]')?.addEventListener('click', () => {
     state.trayOpen = !state.trayOpen;
     pendingFocus = '[data-tray-toggle]';
@@ -1288,6 +1394,10 @@ function render(root: HTMLElement) {
       if (kind === 'award') state.filter = '';
       if (kind === 'category') state.categoryFilter = '';
       if (kind === 'source') state.sourceFilter = '';
+      if (kind === 'occasion') {
+        const value = btn.dataset.chipValue ?? '';
+        state.occasionFilters = state.occasionFilters.filter((occasion) => occasion !== value);
+      }
       keepSelectionValid();
       pendingFocus = '[data-tray-toggle]';
       render(root);
@@ -1298,6 +1408,7 @@ function render(root: HTMLElement) {
       state.filter = '';
       state.sourceFilter = '';
       state.categoryFilter = '';
+      state.occasionFilters = [];
       pendingFocus = '[data-tray-toggle]';
       render(root);
     });
@@ -1330,6 +1441,7 @@ function render(root: HTMLElement) {
     state.filter = '';
     state.sourceFilter = '';
     state.categoryFilter = '';
+    state.occasionFilters = [];
     pendingFocus = '[data-selection-toggle]';
     render(root);
   });

@@ -1874,6 +1874,70 @@ a:hover { color: var(--violet); }
 .chip:hover { background: var(--mint); }
 .chip-clear { background: transparent; color: var(--ink-soft); border-color: var(--line-strong); }
 
+/* San Francisco occasion browsing: a planner-first layer without displacing the map. */
+.occasion-browser {
+  display: grid;
+  grid-template-columns: minmax(15rem, 0.42fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 0.8rem 1.25rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line-strong);
+}
+.occasion-browser-copy { display: grid; gap: 0.3rem; }
+.occasion-browser h2 {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 1.28rem;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.occasion-browser p {
+  max-width: 54ch;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+.occasion-options { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.occasion-option {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.45rem 0.55rem 0.45rem 0.75rem;
+  color: var(--ink);
+  background: white;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 180ms cubic-bezier(0.25, 1, 0.5, 1), background-color 180ms cubic-bezier(0.25, 1, 0.5, 1), border-color 180ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+.occasion-option:hover { color: var(--violet); border-color: var(--violet); }
+.occasion-option small {
+  min-width: 1.6rem;
+  padding: 0.15rem 0.35rem;
+  color: var(--ink-soft);
+  background: var(--canvas);
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.occasion-option-active,
+.occasion-option-active:hover { color: white; background: var(--oxblood); border-color: var(--oxblood); }
+.occasion-option-active small { color: var(--ink); background: var(--mint); }
+.occasion-option-all.occasion-option-active,
+.occasion-option-all.occasion-option-active:hover { background: var(--ink); border-color: var(--ink); }
+
 /* Map is the primary city-discovery surface. */
 .map-stage { margin: 1rem 0 1.75rem; }
 .map-panel-live {
@@ -1903,6 +1967,8 @@ a:hover { color: var(--violet); }
 }
 .venue-map .leaflet-popup-tip { background: white; }
 .popup-community { color: var(--violet); font-family: var(--sans); font-style: normal; }
+.popup-member { color: oklch(0.31 0.06 155); font-weight: 750; }
+.popup-occasions { color: var(--ink-soft); font-size: 0.82em; }
 .map-note { background: var(--canvas); color: var(--ink-soft); font-family: var(--sans); font-style: normal; }
 .map-prompt { margin: 0.65rem 0.2rem 0; color: var(--ink-soft); font-family: var(--sans); font-style: normal; }
 
@@ -2090,6 +2156,7 @@ a:hover { color: var(--violet); }
 .detail-award-ranked { color: white; background: var(--oxblood); }
 .detail-award-community { color: white; background: var(--violet); font-family: var(--sans); font-style: normal; }
 .detail-award-community span[aria-hidden] { color: var(--mint); }
+.detail-award-member { color: white; background: var(--ink); }
 .detail-source-badge { color: var(--ink); background: var(--mint); }
 .detail-description { margin-top: 1rem; }
 .detail-note { margin: 1rem 0 0; color: var(--ink-soft); font-family: var(--sans); font-style: normal; }
@@ -2218,6 +2285,7 @@ a:hover { color: var(--violet); }
 .card-rank-1::before { background: var(--violet); }
 .card-ranked::before { background: var(--oxblood); }
 .card-community::before { height: 9px; background: var(--violet); }
+.card-member::before { height: 9px; background: var(--ink); }
 .card:hover { border-color: var(--ink); box-shadow: 0 6px 0 var(--mint-soft); }
 .card-selected,
 .card-selected:hover { border: 2px solid var(--ink); box-shadow: var(--sticker-shadow); }
@@ -2231,11 +2299,34 @@ a:hover { color: var(--violet); }
 .award-1 { color: white; background: var(--violet); }
 .award-ranked { color: white; background: var(--oxblood); }
 .award-community { color: white; background: var(--violet); border-color: var(--mint); }
+.award-member { color: white; background: var(--ink); }
 .award-source { color: var(--ink); background: var(--mint); }
 .card-source { color: var(--ink-soft); background: var(--canvas); }
 .card-source a { color: var(--oxblood); font-weight: 700; }
 .card-source-badge { color: var(--ink); background: var(--mint-soft); }
 .card-source-community { color: var(--violet); background: var(--violet-soft); font-family: var(--sans); font-style: normal; }
+.card-source-member { color: oklch(0.31 0.06 155); background: var(--mint-soft); font-weight: 750; }
+.card-occasions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.7rem;
+}
+.card-occasions > span:not(.card-occasions-label) {
+  padding: 0.22rem 0.42rem;
+  color: oklch(0.33 0.06 310);
+  background: var(--violet-soft);
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.card-occasions-label {
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
 .empty-state { background: white; color: var(--ink-soft); }
 .empty-state-reset {
   color: white;
@@ -2261,6 +2352,7 @@ a:hover { color: var(--violet); }
 .footer p { color: var(--ink-soft); }
 
 @media (max-width: 920px) {
+  .occasion-browser { grid-template-columns: 1fr; }
   .city-choices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .city-choice:nth-child(2) { margin-top: 1.4rem; }
   .city-choice:nth-child(3) { grid-column: 1 / -1; width: min(100%, 32rem); }
@@ -2305,6 +2397,14 @@ a:hover { color: var(--violet); }
   .city-choice:nth-child(3n + 2) .city-choice-name,
   .city-choice:nth-child(3n + 3) .city-choice-name { font-size: clamp(2rem, 11vw, 2.6rem); }
   .discovery { padding-top: 0.85rem; }
+  .occasion-options {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 0.15rem 0.1rem 0.55rem;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+  }
+  .occasion-option { flex: 0 0 auto; scroll-snap-align: start; }
   .all-cities-control { order: 1; }
   .city-control { order: 2; flex: 1 1 10rem; }
   .refine-btn { order: 3; }

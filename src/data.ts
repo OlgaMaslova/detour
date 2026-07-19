@@ -1,5 +1,7 @@
 import { pb } from './pocketbase';
 import type { CityBounds, CityEditorialSource } from './cities';
+import { knownOccasions } from './occasions';
+import type { Occasion } from './occasions';
 
 export type AwardLevel = 1 | 2 | 3;
 export type AwardProvenance =
@@ -45,6 +47,8 @@ export interface VenueAward {
   community: boolean;
   /** True when this entry adapts a public `places.source_badges` value rather than a graded award. */
   sourceBadge?: boolean;
+  /** Factual occasion tags stored on this recognition record. */
+  occasions?: Occasion[];
 }
 
 export interface Venue {
@@ -72,6 +76,10 @@ export interface Venue {
   description?: string;
   sourceBadges?: string[];
   imageUrl?: string;
+  /** Factual occasion tags aggregated from public recognition and approved contribution records. */
+  occasions?: Occasion[];
+  /** True only when an approved public member contribution recommends this place. */
+  localMemberRecommendation?: boolean;
 }
 
 export const GUIDE_YEAR = 2026;
@@ -350,7 +358,19 @@ type VenueAwardRecord = Record<string, unknown> & {
   rank?: number | string;
   source_url?: string;
   provenance?: string;
+  occasions?: string[];
   current?: boolean;
+};
+
+type MemberContributionRecord = Record<string, unknown> & {
+  id: string;
+  place_name?: string;
+  city?: string;
+  country?: string;
+  address?: string;
+  category?: string;
+  occasions?: string[];
+  status?: string;
 };
 
 type CityRecord = Record<string, unknown> & {
@@ -382,6 +402,34 @@ const LIST_RANK_RE = /\bNo\.\s*(\d+)\b/i;
 
 function cleanString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function contributionCategory(value: unknown): string {
+  const category = cleanString(value);
+  const labels: Record<string, string> = {
+    restaurant: 'Restaurant',
+    cafe: 'Café',
+    bakery: 'Bakery',
+    bar: 'Bar',
+    cocktail_bar: 'Cocktail bar',
+    wine_bar: 'Wine bar',
+    brewery: 'Brewery',
+    food_market: 'Food market',
+    deli: 'Deli',
+    dessert_shop: 'Dessert shop',
+    ice_cream: 'Ice cream',
+    takeaway: 'Takeaway',
+    other: 'Other',
+  };
+  return labels[category] ?? category;
+}
+
+function identityKey(name: string, city: string): string {
+  return `${citySlug(city)}::${citySlug(name)}`;
+}
+
+function mergeOccasions(...groups: Array<readonly Occasion[] | undefined>): Occasion[] {
+  return [...new Set(groups.flatMap((group) => group ?? []))];
 }
 
 function cleanNumber(value: unknown): number | null {
@@ -456,14 +504,14 @@ function sortAwards(awards: VenueAward[]): VenueAward[] {
  * links stay attached to the recognition that supplied them.
  */
 export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
-  const [venueRecords, awardRecords, sourceRecords, cityRecords] = await Promise.all([
+  const [venueRecords, awardRecords, sourceRecords, cityRecords, contributionRecords] = await Promise.all([
     pb.collection('venues').getFullList<VenueRecord>({
       fields: 'id,name,city,country,address,lat,lng,category,official_url,approx_location',
       sort: 'city,name',
       requestKey: null,
     }),
     pb.collection('venue_awards').getFullList<VenueAwardRecord>({
-      fields: 'id,source,venue,year,level,rank,source_url,provenance,current',
+      fields: 'id,source,venue,year,level,rank,source_url,provenance,occasions,current',
       sort: 'venue,source,year',
       requestKey: null,
     }),
@@ -480,6 +528,18 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       .collection('cities')
       .getFullList<CityRecord>({ sort: 'name', requestKey: null })
       .catch(() => [] as CityRecord[]),
+    // Approved member contributions are a public, optional discovery lane.
+    // Query only the safe public fields and tolerate older backends where the
+    // collection does not exist or is temporarily unavailable.
+    pb
+      .collection('member_place_contributions')
+      .getFullList<MemberContributionRecord>({
+        filter: "status = 'approved'",
+        fields: 'id,place_name,city,country,address,category,occasions,status',
+        sort: 'city,place_name',
+        requestKey: null,
+      })
+      .catch(() => [] as MemberContributionRecord[]),
   ]);
 
   const sourceById = new Map(sourceRecords.map((source) => [source.id, source]));
@@ -527,7 +587,8 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     });
   }
 
-  for (const record of venueRecords) {
+  for (const record of [...venueRecords, ...contributionRecords]) {
+    if ('status' in record && cleanString(record.status) !== 'approved') continue;
     const name = cleanString(record.city);
     if (!name) continue;
     const key = name.toLowerCase();
@@ -610,7 +671,54 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       note: '',
       provenance,
       community,
+      occasions: knownOccasions(record.occasions),
     });
+    venue.occasions = mergeOccasions(venue.occasions, knownOccasions(record.occasions));
+  }
+
+  const venueByIdentity = new Map<string, Venue>();
+  for (const venue of venuesById.values()) {
+    venueByIdentity.set(identityKey(venue.name, venue.city), venue);
+  }
+
+  for (const record of contributionRecords) {
+    if (cleanString(record.status) !== 'approved') continue;
+    const id = cleanString(record.id);
+    const name = cleanString(record.place_name);
+    const cityName = cleanString(record.city);
+    const city = citiesByName.get(cityName.toLowerCase());
+    if (!id || !name || !city) continue;
+
+    const occasions = knownOccasions(record.occasions);
+    const existing = venueByIdentity.get(identityKey(name, city.name));
+    if (existing) {
+      existing.localMemberRecommendation = true;
+      existing.occasions = mergeOccasions(existing.occasions, occasions);
+      if (!existing.country) existing.country = cleanString(record.country) || city.country;
+      if (!existing.address) existing.address = cleanString(record.address);
+      if (!existing.category) existing.category = contributionCategory(record.category);
+      continue;
+    }
+
+    const venue: Venue = {
+      id: `member-contribution-${id}`,
+      name,
+      cityId: city.id,
+      citySlug: city.slug,
+      city: city.name,
+      country: cleanString(record.country) || city.country,
+      awards: [],
+      category: contributionCategory(record.category),
+      neighborhood: '',
+      address: cleanString(record.address),
+      lat: null,
+      lng: null,
+      approxLocation: false,
+      occasions,
+      localMemberRecommendation: true,
+    };
+    venuesById.set(venue.id, venue);
+    venueByIdentity.set(identityKey(venue.name, venue.city), venue);
   }
 
   const cities = [...citiesByName.values()].sort((a, b) => a.name.localeCompare(b.name));

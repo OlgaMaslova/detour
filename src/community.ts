@@ -1,5 +1,6 @@
 import { pb } from './pocketbase';
 import type { Venue } from './data';
+import { OCCASION_OPTIONS } from './occasions';
 
 type CommunityMode = 'sign-in' | 'join';
 type MemberTab = 'invitations' | 'detours' | 'settings';
@@ -109,22 +110,6 @@ const CONTRIBUTION_CATEGORIES = [
   ['ice_cream', 'Ice cream'],
   ['takeaway', 'Takeaway'],
   ['other', 'Other'],
-] as const;
-const CONTRIBUTION_OCCASIONS = [
-  ['celebration', 'Celebration'],
-  ['casual_local_favorite', 'Casual local favorite'],
-  ['coffee', 'Coffee'],
-  ['bakery', 'Bakery'],
-  ['drinks_nightcap', 'Drinks or a nightcap'],
-  ['neighborhood_meal', 'Neighborhood meal'],
-  ['date_night', 'Date night'],
-  ['group_gathering', 'Group gathering'],
-  ['quick_bite', 'Quick bite'],
-  ['breakfast_brunch', 'Breakfast or brunch'],
-  ['solo_friendly', 'Solo-friendly'],
-  ['family_friendly', 'Family-friendly'],
-  ['late_night', 'Late night'],
-  ['outdoor_seating', 'Outdoor seating'],
 ] as const;
 
 let mode: CommunityMode = 'sign-in';
@@ -395,7 +380,7 @@ function contributionDate(value: string | undefined): string {
 function contributionCard(record: ContributionRecord): string {
   const status = contributionStatusDetails(record.status);
   const category = labelForOption(CONTRIBUTION_CATEGORIES, record.category);
-  const occasions = (record.occasions || []).map((occasion) => labelForOption(CONTRIBUTION_OCCASIONS, occasion)).filter(Boolean);
+  const occasions = (record.occasions || []).map((occasion) => labelForOption(OCCASION_OPTIONS, occasion)).filter(Boolean);
   const submitted = contributionDate(record.created);
   return `<article class="community-contribution-record${highlightedContributionId === record.id ? ' is-highlighted' : ''}" id="contribution-${esc(record.id)}" tabindex="-1">
     <div class="community-contribution-record-head">
@@ -426,7 +411,7 @@ function contributionPanel(): string {
         <label>Category <span class="community-optional">Optional</span><select name="category"><option value="">Choose one</option>${CONTRIBUTION_CATEGORIES.map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label>
         <fieldset class="community-choice-fieldset">
           <legend>Good for <span class="community-optional">Optional — choose any that fit</span></legend>
-          <div class="community-choice-grid">${CONTRIBUTION_OCCASIONS.map(([value, label]) => `<label><input type="checkbox" name="occasions" value="${value}"><span>${label}</span></label>`).join('')}</div>
+          <div class="community-choice-grid">${OCCASION_OPTIONS.map(([value, label]) => `<label><input type="checkbox" name="occasions" value="${value}"><span>${label}</span></label>`).join('')}</div>
         </fieldset>
         <label>Why do you recommend it?<textarea name="recommendation_note" rows="5" maxlength="2400" minlength="24" required aria-describedby="contribution-note-help${contributionNoteInvalid ? ` ${noteErrorId}` : ''}" ${contributionNoteInvalid ? 'aria-invalid="true"' : ''} placeholder="What makes it worth a deliberate detour?"></textarea></label>
         <p class="community-field-help" id="contribution-note-help">At least 24 characters and five words. Your note is for review and is not published.</p>

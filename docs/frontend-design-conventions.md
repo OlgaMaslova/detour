@@ -1,7 +1,7 @@
 # Frontend design conventions
 
 Current visual and route decisions for the Detour frontend (`src/main.ts`,
-`src/community.ts`, and `src/styles.css`). Last revised 2026-07-18. When a
+`src/community.ts`, and `src/styles.css`). Last revised 2026-07-19. When a
 decision here changes, update this file in the same change.
 
 ## Layout and surfaces
@@ -125,6 +125,29 @@ buttons.
   curator notes. After successful intake, refresh the history and focus the new
   in-review record. Approved details may be public; rejected details remain
   non-public.
+
+## San Francisco occasion discovery
+
+- San Francisco alone adds the shared contribution occasion taxonomy as a
+  horizontal, multi-select browsing layer between the destination controls and
+  the map. Multiple choices use AND semantics; “All occasions” clears only the
+  occasion choices and keeps guide-backed places without tags discoverable.
+- Occasion choices compose with recognition, source, and category filters and
+  appear in the same active-filter/removal system. Cards and selected-place
+  details show only occasion values present in public catalogue data.
+- Approved member contributions load as an optional public lane using only
+  place name, city, country, address, category, occasions, and status. A missing
+  or failing collection must not break the guide/editorial catalogue. Private
+  member identity, recommendation notes, curator notes, and non-approved rows
+  never enter discovery data.
+- The exact visible provenance label for that lane is “Recommended by a local
+  member.” Guide awards, editorial local picks, Detour community selections,
+  and local-member recommendations remain separate in cards, popups, details,
+  filters, and accessible names.
+- Approved contributions without coordinates remain in the full selection and
+  do not create map pins. Exact name-and-city matches may add local-member
+  provenance and occasions to an existing mapped place without replacing its
+  guide or editorial attribution.
 
 ## Map pins
 
