@@ -1464,6 +1464,74 @@ a:hover { color: var(--violet); }
 .community-guidance strong { color: var(--ink); font-family: var(--serif); font-size: 1.05rem; line-height: 1.2; }
 .community-guidance p { margin: 0.45rem 0 0; color: var(--ink-soft); font-size: 0.86rem; }
 .community-field-help { margin: -0.1rem 0 0; color: var(--ink-soft); font-size: 0.78rem; line-height: 1.45; }
+.community-field-error { margin: -0.2rem 0 0; color: var(--critical); font-size: 0.8rem; font-weight: 700; }
+.community-contribution-prompt {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem 1.5rem;
+  padding: 1rem clamp(1rem, 4vw, 1.4rem);
+  background: var(--violet-soft);
+  border: 1px solid color-mix(in oklch, var(--violet) 42%, var(--line));
+  border-radius: var(--radius-sm);
+}
+.community-contribution-prompt h3 { margin: 0; color: var(--ink); font-family: var(--serif); font-size: 1.12rem; line-height: 1.18; }
+.community-contribution-prompt p { max-width: 60ch; margin: 0.28rem 0 0; color: oklch(0.34 0.035 310); font-size: 0.84rem; }
+.community-contribution-prompt .community-secondary { white-space: nowrap; }
+.community-contribution-section { gap: clamp(1.35rem, 3vw, 2rem); }
+.community-contribution-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(15rem, 0.65fr);
+  gap: clamp(1.25rem, 3vw, 2.25rem);
+  align-items: start;
+}
+.community-contribution-form { max-width: none; }
+.community-choice-fieldset { min-width: 0; margin: 0; padding: 0.25rem 0 0; border: 0; }
+.community-choice-fieldset legend { padding: 0; color: var(--ink); font-size: 0.84rem; font-weight: 750; }
+.community-choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: 0.45rem; margin-top: 0.5rem; }
+.community-form .community-choice-grid label {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.48rem 0.62rem;
+  color: var(--ink-soft);
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: color 180ms cubic-bezier(0.25, 1, 0.5, 1), background-color 180ms cubic-bezier(0.25, 1, 0.5, 1), border-color 180ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+.community-form .community-choice-grid label:hover { color: var(--ink); border-color: var(--violet); }
+.community-form .community-choice-grid label:has(input:checked) { color: var(--ink); background: var(--violet-soft); border-color: var(--violet); }
+.community-form .community-choice-grid input { width: 1.05rem; min-height: 1.05rem; height: 1.05rem; margin: 0; flex: none; accent-color: var(--violet); }
+.community-contribution-guidance { position: sticky; top: 1rem; }
+.community-contribution-list { display: grid; gap: 0.8rem; padding-top: 1.25rem; border-top: 1px solid var(--line-strong); }
+.community-contribution-records { display: grid; }
+.community-contribution-record {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 0.2rem;
+  border-top: 1px solid var(--line);
+  outline: 0 solid transparent;
+  transition: background-color 220ms cubic-bezier(0.25, 1, 0.5, 1), box-shadow 220ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+.community-contribution-record:first-child { border-top-color: var(--line-strong); }
+.community-contribution-record.is-highlighted { padding-inline: 0.75rem; background: var(--mint-soft); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--mint) 78%, var(--ink)); }
+.community-contribution-record-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.community-contribution-record h4 { margin: 0; color: var(--ink); font-family: var(--serif); font-size: 1.08rem; line-height: 1.14; text-wrap: balance; }
+.community-contribution-record-head p { margin: 0.22rem 0 0; color: var(--ink-soft); font-size: 0.8rem; }
+.community-contribution-status { flex: none; padding: 0.2rem 0.45rem; border-radius: 4px; color: oklch(0.37 0.09 75); background: oklch(0.94 0.04 75); font-size: 0.68rem; font-weight: 850; }
+.community-contribution-status.is-approved { color: oklch(0.31 0.08 145); background: oklch(0.94 0.035 145); }
+.community-contribution-status.is-rejected { color: var(--critical); background: var(--oxblood-soft); }
+.community-contribution-facts { display: flex; flex-wrap: wrap; gap: 0.65rem 1.5rem; margin: 0; }
+.community-contribution-facts div { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.community-contribution-facts dt { color: var(--ink-soft); font-size: 0.75rem; font-weight: 700; }
+.community-contribution-facts dd { margin: 0; color: var(--ink); font-size: 0.78rem; }
+.community-contribution-review-copy { max-width: 65ch; margin: 0; color: var(--ink-soft); font-size: 0.82rem; }
+.community-contribution-date { margin: 0; color: var(--ink-faint); font-size: 0.74rem; font-variant-numeric: tabular-nums; }
 .member-directory { position: relative; display: grid; gap: 0.32rem; }
 .member-directory-output { min-height: 2rem; }
 .member-directory-hint,
@@ -2207,7 +2275,9 @@ a:hover { color: var(--violet); }
   .account-nav { flex-wrap: wrap; }
   .community-panel-auth { grid-template-columns: 1fr; }
   .community-action-grid,
-  .community-shares-grid { grid-template-columns: 1fr; }
+  .community-shares-grid,
+  .community-contribution-layout { grid-template-columns: 1fr; }
+  .community-contribution-guidance { position: static; }
   .community-form-wrap { padding: 1.35rem; }
   .community-panel-member { padding: 1.2rem 0; }
   .venue-map { min-height: clamp(360px, 54vh, 540px); }
@@ -2267,10 +2337,14 @@ a:hover { color: var(--violet); }
   .community-session-row .community-signout { width: 100%; }
   .community-subheading { grid-template-columns: 1fr; gap: 0.2rem; }
   .community-subheading p { text-align: left; }
+  .community-contribution-prompt { grid-template-columns: 1fr; }
+  .community-contribution-prompt .community-secondary { width: 100%; }
   .community-queue-head,
-  .community-share-heading { align-items: flex-start; flex-direction: column; gap: 0.55rem; }
+  .community-share-heading,
+  .community-contribution-record-head { align-items: flex-start; flex-direction: column; gap: 0.55rem; }
   .community-queue-status,
-  .community-share-heading > span { align-self: flex-start; }
+  .community-share-heading > span,
+  .community-contribution-status { align-self: flex-start; }
 }
 
 @media (max-width: 390px) {
