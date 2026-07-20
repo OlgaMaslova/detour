@@ -1132,6 +1132,16 @@ a:hover { color: var(--violet); }
   font-weight: 850;
   letter-spacing: 0.16em;
 }
+a.brand,
+a.brand:visited {
+  color: var(--ink);
+  text-decoration: none;
+}
+a.brand:hover,
+a.brand:focus-visible {
+  color: var(--ink);
+  text-decoration: underline;
+}
 .hero h1 {
   max-width: 20ch;
   margin: 0;

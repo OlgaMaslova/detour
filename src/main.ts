@@ -1064,10 +1064,12 @@ function bindRouteLinks(root: HTMLElement): void {
       openDestination(root, slug);
     });
   });
-  root.querySelector<HTMLAnchorElement>('[data-home]')?.addEventListener('click', (event) => {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
-    showHome(root);
+  root.querySelectorAll<HTMLAnchorElement>('[data-home]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      showHome(root);
+    });
   });
 }
 
@@ -1251,7 +1253,7 @@ function render(root: HTMLElement) {
     root.innerHTML = `
       <header class="hero city-detail-hero">
         <div class="hero-inner">
-          <p class="brand">Detour</p>
+          <a class="brand" href="${esc(homeHref())}" data-home>Detour</a>
           <h1 id="destination-title" tabindex="-1">${esc(name)}, not yet.</h1>
           <p class="tagline">No published places here so far — Detour grows wherever its members eat well.</p>
         </div>
@@ -1298,7 +1300,7 @@ function render(root: HTMLElement) {
     <a class="skip-link" href="${hasMap ? '#venue-map' : '#selection-disclosure-title'}">Skip to discovery</a>
     <header class="hero city-detail-hero">
       <div class="hero-inner">
-        <p class="brand">Detour</p>
+        <a class="brand" href="${esc(homeHref())}" data-home>Detour</a>
         <h1 id="destination-title" tabindex="-1">${esc(destinationTitle)}</h1>
         <p class="tagline">${esc(destinationTagline)}</p>
       </div>
