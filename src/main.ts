@@ -92,6 +92,29 @@ function esc(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/** Defense in depth for every external catalogue link rendered into HTML. */
+function safeExternalHref(value: string | undefined): string {
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : '';
+  } catch {
+    return '';
+  }
+}
+
+function venueRouteName(v: Venue): string {
+  return v.market || v.city;
+}
+
+function venueRouteSlug(v: Venue): string {
+  return v.marketSlug || citySlug(venueRouteName(v));
+}
+
+function hasDistinctLocality(v: Venue): boolean {
+  return citySlug(v.city) !== venueRouteSlug(v);
+}
+
 /**
  * Icons matching the source's own wording only: suns for Soles, stars for
  * Michelin-style Stars. No icon when the wording is unknown.
@@ -245,10 +268,9 @@ function allVenues(): Venue[] {
 function destinations(): Destination[] {
   const bySlug = new Map<string, Destination>();
   for (const v of allVenues()) {
-    const name = v.city.trim();
-    if (!name) continue;
-    const slug = citySlug(name);
-    if (!slug) continue;
+    const name = venueRouteName(v).trim();
+    const slug = venueRouteSlug(v);
+    if (!name || !slug) continue;
     const existing = bySlug.get(slug);
     if (existing) {
       existing.count += 1;
@@ -283,7 +305,7 @@ function destinationLabel(): string {
  */
 function destinationVenues(): Venue[] {
   if (!state.destination) return [];
-  return allVenues().filter((v) => citySlug(v.city) === state.destination);
+  return allVenues().filter((v) => venueRouteSlug(v) === state.destination);
 }
 
 function resetDestinationState(): void {
@@ -832,6 +854,7 @@ function discoveryBar(list: Venue[], hasMap: boolean): string {
 function venueCard(v: Venue): string {
   const selected = v.id === state.selectedId;
   const rank = maxAwardRank(v);
+  const distinctLocality = hasDistinctLocality(v);
   const cardTone =
     rank > 0
       ? ` card-rank-${rank}`
@@ -869,6 +892,7 @@ function venueCard(v: Venue): string {
           </span>
         </div>
         <p class="card-meta">${esc([v.category, v.neighborhood].filter(Boolean).join(' · '))}</p>
+        ${distinctLocality ? `<p class="card-locality"><span>${esc(v.city)}</span><small>${esc(venueRouteName(v))} selection</small></p>` : ''}
         <p class="card-address">${
           v.address
             ? esc(v.address)
@@ -879,12 +903,13 @@ function venueCard(v: Venue): string {
       <div class="card-sources">
         ${v.awards
           .map((a) => {
+            const sourceUrl = safeExternalHref(a.sourceUrl);
             if (a.community)
               return `<p class="card-source card-source-community"><span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)} — Detour’s editorial selection</p>`;
             if (isEditorialAward(a))
               return `<p class="card-source">${esc(EDITORIAL_LABEL)} · ${esc(a.sourceName)}${
-                a.sourceUrl
-                  ? ` — <a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">Source/list ↗</a>`
+                sourceUrl
+                  ? ` — <a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer">Source/list ↗</a>`
                   : ''
               }</p>`;
             if (a.sourceBadge)
@@ -894,8 +919,8 @@ function venueCard(v: Venue): string {
                 ? `No. ${a.listRank} · ${esc(a.edition)}`
                 : `${esc(a.awardLevel)} · ${esc(a.sourceName)} ${a.awardYear}`;
             return `<p class="card-source">${claim}${
-              a.sourceUrl
-                ? ` — <a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">Official guide ↗</a>`
+              sourceUrl
+                ? ` — <a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer">Official guide ↗</a>`
                 : ''
             }</p>`;
           })
@@ -919,6 +944,20 @@ function detailPanel(): string {
   const editorialSources = editorialSourceNames(v);
   const communityHere = hasCommunityAward(v);
   const memberHere = hasLocalMemberRecommendation(v);
+  const distinctLocality = hasDistinctLocality(v);
+  const detailMeta = [v.category, v.neighborhood, distinctLocality ? v.city : '']
+    .filter(Boolean)
+    .join(' · ');
+  const officialUrl = safeExternalHref(v.officialUrl);
+  const instagramUrl = safeExternalHref(v.instagramUrl);
+  const visitLinks = [
+    officialUrl
+      ? `<a href="${esc(officialUrl)}" target="_blank" rel="noopener noreferrer">Official website <span aria-hidden="true">↗</span></a>`
+      : '',
+    instagramUrl
+      ? `<a href="${esc(instagramUrl)}" target="_blank" rel="noopener noreferrer">Instagram <span aria-hidden="true">↗</span></a>`
+      : '',
+  ].filter(Boolean).join('');
   const sentences: string[] = [];
   if (guides.length > 0)
     sentences.push(`A current selection, independently recognised by ${guides.join(' and ')}.`);
@@ -939,7 +978,7 @@ function detailPanel(): string {
       <div>
         <p class="detail-overline">Selected place</p>
         <h2>${esc(v.name)}</h2>
-        ${v.category || v.neighborhood ? `<p class="detail-meta">${esc([v.category, v.neighborhood].filter(Boolean).join(' · '))}</p>` : ''}
+        ${detailMeta ? `<p class="detail-meta">${esc(detailMeta)}</p>` : ''}
       </div>
       <button type="button" class="detail-close" data-close aria-label="Close details"><span aria-hidden="true">×</span></button>
     </div>
@@ -981,6 +1020,7 @@ function detailPanel(): string {
               ? esc(v.address)
               : '<span class="approx">Map position being refined</span>'
           }</dd></div>
+          ${distinctLocality ? `<div><dt>Locality</dt><dd><span class="detail-locality">${esc(v.city)}</span><span class="detail-market">${esc(venueRouteName(v))} selection</span></dd></div>` : ''}
           ${isSanFranciscoDestination() && venueOccasions(v).length ? `<div><dt>Good for</dt><dd>${esc(venueOccasions(v).map(occasionLabel).join(' · '))}</dd></div>` : ''}
           ${(() => {
             // Only retained external-guide recognition belongs under “Official guide”.
@@ -990,20 +1030,22 @@ function detailPanel(): string {
             const editorial = v.awards.filter(isEditorialAward);
             const guideRow = external.length
               ? `<div><dt>Official guide${external.length === 1 ? '' : 's'}</dt><dd>${external
-                  .map((a) =>
-                    a.sourceUrl
-                      ? `<a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(a.sourceName)} ${a.awardYear} ↗</a>`
-                      : `${esc(a.sourceName)} ${a.awardYear}`
-                  )
+                  .map((a) => {
+                    const sourceUrl = safeExternalHref(a.sourceUrl);
+                    return sourceUrl
+                      ? `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(a.sourceName)} ${a.awardYear} ↗</a>`
+                      : `${esc(a.sourceName)} ${a.awardYear}`;
+                  })
                   .join('<br>')}</dd></div>`
               : '';
             const editorialRow = editorial.length
               ? `<div><dt>Editorial source${editorial.length === 1 ? '' : 's'}</dt><dd>${editorial
-                  .map((a) =>
-                    a.sourceUrl
-                      ? `<a href="${esc(a.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(a.sourceName)} source/list ↗</a>`
-                      : esc(a.sourceName)
-                  )
+                  .map((a) => {
+                    const sourceUrl = safeExternalHref(a.sourceUrl);
+                    return sourceUrl
+                      ? `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(a.sourceName)} source/list ↗</a>`
+                      : esc(a.sourceName);
+                  })
                   .join('<br>')}</dd></div>`
               : '';
             const communityRow = communityHere
@@ -1015,6 +1057,7 @@ function detailPanel(): string {
             return guideRow + editorialRow + communityRow + memberRow;
           })()}
         </dl>
+        ${visitLinks ? `<nav class="detail-visit" aria-labelledby="detail-visit-title"><h3 id="detail-visit-title">Visit</h3><div class="detail-visit-links">${visitLinks}</div></nav>` : ''}
       </section>
     </div>
   </aside>`;
@@ -1112,8 +1155,9 @@ function renderAccount(root: HTMLElement): void {
 
 /**
  * Resolves a free-text landing search to a destination or a single place.
- * Matching is case-insensitive over 'City', 'City, Country', place names,
- * and the 'Place — City' datalist form.
+ * Matching is case-insensitive over route markets, physical localities,
+ * place names, and the 'Place — Locality' datalist form. Physical-locality
+ * matches still open the venue's market route when those names differ.
  */
 function resolveSearch(query: string): { slug: string; venueId?: string } | null {
   const norm = (value: string) => value.trim().toLowerCase();
@@ -1123,10 +1167,14 @@ function resolveSearch(query: string): { slug: string; venueId?: string } | null
     if (norm(d.name) === q || norm(`${d.name}, ${d.country}`) === q) return { slug: d.slug };
   }
   const venues = allVenues();
+  const byLocality = venues.find(
+    (v) => norm(v.city) === q || norm(`${v.city}, ${v.country}`) === q
+  );
+  if (byLocality) return { slug: venueRouteSlug(byLocality) };
   const byCombo = venues.find((v) => norm(`${v.name} — ${v.city}`) === q);
-  if (byCombo) return { slug: citySlug(byCombo.city), venueId: byCombo.id };
+  if (byCombo) return { slug: venueRouteSlug(byCombo), venueId: byCombo.id };
   const byName = venues.filter((v) => norm(v.name) === q);
-  if (byName.length >= 1) return { slug: citySlug(byName[0].city), venueId: byName[0].id };
+  if (byName.length >= 1) return { slug: venueRouteSlug(byName[0]), venueId: byName[0].id };
   return null;
 }
 
@@ -1147,6 +1195,10 @@ function renderHome(root: HTMLElement): void {
       ? ''
       : covered
           .map((d) => `<option value="${esc(d.country ? `${d.name}, ${d.country}` : d.name)}"></option>`)
+          .join('') +
+        [...new Set(allVenues().filter(hasDistinctLocality).map((v) => v.city))]
+          .sort((a, b) => a.localeCompare(b))
+          .map((city) => `<option value="${esc(city)}"></option>`)
           .join('') +
         allVenues()
           .map((v) => `<option value="${esc(`${v.name} — ${v.city}`)}"></option>`)
@@ -1562,7 +1614,9 @@ function requestNearestDestination(root: HTMLElement): void {
       let nearest: { slug: string; name: string; km: number } | null = null;
       for (const v of mappableVenues(allVenues())) {
         const km = distanceKm(position, { lat: v.lat, lng: v.lng });
-        if (!nearest || km < nearest.km) nearest = { slug: citySlug(v.city), name: v.city, km };
+        if (!nearest || km < nearest.km) {
+          nearest = { slug: venueRouteSlug(v), name: venueRouteName(v), km };
+        }
       }
       if (!nearest) {
         state.geoStatus = 'No located places are published yet. Search for a destination instead.';

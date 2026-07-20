@@ -2182,6 +2182,40 @@ a.brand:focus-visible {
 .detail-facts div:first-child { border-top: 0; padding-top: 0; }
 .detail-facts dt { color: var(--ink); font-size: 0.78rem; }
 .detail-facts dd { color: var(--ink); }
+.detail-locality { display: block; font-weight: 750; }
+.detail-market {
+  display: block;
+  margin-top: 0.1rem;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+}
+.detail-visit {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid color-mix(in oklch, var(--mint) 50%, var(--ink));
+}
+.detail-visit h3 { flex: 0 0 7rem; margin: 0; }
+.detail-visit-links { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.detail-visit a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.45rem 0.7rem;
+  color: var(--oxblood);
+  background: white;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 750;
+  line-height: 1.2;
+  text-decoration: none;
+  transition: color 140ms cubic-bezier(0.25, 1, 0.5, 1), border-color 140ms cubic-bezier(0.25, 1, 0.5, 1), background 140ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+.detail-visit a:hover { color: white; background: var(--oxblood); border-color: var(--oxblood); }
+.detail-visit a:active { color: white; background: var(--ink); border-color: var(--ink); }
 
 /* The catalogue stays out of the map-first path until a visitor asks for it. */
 .selection-disclosure {
@@ -2310,6 +2344,21 @@ a.brand:focus-visible {
 .card h3 { color: var(--ink); font-size: 1.24rem; letter-spacing: -0.015em; }
 .card-meta,
 .card-address { color: var(--ink-soft); }
+.card-locality {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+  margin: 0.35rem 0 0.2rem;
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+.card-locality small {
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
 .award { color: var(--ink); background: var(--mint-soft); }
 .award-3 { color: var(--ink); background: var(--mint); }
 .award-2 { color: white; background: var(--oxblood); }
@@ -2433,6 +2482,8 @@ a.brand:focus-visible {
   .detail-head::after { right: 4.4rem; width: 4.5rem; }
   .detail h2 { max-width: 12ch; }
   .detail-facts div { grid-template-columns: 1fr; gap: 0.18rem; }
+  .detail-visit { align-items: flex-start; flex-direction: column; }
+  .detail-visit h3 { flex-basis: auto; }
   .account-masthead { padding-bottom: 2.5rem; }
   .account-nav-row { display: grid; }
   .account-brand { justify-self: start; }

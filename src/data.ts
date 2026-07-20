@@ -54,8 +54,12 @@ export interface VenueAward {
 export interface Venue {
   id: string;
   name: string;
-  /** City name as stored in the catalogue (e.g. 'Madrid'); scopes every view to one city. */
+  /** Physical city/locality as stored on the venue record (e.g. 'Oakland'); always used for display. */
   city: string;
+  /** Route market name. Falls back to `city` when the backend has no explicit market. */
+  market: string;
+  /** Stable route slug derived from the route market (e.g. 'san-francisco'). */
+  marketSlug: string;
   /** Country as stored on the venue record; '' when unknown. */
   country: string;
   /** Every current recognition for this canonical venue, one entry per attributed source. */
@@ -68,10 +72,14 @@ export interface Venue {
   lat: number | null;
   lng: number | null;
   approxLocation: boolean;
-  /** Optional route metadata used by the city-scoped catalogue UI. */
+  /** Optional route metadata retained for compatibility with the city-scoped catalogue UI. */
   slug?: string;
+  marketId?: string;
   cityId?: string;
   citySlug?: string;
+  /** Validated operator/social links. Only http/https URLs are retained. */
+  officialUrl?: string;
+  instagramUrl?: string;
   /** Optional detail content retained for compatibility with the existing UI contract. */
   description?: string;
   sourceBadges?: string[];
@@ -178,6 +186,8 @@ export const demoVenues: Venue[] = [
       id,
       name,
       city: 'Madrid',
+      market: 'Madrid',
+      marketSlug: 'madrid',
       country: 'Spain',
       awards: [
         {
@@ -206,6 +216,8 @@ export const demoVenues: Venue[] = [
       id,
       name,
       city: 'Madrid',
+      market: 'Madrid',
+      marketSlug: 'madrid',
       country: 'Spain',
       awards: [
         {
@@ -237,6 +249,8 @@ export const demoVenues: Venue[] = [
     id: 'demo-baldoria',
     name: 'Baldoria',
     city: 'Madrid',
+    market: 'Madrid',
+    marketSlug: 'madrid',
     country: 'Spain',
     awards: [
       {
@@ -263,6 +277,8 @@ export const demoVenues: Venue[] = [
     id: 'demo-fratelli-figurato',
     name: 'Fratelli Figurato',
     city: 'Madrid',
+    market: 'Madrid',
+    marketSlug: 'madrid',
     country: 'Spain',
     awards: [
       {
@@ -289,6 +305,8 @@ export const demoVenues: Venue[] = [
     id: 'demo-hola-coffee-lagasca',
     name: 'Hola Coffee Lagasca',
     city: 'Madrid',
+    market: 'Madrid',
+    marketSlug: 'madrid',
     country: 'Spain',
     awards: [
       {
@@ -332,12 +350,14 @@ type VenueRecord = Record<string, unknown> & {
   id: string;
   name?: string;
   city?: string;
+  market?: string;
   country?: string;
   address?: string;
   lat?: number | string;
   lng?: number | string;
   category?: string;
   official_url?: string;
+  instagram_url?: string;
   approx_location?: boolean;
 };
 
@@ -402,6 +422,18 @@ const LIST_RANK_RE = /\bNo\.\s*(\d+)\b/i;
 
 function cleanString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+/** Keep only absolute http/https links from live catalogue fields. */
+function cleanExternalUrl(value: unknown): string {
+  const raw = cleanString(value);
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : '';
+  } catch {
+    return '';
+  }
 }
 
 function contributionCategory(value: unknown): string {
@@ -506,7 +538,9 @@ function sortAwards(awards: VenueAward[]): VenueAward[] {
 export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
   const [venueRecords, awardRecords, sourceRecords, cityRecords, contributionRecords] = await Promise.all([
     pb.collection('venues').getFullList<VenueRecord>({
-      fields: 'id,name,city,country,address,lat,lng,category,official_url,approx_location',
+      fields: 'id,name,city,market,country,address,lat,lng,category,official_url,instagram_url,approx_location',
+      // Keep the request compatible with pre-migration backends; final route
+      // ordering is applied client-side after optional market values load.
       sort: 'city,name',
       requestKey: null,
     }),
@@ -589,7 +623,9 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
 
   for (const record of [...venueRecords, ...contributionRecords]) {
     if ('status' in record && cleanString(record.status) !== 'approved') continue;
-    const name = cleanString(record.city);
+    // A venue's explicit market owns its route; contributions and older venue
+    // records continue to route by their physical city.
+    const name = cleanString('market' in record ? record.market : '') || cleanString(record.city);
     if (!name) continue;
     const key = name.toLowerCase();
     const country = cleanString(record.country);
@@ -613,9 +649,10 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
   for (const record of venueRecords) {
     const id = cleanString(record.id);
     const name = cleanString(record.name);
-    const cityName = cleanString(record.city);
-    const city = citiesByName.get(cityName.toLowerCase());
-    if (!id || !name || !city) continue;
+    const physicalCity = cleanString(record.city);
+    const marketName = cleanString(record.market) || physicalCity;
+    const market = citiesByName.get(marketName.toLowerCase());
+    if (!id || !name || !physicalCity || !market) continue;
 
     const rawLat = cleanNumber(record.lat);
     const rawLng = cleanNumber(record.lng);
@@ -625,10 +662,14 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     venuesById.set(id, {
       id,
       name,
-      cityId: city.id,
-      citySlug: city.slug,
-      city: city.name,
-      country: cleanString(record.country) || city.country,
+      marketId: market.id,
+      market: market.name,
+      marketSlug: market.slug,
+      // Keep the legacy route aliases aligned with the explicit market route.
+      cityId: market.id,
+      citySlug: market.slug,
+      city: physicalCity,
+      country: cleanString(record.country) || market.country,
       awards: [],
       category: cleanString(record.category),
       neighborhood: '',
@@ -636,6 +677,8 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       lat: hasCoordinates ? rawLat : null,
       lng: hasCoordinates ? rawLng : null,
       approxLocation: record.approx_location === true,
+      officialUrl: cleanExternalUrl(record.official_url) || undefined,
+      instagramUrl: cleanExternalUrl(record.instagram_url) || undefined,
     });
   }
 
@@ -667,7 +710,7 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       sourceName: community ? 'Detour community' : sourceName,
       sourceUrl: community
         ? ''
-        : cleanString(record.source_url) || cleanString(source?.official_url),
+        : cleanExternalUrl(record.source_url) || cleanExternalUrl(source?.official_url),
       note: '',
       provenance,
       community,
@@ -703,6 +746,9 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     const venue: Venue = {
       id: `member-contribution-${id}`,
       name,
+      marketId: city.id,
+      market: city.name,
+      marketSlug: city.slug,
       cityId: city.id,
       citySlug: city.slug,
       city: city.name,
@@ -724,7 +770,12 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
   const cities = [...citiesByName.values()].sort((a, b) => a.name.localeCompare(b.name));
   const venues = [...venuesById.values()]
     .map((venue) => ({ ...venue, awards: sortAwards(venue.awards) }))
-    .sort((a, b) => a.city.localeCompare(b.city) || a.name.localeCompare(b.name));
+    .sort(
+      (a, b) =>
+        a.market.localeCompare(b.market) ||
+        a.city.localeCompare(b.city) ||
+        a.name.localeCompare(b.name)
+    );
 
   return { cities, venues };
 }
