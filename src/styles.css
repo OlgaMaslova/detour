@@ -1930,6 +1930,13 @@ a.brand:focus-visible {
   transition: color 180ms cubic-bezier(0.25, 1, 0.5, 1), background-color 180ms cubic-bezier(0.25, 1, 0.5, 1), border-color 180ms cubic-bezier(0.25, 1, 0.5, 1);
 }
 .occasion-option:hover { color: var(--violet); border-color: var(--violet); }
+.occasion-option:disabled,
+.occasion-option:disabled:hover {
+  color: var(--ink-soft);
+  border-color: var(--line-strong);
+  opacity: 0.45;
+  cursor: default;
+}
 .occasion-option small {
   min-width: 1.6rem;
   padding: 0.15rem 0.35rem;

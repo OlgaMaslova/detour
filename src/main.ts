@@ -705,17 +705,21 @@ function listPreviewStage(): string {
 
 function occasionBrowser(): string {
   if (!isSanFranciscoDestination()) return '';
+  const venues = destinationVenues();
   const buttons = OCCASION_OPTIONS.map(([value, label]) => {
     const active = state.occasionFilters.includes(value);
-    const count = destinationVenues().filter((venue) => venueOccasions(venue).includes(value)).length;
-    return `<button type="button" class="occasion-option${active ? ' occasion-option-active' : ''}" data-occasion="${esc(value)}" aria-pressed="${active}" aria-label="${esc(label)}, ${count} ${count === 1 ? 'place' : 'places'}">
+    // Faceted counts: what the list becomes with this occasion in the mix.
+    const withThis = active ? state.occasionFilters : [...state.occasionFilters, value];
+    const count = venues.filter((venue) => withThis.every((occasion) => venueOccasions(venue).includes(occasion))).length;
+    const disabled = !active && count === 0;
+    return `<button type="button" class="occasion-option${active ? ' occasion-option-active' : ''}" data-occasion="${esc(value)}" aria-pressed="${active}"${disabled ? ' disabled' : ''} aria-label="${esc(label)}, ${count} ${count === 1 ? 'place' : 'places'}">
       <span>${esc(label)}</span><small aria-hidden="true">${count}</small>
     </button>`;
   }).join('');
   return `<section class="occasion-browser" aria-labelledby="occasion-browser-title" aria-describedby="occasion-browser-help">
     <div class="occasion-browser-copy">
       <h2 id="occasion-browser-title">What kind of stop is this?</h2>
-      <p id="occasion-browser-help">Choose one or more occasions. Places must match every choice; keep All occasions selected to include guide-backed places without occasion tags.</p>
+      <p id="occasion-browser-help">Combine as many as apply — counts update with your picks.</p>
     </div>
     <div class="occasion-options" role="group" aria-label="Browse San Francisco by occasion">
       <button type="button" class="occasion-option occasion-option-all${state.occasionFilters.length === 0 ? ' occasion-option-active' : ''}" data-occasion="" aria-pressed="${state.occasionFilters.length === 0}">
