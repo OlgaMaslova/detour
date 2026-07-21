@@ -309,16 +309,16 @@ function waitlistCard(entry: WaitlistEntry): string {
 function recommendationPanel(): string {
   return `<section class="community-ledger-section" aria-labelledby="community-waitlist-title">
     <div class="community-section-heading">
-      <div><h3 id="community-waitlist-title">Recommend a place</h3></div>
-      <p>Detour is driven by its members — your recommendations are what build the selection. A place joins the list once 3 members recommend it.</p>
+      <div><h3 id="community-waitlist-title">Recommend a place anywhere</h3></div>
+      <p>As a verified member, you can recommend a place anywhere in the world. It is published on the Detourist List only after three independent members recommend it.</p>
     </div>
     <div class="community-action-grid community-recommend-action">
       <form class="community-form" data-community-recommendation>
         <label>Place name<input name="venue_name" maxlength="200" required placeholder="The place you would send someone"></label>
         <label>Address<input name="address" maxlength="300" required placeholder="Street and number"></label>
         <div class="community-form-grid community-place-grid">
-          <label>City<input name="city" maxlength="120" required placeholder="Madrid"></label>
-          <label>Country<input name="country" maxlength="120" required placeholder="Spain"></label>
+          <label>City or locality<input name="city" maxlength="120" required placeholder="City or locality"></label>
+          <label>Country<input name="country" maxlength="120" required placeholder="Country"></label>
         </div>
         <label>Category <span class="community-optional">Optional</span><select name="category"><option value="">Choose one</option>${CATEGORY_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label>
         <fieldset class="community-choice-fieldset">

@@ -1,14 +1,12 @@
 import './styles.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { GUIDE_YEAR, citySlug, loadLiveCatalogue } from './data';
-import type { Venue, VenueAward } from './data';
+import { citySlug, loadLiveCatalogue } from './data';
+import type { Venue } from './data';
 import { GLOBAL_META_DESCRIPTION, GLOBAL_META_TITLE } from './cities';
 import { OCCASION_OPTIONS, occasionLabel } from './occasions';
 import { bindCommunity, communityControl, communityPanel } from './community';
 
-/** '' = all award levels; otherwise a literal level label present in the loaded data. */
-type Filter = string;
 type DataMode = 'loading' | 'live' | 'error';
 type AppView = 'home' | 'destination' | 'account';
 
@@ -27,7 +25,6 @@ interface State {
   pendingDestination: string | null;
   /** Every loaded place, across all destinations. Never rendered directly — see destinationVenues(). */
   venues: Venue[];
-  filter: Filter;
   /** San Francisco-only multi-select occasion browsing; selected values compose as AND. */
   occasionFilters: string[];
   selectedId: string | null;
@@ -35,7 +32,6 @@ interface State {
   selectedVia: 'pin' | 'card' | null;
   /** Whether the full filtered selection is currently revealed. */
   selectionOpen: boolean;
-  guideYear: number;
   userLocation: UserLocation | null;
   geoStatus: string;
   geoBusy: boolean;
@@ -47,12 +43,10 @@ const state: State = {
   destination: null,
   pendingDestination: null,
   venues: [],
-  filter: '',
   occasionFilters: [],
   selectedId: null,
   selectedVia: null,
   selectionOpen: false,
-  guideYear: GUIDE_YEAR,
   userLocation: null,
   geoStatus: '',
   geoBusy: false,
@@ -106,54 +100,10 @@ function hasDistinctLocality(v: Venue): boolean {
   return citySlug(v.city) !== venueRouteSlug(v);
 }
 
-/**
- * Icons matching the source's own wording only: suns for Soles, stars for
- * Michelin-style Stars. No icon when the wording is unknown.
- */
-function awardIcons(a: Pick<VenueAward, 'awardLevel' | 'awardRank'>): string {
-  if (a.awardRank === null) return '';
-  if (/\bsol(es)?\b/i.test(a.awardLevel)) return '☀'.repeat(a.awardRank);
-  if (/\bstars?\b/i.test(a.awardLevel)) return '★'.repeat(a.awardRank);
-  return '';
-}
+/* ---------- public member-list framing ---------- */
 
-/** The venue's highest-ranked recognition, when the live record has one. */
-function topAward(v: Venue): VenueAward | null {
-  return v.awards[0] ?? null;
-}
-
-/** Highest numeric rank across a venue's awards; -1 when none is parseable. */
-function maxAwardRank(v: Venue): number {
-  return v.awards.reduce((m, a) => Math.max(m, a.awardRank ?? -1), -1);
-}
-
-/** Best (lowest) ranked-list position across a venue's awards; MAX when none. */
-function bestListRank(v: Venue): number {
-  return v.awards.reduce(
-    (m, a) => Math.min(m, a.listRank ?? Number.MAX_SAFE_INTEGER),
-    Number.MAX_SAFE_INTEGER
-  );
-}
-
-/* ---------- recognition provenance (public only) ---------- */
-
-/** The exact visible phrase used everywhere a Detourist List place is shown. */
 const DETOURIST_LIST_LABEL = 'Detourist List';
-/** How a place earns its entry — the Detourist List is member-recommended. */
 const DETOURIST_LIST_NOTE = `${DETOURIST_LIST_LABEL} — recommended by Detour members.`;
-const DETOURIST_LIST_FILTER = '__detourist_list__';
-/** Provenance filter: places holding any external guide recognition. */
-const GUIDES_FILTER = '__guides__';
-const GUIDES_LABEL = 'Guides';
-
-/** Whether the venue is on the Detourist List — Detour's member-recommended lane. */
-function onDetouristList(v: Venue): boolean {
-  return v.detouristList === true;
-}
-
-function hasGuideBackedAward(v: Venue): boolean {
-  return v.awards.some((a) => !a.sourceBadge);
-}
 
 function venueOccasions(v: Venue): string[] {
   return v.occasions ?? [];
@@ -161,46 +111,6 @@ function venueOccasions(v: Venue): string[] {
 
 function occasionSummary(v: Venue): string {
   return venueOccasions(v).map(occasionLabel).join(', ');
-}
-
-function spokenAwardSummary(v: Venue): string {
-  return awardSummary(v).replace(/[.!?]+$/, '');
-}
-
-/** Plain-text award/source label: ranked guide wording or literal level. */
-function awardText(a: VenueAward): string {
-  return a.listRank !== null ? `No. ${a.listRank} — ${a.edition}` : a.awardLevel;
-}
-
-/** Plain-text summary of live source badges and any retained recognition metadata. */
-function awardSummary(v: Venue): string {
-  const summary = v.awards.map((a) => {
-    if (a.sourceBadge) return `Source badge: ${a.sourceName}`;
-    return `${awardText(a)} — ${a.sourceName} ${a.awardYear}`;
-  });
-  if (onDetouristList(v)) summary.push(DETOURIST_LIST_NOTE);
-  return summary.join('; ') || [v.category, v.city].filter(Boolean).join(' in ');
-}
-
-/** Unique EXTERNAL guide names for retained recognition metadata. */
-function guideNames(v: Venue): string[] {
-  return [
-    ...new Set(
-      v.awards
-        .filter((a) => !a.sourceBadge)
-        .map((a) => a.sourceName)
-        .filter(Boolean)
-    ),
-  ];
-}
-
-/* ---------- live source badges ---------- */
-
-function sourceBadgeClass(label: string): string {
-  const normalized = label.trim().toLowerCase();
-  if (normalized === 'michelin') return 'source-michelin';
-  if (normalized === 'mof') return 'source-mof';
-  return 'source-other';
 }
 
 /* ---------- destination scoping (derived purely from place data) ---------- */
@@ -261,7 +171,6 @@ function destinationVenues(): Venue[] {
 }
 
 function resetDestinationState(): void {
-  state.filter = '';
   state.occasionFilters = [];
   state.selectedId = null;
   state.selectedVia = null;
@@ -351,62 +260,27 @@ function applyRouteFromUrl(root: HTMLElement): void {
 
 /* ---------- filters ---------- */
 
-/**
- * Provenance filter options: how a place earned its entry. Either external
- * guide recognition (any published award) or the member-recommended
- * Detourist List — individual award levels are shown on the cards, not
- * used as filters.
- */
-function provenanceFilters(): { value: Filter; label: string }[] {
-  const venues = destinationVenues();
-  const filters = [{ value: '' as Filter, label: 'All' }];
-  if (venues.some((v) => v.awards.length > 0)) {
-    filters.push({ value: GUIDES_FILTER, label: GUIDES_LABEL });
-  }
-  if (venues.some(onDetouristList)) {
-    filters.push({ value: DETOURIST_LIST_FILTER, label: DETOURIST_LIST_LABEL });
-  }
-  return filters;
-}
-
 function filteredVenues(): Venue[] {
-  // Provenance is a two-lane split: external guide recognition (any award)
-  // vs. the member-recommended Detourist List — never treated as a guide award.
-  const list = destinationVenues().filter(
-    (v) =>
-      (state.filter === '' ||
-        (state.filter === DETOURIST_LIST_FILTER
-          ? onDetouristList(v)
-          : v.awards.length > 0)) &&
-      state.occasionFilters.every((occasion) => venueOccasions(v).includes(occasion))
+  const list = destinationVenues().filter((v) =>
+    state.occasionFilters.every((occasion) => venueOccasions(v).includes(occasion))
   );
   return [...list].sort(
-    (a, b) =>
-      maxAwardRank(b) - maxAwardRank(a) ||
-      bestListRank(a) - bestListRank(b) ||
-      (topAward(a)?.awardLevel ?? '').localeCompare(topAward(b)?.awardLevel ?? '') ||
-      a.name.localeCompare(b.name)
+    (a, b) => a.name.localeCompare(b.name) || a.city.localeCompare(b.city) || a.address.localeCompare(b.address)
   );
 }
 
 interface ActiveFilter {
-  kind: 'award' | 'occasion';
+  kind: 'occasion';
   label: string;
   value: string;
 }
 
 function activeFilters(): ActiveFilter[] {
-  const chips: ActiveFilter[] = [];
-  if (state.filter)
-    chips.push({
-      kind: 'award',
-      label: state.filter === DETOURIST_LIST_FILTER ? DETOURIST_LIST_LABEL : GUIDES_LABEL,
-      value: state.filter,
-    });
-  for (const occasion of state.occasionFilters) {
-    chips.push({ kind: 'occasion', label: occasionLabel(occasion), value: occasion });
-  }
-  return chips;
+  return state.occasionFilters.map((occasion) => ({
+    kind: 'occasion',
+    label: occasionLabel(occasion),
+    value: occasion,
+  }));
 }
 
 function isSanFranciscoDestination(): boolean {
@@ -485,30 +359,16 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
       '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
   }).addTo(map);
 
-  // Venue pins — only known venue positions are ever plotted.
+  // Venue pins — every public place uses the same member-list treatment.
   for (const v of mappable) {
     const selected = v.id === state.selectedId;
-    const markerRank = maxAwardRank(v);
-    // Detourist List–only venues keep a distinct outlined centre; venues that
-    // hold an external guide award retain that guide's ranked pearl treatment.
-    const markerClass =
-      markerRank > 0
-        ? `pin-${markerRank}`
-        : onDetouristList(v) && v.awards.length === 0
-          ? 'pin-community'
-          : 'pin-ranked';
-    const markerMeanings: string[] = [];
-    if (markerRank > 0) markerMeanings.push(`${markerRank}-level guide recognition`);
-    else if (hasGuideBackedAward(v)) markerMeanings.push('guide selection');
-    if (onDetouristList(v)) markerMeanings.push(DETOURIST_LIST_LABEL);
-    const markerMeaning = markerMeanings.join(' · ') || 'current selection';
     const icon = L.divIcon({
       className: '',
-      html: `<span class="map-pin ${markerClass}${selected ? ' pin-selected' : ''}" data-pin="${esc(v.id)}">
+      html: `<span class="map-pin pin-detourist${selected ? ' pin-selected' : ''}" data-pin="${esc(v.id)}">
         <span class="pin-pearl" aria-hidden="true">
           <span class="pin-signal"></span>
         </span>
-        <span class="pin-label">${esc(v.name)}<small>${esc(markerMeaning)}</small></span>
+        <span class="pin-label">${esc(v.name)}<small>${esc(DETOURIST_LIST_LABEL)} · member-recommended</small></span>
       </span>`,
       iconSize: [0, 0],
       iconAnchor: [0, 0],
@@ -517,16 +377,10 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
       icon,
       keyboard: false,
       riseOnHover: true,
-      zIndexOffset: selected ? 1000 : Math.max(markerRank, 0) * 10,
+      zIndexOffset: selected ? 1000 : 0,
     }).addTo(map);
     marker.bindPopup(
-      `<strong>${esc(v.name)}</strong>${v.awards
-        .map((a) =>
-          a.sourceBadge
-            ? `<br>Source badge · ${esc(a.sourceName)}`
-            : `<br>${awardIcons(a)} ${esc(awardText(a))} · ${esc(a.sourceName)} ${a.awardYear}`
-        )
-        .join('')}${onDetouristList(v) ? `<br><span class="popup-member">${esc(DETOURIST_LIST_NOTE)}</span>` : ''}${isSanFranciscoDestination() && venueOccasions(v).length ? `<br><span class="popup-occasions">Good for: ${esc(occasionSummary(v))}</span>` : ''}`,
+      `<strong>${esc(v.name)}</strong><br><span class="popup-member">${esc(DETOURIST_LIST_NOTE)}</span>${isSanFranciscoDestination() && venueOccasions(v).length ? `<br><span class="popup-occasions">Good for: ${esc(occasionSummary(v))}</span>` : ''}`,
       { closeButton: false, offset: [0, -6] }
     );
     const select = () => {
@@ -551,7 +405,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
         pin.setAttribute('aria-pressed', String(selected));
         pin.setAttribute(
           'aria-label',
-          `${v.name}, ${spokenAwardSummary(v)}${isSanFranciscoDestination() && venueOccasions(v).length ? `. Good for ${occasionSummary(v)}` : ''}. ${selected ? 'Selected.' : 'Select for details.'}`
+          `${v.name}, ${DETOURIST_LIST_NOTE}${isSanFranciscoDestination() && venueOccasions(v).length ? ` Good for ${occasionSummary(v)}.` : ''} ${selected ? 'Selected.' : 'Select for details.'}`
         );
         pin.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -686,38 +540,6 @@ function refineChips(): string {
   </div>`;
 }
 
-function provenanceBrowser(): string {
-  // Counts are faceted the same way as occasions: what the list becomes
-  // with this provenance lane applied to the current occasion picks.
-  const base = destinationVenues().filter((v) =>
-    state.occasionFilters.every((occasion) => venueOccasions(v).includes(occasion))
-  );
-  const buttons = provenanceFilters()
-    .flatMap(({ value, label }) => {
-      const active = state.filter === value;
-      const count =
-        value === ''
-          ? base.length
-          : value === DETOURIST_LIST_FILTER
-            ? base.filter(onDetouristList).length
-            : base.filter((v) => v.awards.length > 0).length;
-      if (!active && value !== '' && count === 0) return [];
-      return `<button type="button" class="occasion-option${value === '' ? ' occasion-option-all' : ''}${active ? ' occasion-option-active' : ''}" data-filter="${esc(value)}" aria-pressed="${active}" aria-label="${esc(label)}, ${count} ${count === 1 ? 'place' : 'places'}">
-      <span>${esc(label)}</span><small aria-hidden="true">${count}</small>
-    </button>`;
-    })
-    .join('');
-  return `<section class="occasion-browser" aria-labelledby="provenance-browser-title" aria-describedby="provenance-browser-help">
-    <div class="occasion-browser-copy">
-      <h2 id="provenance-browser-title">Whose list is it on?</h2>
-      <p id="provenance-browser-help">External guide recognition and the member-built Detourist List stay distinct.</p>
-    </div>
-    <div class="occasion-options" role="group" aria-label="Filter by provenance">
-      ${buttons}
-    </div>
-  </section>`;
-}
-
 function discoveryBar(list: Venue[], hasMap: boolean): string {
   return `<section class="discovery" aria-label="Explore the selection">
     <div class="discovery-row">
@@ -731,7 +553,6 @@ function discoveryBar(list: Venue[], hasMap: boolean): string {
       <span class="count" aria-live="polite">${list.length} ${list.length === 1 ? 'place' : 'places'}</span>
     </div>
     ${occasionBrowser()}
-    ${provenanceBrowser()}
     ${refineChips()}
     ${state.geoStatus ? `<p class="geo-status" role="status">${esc(state.geoStatus)}</p>` : ''}
   </section>`;
@@ -762,36 +583,14 @@ function venueCover(v: Venue): string {
 
 function venueCard(v: Venue): string {
   const selected = v.id === state.selectedId;
-  const rank = maxAwardRank(v);
   const distinctLocality = hasDistinctLocality(v);
-  const cardTone =
-    rank > 0
-      ? ` card-rank-${rank}`
-      : onDetouristList(v) && v.awards.length === 0
-        ? ' card-member'
-        : ' card-ranked';
   return `<li>
-    <article class="card${cardTone}${selected ? ' card-selected' : ''}">
+    <article class="card card-detourist${selected ? ' card-selected' : ''}">
       <button type="button" class="card-main" data-venue="${esc(v.id)}" aria-expanded="${selected}">
         ${venueCover(v)}
         <div class="card-top">
           <h3>${esc(v.name)}</h3>
-          <span class="card-awards" role="list" aria-label="${esc(awardSummary(v))}">
-            ${v.awards
-              .map((a) =>
-                a.sourceBadge
-                  ? `<span role="listitem" class="award award-source ${sourceBadgeClass(a.sourceName)}" title="Source badge: ${esc(a.sourceName)}">${esc(a.sourceName)}</span>`
-                  : a.listRank !== null
-                    ? `<span role="listitem" class="award award-ranked" title="${esc(awardText(a))} — ${esc(a.sourceName)} ${a.awardYear}">
-                  <span class="award-rank-no">No. ${a.listRank}</span> ${esc(a.edition)}
-                </span>`
-                    : `<span role="listitem" class="award award-${a.awardRank ?? 0}" title="${esc(a.awardLevel)} — ${esc(a.sourceName)} ${a.awardYear}">
-                  <span aria-hidden="true">${awardIcons(a)}</span> ${esc(a.awardLevel)}
-                </span>`
-              )
-              .join('')}
-            ${onDetouristList(v) ? `<span role="listitem" class="award award-member" title="${esc(DETOURIST_LIST_NOTE)}">${esc(DETOURIST_LIST_LABEL)}</span>` : ''}
-          </span>
+          <span class="detourist-badge" aria-label="${esc(DETOURIST_LIST_NOTE)}">${esc(DETOURIST_LIST_LABEL)}</span>
         </div>
         <p class="card-meta">${esc([v.category, v.neighborhood].filter(Boolean).join(' · '))}</p>
         ${distinctLocality ? `<p class="card-locality"><span>${esc(v.city)}</span><small>${esc(venueRouteName(v))} selection</small></p>` : ''}
@@ -802,25 +601,7 @@ function venueCard(v: Venue): string {
         }</p>
         ${isSanFranciscoDestination() && venueOccasions(v).length ? `<span class="card-occasions" aria-label="Good for ${esc(occasionSummary(v))}"><span class="card-occasions-label">Good for</span>${venueOccasions(v).map((occasion) => `<span>${esc(occasionLabel(occasion))}</span>`).join('')}</span>` : ''}
       </button>
-      <div class="card-sources">
-        ${v.awards
-          .map((a) => {
-            if (a.sourceBadge)
-              return `<p class="card-source card-source-badge ${sourceBadgeClass(a.sourceName)}"><span>Source badge</span> · ${esc(a.sourceName)}</p>`;
-            const sourceUrl = safeExternalHref(a.sourceUrl);
-            const claim =
-              a.listRank !== null
-                ? `No. ${a.listRank} · ${esc(a.edition)}`
-                : `${esc(a.awardLevel)} · ${esc(a.sourceName)} ${a.awardYear}`;
-            return `<p class="card-source">${claim}${
-              sourceUrl
-                ? ` — <a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer">Official guide ↗</a>`
-                : ''
-            }</p>`;
-          })
-          .join('')}
-        ${onDetouristList(v) ? `<p class="card-source card-source-member">${esc(DETOURIST_LIST_NOTE)}</p>` : ''}
-      </div>
+      <p class="card-list-note">${esc(DETOURIST_LIST_NOTE)}</p>
     </article>
   </li>`;
 }
@@ -834,8 +615,6 @@ function detailPanel(): string {
         : 'Open the full selection and choose a place to see more.';
     return `<p class="map-prompt" aria-live="polite">${prompt}</p>`;
   }
-  const guides = guideNames(v);
-  const onList = onDetouristList(v);
   const distinctLocality = hasDistinctLocality(v);
   const detailMeta = [v.category, v.neighborhood, distinctLocality ? v.city : '']
     .filter(Boolean)
@@ -850,16 +629,6 @@ function detailPanel(): string {
       ? `<a href="${esc(instagramUrl)}" target="_blank" rel="noopener noreferrer">Instagram <span aria-hidden="true">↗</span></a>`
       : '',
   ].filter(Boolean).join('');
-  const sentences: string[] = [];
-  if (guides.length > 0)
-    sentences.push(`A current selection, independently recognised by ${guides.join(' and ')}.`);
-  if (onList)
-    sentences.push(
-      guides.length > 0
-        ? `Also on the ${DETOURIST_LIST_LABEL}, recommended by Detour members.`
-        : `On the ${DETOURIST_LIST_LABEL}, recommended by Detour members.`
-    );
-  const provenanceSentence = sentences.join(' ');
   return `<aside class="detail" id="selected-place-detail" aria-live="polite" aria-label="Selected place">
     <div class="detail-head">
       <div>
@@ -876,30 +645,10 @@ function detailPanel(): string {
           ? `<figure class="detail-cover"><img src="${esc(cover)}" alt="${esc(v.name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-cover-image></figure>`
           : '';
       })()}
-      <section class="detail-recognition" aria-labelledby="detail-recognition-title">
-        <h3 id="detail-recognition-title">Why it’s here</h3>
-        ${
-          v.awards.length || onList
-            ? `<ul class="detail-awards" aria-label="Source badges, recognition, and recommendation provenance">
-          ${v.awards
-            .map((a) =>
-              a.sourceBadge
-                ? `<li class="detail-award detail-source-badge ${sourceBadgeClass(a.sourceName)}"><span>Source badge</span>${esc(a.sourceName)}</li>`
-                : a.listRank !== null
-                  ? `<li class="detail-award detail-award-ranked"><span class="award-rank-no">No. ${a.listRank}</span> ${esc(
-                      a.edition
-                    )} · ${esc(a.sourceName)}</li>`
-                  : `<li class="detail-award award-${a.awardRank ?? 0}"><span aria-hidden="true">${awardIcons(a)}</span> ${esc(
-                      a.awardLevel
-                    )} · ${esc(a.sourceName)} ${a.awardYear}</li>`
-            )
-            .join('')}
-          ${onList ? `<li class="detail-award detail-award-member">${esc(DETOURIST_LIST_NOTE)}</li>` : ''}
-        </ul>`
-            : ''
-        }
-        ${v.description ? `<p class="detail-description">${esc(v.description)}</p>` : ''}
-        ${provenanceSentence ? `<p class="detail-note">${esc(provenanceSentence)}</p>` : ''}
+      <section class="detail-recommendation" aria-labelledby="detail-recommendation-title">
+        <h3 id="detail-recommendation-title">Why it’s here</h3>
+        <p class="detail-list-badge">${esc(DETOURIST_LIST_LABEL)}</p>
+        <p class="detail-note">Recommended by Detour members as a place worth a deliberate detour.</p>
       </section>
       <section class="detail-practical" aria-labelledby="detail-practical-title">
         <h3 id="detail-practical-title">Place details</h3>
@@ -911,24 +660,6 @@ function detailPanel(): string {
           }</dd></div>
           ${distinctLocality ? `<div><dt>Locality</dt><dd><span class="detail-locality">${esc(v.city)}</span><span class="detail-market">${esc(venueRouteName(v))} selection</span></dd></div>` : ''}
           ${isSanFranciscoDestination() && venueOccasions(v).length ? `<div><dt>Good for</dt><dd>${esc(venueOccasions(v).map(occasionLabel).join(' · '))}</dd></div>` : ''}
-          ${(() => {
-            // Only retained external-guide recognition belongs under “Official guide”.
-            const external = v.awards.filter((a) => !a.sourceBadge);
-            const guideRow = external.length
-              ? `<div><dt>Official guide${external.length === 1 ? '' : 's'}</dt><dd>${external
-                  .map((a) => {
-                    const sourceUrl = safeExternalHref(a.sourceUrl);
-                    return sourceUrl
-                      ? `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(a.sourceName)} ${a.awardYear} ↗</a>`
-                      : `${esc(a.sourceName)} ${a.awardYear}`;
-                  })
-                  .join('<br>')}</dd></div>`
-              : '';
-            const listRow = onList
-              ? `<div><dt>${esc(DETOURIST_LIST_LABEL)}</dt><dd>Recommended by Detour members.</dd></div>`
-              : '';
-            return guideRow + listRow;
-          })()}
         </dl>
         ${visitLinks ? `<nav class="detail-visit" aria-labelledby="detail-visit-title"><h3 id="detail-visit-title">Visit</h3><div class="detail-visit-links">${visitLinks}</div></nav>` : ''}
       </section>
@@ -943,7 +674,7 @@ function syncDocumentMeta(destinationName: string | null, account = false): void
   document.title = account
     ? 'Members — Detour'
     : destinationName
-      ? `Detour — ${destinationName}’s exceptional tables`
+      ? `Detour — Member-recommended places in ${destinationName}`
       : GLOBAL_META_TITLE;
   const meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
   if (meta) {
@@ -953,8 +684,8 @@ function syncDocumentMeta(destinationName: string | null, account = false): void
         ? 'Sign in to Detour membership to manage invitations, recommend places, and exchange private place shares.'
         : destinationName
           ? destinationName === 'San Francisco'
-            ? 'Browse Detour’s San Francisco selection by occasion, with guide recognition and member-recommended Detourist List entries clearly attributed.'
-            : `Explore Detour’s current ${destinationName} selection: exceptional tables with published recognition from named guides or the Detour community.`
+            ? 'Browse member-recommended Detourist List places in San Francisco by occasion, from celebrations to quick local stops.'
+            : `Explore member-recommended Detourist List places in ${destinationName}, with practical details and a map for planning your next detour.`
           : GLOBAL_META_DESCRIPTION
     );
   }
@@ -1086,7 +817,7 @@ function renderHome(root: HTMLElement): void {
                 <a class="city-choice-content" href="${esc(destinationHref(d.slug))}" data-open-destination="${esc(d.slug)}">
                   <span class="city-choice-swatch" aria-hidden="true"><span></span></span>
                   <p class="city-choice-place"><span class="city-choice-name">${esc(d.name)}</span>${d.country ? `<span class="city-choice-separator">, </span><span class="city-choice-country">${esc(d.country)}</span>` : ''}</p>
-                  <p class="city-choice-count">${d.count} current ${d.count === 1 ? 'selection' : 'selections'}</p>
+                  <p class="city-choice-count">${d.count} ${d.count === 1 ? 'place' : 'places'} on the Detourist List</p>
                 </a>
               </li>`
             )
@@ -1099,7 +830,7 @@ function renderHome(root: HTMLElement): void {
       <div class="hero-inner city-chooser-header">
         <p class="brand">Detour</p>
         <h1>Where is your next detour?</h1>
-        <p class="tagline city-chooser-intro">A collection of exceptional tables with clear provenance — recognised by named guides or on the member-recommended Detourist List.</p>
+        <p class="tagline city-chooser-intro">Member-recommended places worth a detour, gathered city by city.</p>
         <form class="destination-search" data-destination-search role="search" aria-label="Find a destination or place">
           <label class="visually-hidden" for="destination-search">Destination or place</label>
           <input id="destination-search" name="query" type="search" list="destination-search-options" autocomplete="off" spellcheck="false" placeholder="A city or a place — Madrid, Casa Botín…" ${state.mode !== 'live' ? 'disabled' : ''}>
@@ -1114,7 +845,7 @@ function renderHome(root: HTMLElement): void {
     <section class="city-chooser" aria-labelledby="destination-choices-title">
       <div class="city-chooser-heading">
         <h2 id="destination-choices-title">Where Detour is today</h2>
-        <p>Every destination below has current published places with clear provenance.</p>
+        <p>Every destination below has places recommended by Detour members.</p>
       </div>
       ${status}
       ${coverage}
@@ -1126,7 +857,7 @@ function renderHome(root: HTMLElement): void {
       </div>
     </section>
     <footer class="footer city-chooser-footer">
-      <p>Independent guides keep their own voice and attribution. Detour brings their current selections together in one deliberately edited collection.</p>
+      <p>Built from recommendations by Detour members. Take a detour.</p>
     </footer>
   `;
 
@@ -1196,7 +927,7 @@ function render(root: HTMLElement) {
         <p class="city-chooser-status"><a href="${esc(homeHref())}" data-home>← Back to search</a></p>
       </section>
       <footer class="footer city-chooser-footer">
-        <p>Independent guides keep their own voice and attribution. Detour brings their current selections together in one deliberately edited collection.</p>
+        <p>Built from recommendations by Detour members. Take a detour.</p>
       </footer>
     `;
     bindRouteLinks(root);
@@ -1220,10 +951,10 @@ function render(root: HTMLElement) {
   const sanFrancisco = isSanFranciscoDestination();
   const destinationTitle = sanFrancisco
     ? 'San Francisco, for the plan you have.'
-    : `${destination.name}’s exceptional tables, selected.`;
+    : `${destination.name}, recommended by Detour members.`;
   const destinationTagline = sanFrancisco
     ? `${destination.count} current ${destination.count === 1 ? 'place' : 'places'}. Browse by occasion, from celebrations and date nights to neighborhood meals and quick local stops.`
-    : `${destination.count} current ${destination.count === 1 ? 'place' : 'places'} holding published recognition.`;
+    : `${destination.count} ${destination.count === 1 ? 'place' : 'places'} on the member-recommended Detourist List.`;
 
   root.innerHTML = `
     <a class="skip-link" href="${hasMap ? '#venue-map' : '#selection-disclosure-title'}">Skip to discovery</a>
@@ -1251,7 +982,7 @@ function render(root: HTMLElement) {
       </div>
     </section>
     <footer class="footer">
-      <p>Trusted sources, named. Take a detour.</p>
+      <p>Recommended by members. Ready for your next detour.</p>
     </footer>
   `;
 
@@ -1265,14 +996,6 @@ function render(root: HTMLElement) {
     }
   };
 
-  root.querySelectorAll<HTMLButtonElement>('[data-filter]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.filter = btn.dataset.filter ?? '';
-      keepSelectionValid();
-      pendingFocus = `[data-filter="${CSS.escape(btn.dataset.filter ?? '')}"]`;
-      render(root);
-    });
-  });
   root.querySelectorAll<HTMLButtonElement>('[data-occasion]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const occasion = btn.dataset.occasion ?? '';
@@ -1295,23 +1018,17 @@ function render(root: HTMLElement) {
   });
   root.querySelectorAll<HTMLButtonElement>('[data-chip]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const kind = btn.dataset.chip;
-      if (kind === 'award') state.filter = '';
-      if (kind === 'occasion') {
-        const value = btn.dataset.chipValue ?? '';
-        state.occasionFilters = state.occasionFilters.filter((occasion) => occasion !== value);
-      }
+      const value = btn.dataset.chipValue ?? '';
+      state.occasionFilters = state.occasionFilters.filter((occasion) => occasion !== value);
       keepSelectionValid();
-      // Land focus on the "All" button of the group the chip belonged to.
-      pendingFocus = kind === 'occasion' ? '[data-occasion=""]' : '[data-filter=""]';
+      pendingFocus = '[data-occasion=""]';
       render(root);
     });
   });
   root.querySelectorAll<HTMLButtonElement>('[data-clear-filters]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      state.filter = '';
       state.occasionFilters = [];
-      pendingFocus = '[data-filter=""]';
+      pendingFocus = '[data-occasion=""]';
       render(root);
     });
   });
@@ -1354,7 +1071,6 @@ function render(root: HTMLElement) {
     });
   });
   root.querySelector<HTMLButtonElement>('[data-reset-filters]')?.addEventListener('click', () => {
-    state.filter = '';
     state.occasionFilters = [];
     pendingFocus = '[data-selection-toggle]';
     render(root);
@@ -1514,12 +1230,6 @@ if (root instanceof HTMLElement) {
     .then(({ venues }) => {
       state.mode = 'live';
       state.venues = venues;
-      state.guideYear =
-        venues.reduce(
-          (year, venue) =>
-            venue.awards.reduce((current, award) => Math.max(current, award.awardYear), year),
-          0
-        ) || GUIDE_YEAR;
       applyRouteFromUrl(root);
     })
     .catch(() => {

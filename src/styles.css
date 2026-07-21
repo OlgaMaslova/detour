@@ -1841,9 +1841,8 @@ a.brand:focus-visible {
 .map-pin.pin-3 { --pearl-size: 20px; --pearl-accent: var(--mint); }
 .map-pin.pin-2 { --pearl-size: 19px; --pearl-accent: var(--oxblood); }
 .map-pin.pin-1 { --pearl-size: 17px; --pearl-accent: var(--violet); }
-.map-pin.pin-ranked { --pearl-accent: var(--oxblood); }
-.map-pin.pin-community { --pearl-accent: var(--violet); }
-.map-pin.pin-community .pin-signal {
+.map-pin.pin-detourist { --pearl-accent: var(--violet); }
+.map-pin.pin-detourist .pin-signal {
   background: white;
   box-shadow: inset 0 0 0 2px var(--pearl-accent);
 }
@@ -1883,7 +1882,7 @@ a.brand:focus-visible {
   font-size: 0.62rem;
   font-weight: 650;
 }
-.map-pin.pin-community .pin-label small { color: var(--violet); }
+.map-pin.pin-detourist .pin-label small { color: var(--violet); }
 .map-pin:hover .pin-label,
 .map-pin:focus-visible .pin-label { display: block; }
 /* Selected pins show the Leaflet popup instead — suppress the hover label so
@@ -1951,6 +1950,7 @@ a.brand:focus-visible {
 .detail-close:hover { color: var(--ink); background: var(--mint); border-color: var(--mint); }
 .detail-body { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(17rem, 0.85fr); }
 .detail-recognition,
+.detail-recommendation,
 .detail-practical { padding: clamp(1.1rem, 3vw, 1.65rem); }
 .detail-practical { background: var(--canvas); }
 .detail-body h3 {
@@ -1979,8 +1979,18 @@ a.brand:focus-visible {
 .detail-award-community span[aria-hidden] { color: var(--mint); }
 .detail-award-member { color: white; background: var(--ink); }
 .detail-source-badge { color: var(--ink); background: var(--mint); }
+.detail-list-badge {
+  width: fit-content;
+  margin: 0;
+  padding: 0.35rem 0.6rem;
+  color: white;
+  background: var(--violet);
+  border-radius: 4px;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
 .detail-description { margin-top: 1rem; }
-.detail-note { margin: 1rem 0 0; color: var(--ink-soft); font-family: var(--sans); font-style: normal; }
+.detail-note { margin: 0.8rem 0 0; max-width: 48ch; color: var(--ink-soft); font-family: var(--sans); font-style: normal; }
 .detail-facts { gap: 0; }
 .detail-facts div { grid-template-columns: 7rem 1fr; gap: 0.75rem; padding: 0.7rem 0; border-top: 1px solid color-mix(in oklch, var(--mint) 50%, var(--ink)); }
 .detail-facts div:first-child { border-top: 0; padding-top: 0; }
@@ -2135,12 +2145,7 @@ a.brand:focus-visible {
   box-shadow: none;
 }
 .card::before { content: ''; display: block; height: 6px; background: var(--violet); }
-.card-rank-3::before { background: var(--mint); }
-.card-rank-2::before { background: var(--oxblood); }
-.card-rank-1::before { background: var(--violet); }
-.card-ranked::before { background: var(--oxblood); }
-.card-community::before { height: 9px; background: var(--violet); }
-.card-member::before { height: 9px; background: var(--ink); }
+.card-detourist::before { height: 9px; background: var(--violet); }
 .card:hover { border-color: var(--ink); box-shadow: 0 6px 0 var(--mint-soft); }
 .card-selected,
 .card-selected:hover { border: 2px solid var(--ink); box-shadow: var(--sticker-shadow); }
@@ -2164,6 +2169,25 @@ a.brand:focus-visible {
   color: var(--ink-soft);
   font-size: 0.72rem;
   font-weight: 650;
+}
+.detourist-badge {
+  flex: none;
+  padding: 0.25rem 0.48rem;
+  color: white;
+  background: var(--violet);
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.card-list-note {
+  margin: auto 0 0;
+  padding: 0.65rem 1.05rem 0.75rem;
+  color: oklch(0.31 0.06 155);
+  background: var(--mint-soft);
+  border-top: 1px solid var(--line);
+  font-size: 0.76rem;
+  font-weight: 750;
 }
 .award { color: var(--ink); background: var(--mint-soft); }
 .award-3 { color: var(--ink); background: var(--mint); }

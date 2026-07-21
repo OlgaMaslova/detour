@@ -60,9 +60,9 @@ export interface CityEditorialSource {
   bounds?: CityBounds | null;
 }
 
-export const GLOBAL_META_TITLE = 'Detour — Exceptional tables, city by city';
+export const GLOBAL_META_TITLE = 'Detour — Member-recommended places, city by city';
 export const GLOBAL_META_DESCRIPTION =
-  'Detour is a deliberately edited collection of exceptional tables across cities. Choose a city to explore current selections from named guides and the Detour community.';
+  'Explore Detourist List places recommended by Detour members, with city search, practical details, and maps for planning your next detour.';
 
 /**
  * Build the full presentation config for one live city record. Blank
@@ -82,17 +82,17 @@ export function cityConfigFromLive(live: CityEditorialSource): CityConfig {
     slug: live.slug,
     name,
     country: live.country,
-    title: live.title?.trim() || `${name}’s exceptional tables, selected.`,
+    title: live.title?.trim() || `${name}, recommended by Detour members.`,
     tagline:
       live.tagline?.trim() ||
-      '{count} current places holding published recognition from named guides.',
+      '{count} places on the member-recommended Detourist List.',
     footer:
       live.footer?.trim() ||
-      `Detour is a current, deliberately edited selection of ${name}’s exceptional tables. Each recognition belongs to its guide, with official links preserved for the original listings.`,
-    metaTitle: live.metaTitle?.trim() || `Detour — ${name}’s exceptional tables`,
+      `Detour brings together places in ${name} recommended by its members.`,
+    metaTitle: live.metaTitle?.trim() || `Detour — Member-recommended places in ${name}`,
     metaDescription:
       live.metaDescription?.trim() ||
-      `Explore Detour’s current ${name} selection: exceptional tables with published recognition from named guides or the Detour community.`,
+      `Explore member-recommended Detourist List places in ${name}, with practical details and a map for planning your next detour.`,
     presentation: mapReady ? 'map' : 'list',
   };
   if (mapReady) {
