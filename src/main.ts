@@ -111,8 +111,24 @@ function brandMark(): string {
 
 /* ---------- public member-list framing ---------- */
 
-const DETOURIST_LIST_LABEL = 'Detourist List';
-const DETOURIST_LIST_NOTE = `${DETOURIST_LIST_LABEL} — recommended by Detour members.`;
+const MEMBER_RECOMMENDED_NOTE = 'Recommended by Detour members.';
+
+/**
+ * Aggregate member signal for one place, e.g. "Recommended or shared by 4
+ * Detourists"; null when no count is known (the generic membership note is
+ * the fallback). Every published place is member-recommended, so no lane
+ * label accompanies it.
+ */
+function detouristSignal(v: Venue): string | null {
+  const count = v.detouristCount ?? 0;
+  if (count < 1) return null;
+  return `Recommended or shared by ${count} Detourist${count === 1 ? '' : 's'}`;
+}
+
+function detouristNote(v: Venue): string {
+  const signal = detouristSignal(v);
+  return signal ? `${signal}.` : MEMBER_RECOMMENDED_NOTE;
+}
 
 function venueOccasions(v: Venue): string[] {
   return v.occasions ?? [];
@@ -377,7 +393,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
         <span class="pin-pearl" aria-hidden="true">
           <span class="pin-signal"></span>
         </span>
-        <span class="pin-label">${esc(v.name)}<small>${esc(DETOURIST_LIST_LABEL)} · member-recommended</small></span>
+        <span class="pin-label">${esc(v.name)}<small>${esc(detouristNote(v))}</small></span>
       </span>`,
       iconSize: [0, 0],
       iconAnchor: [0, 0],
@@ -389,7 +405,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
       zIndexOffset: selected ? 1000 : 0,
     }).addTo(map);
     marker.bindPopup(
-      `<strong>${esc(v.name)}</strong><br><span class="popup-member">${esc(DETOURIST_LIST_NOTE)}</span>${isSanFranciscoDestination() && venueOccasions(v).length ? `<br><span class="popup-occasions">Good for: ${esc(occasionSummary(v))}</span>` : ''}`,
+      `<strong>${esc(v.name)}</strong><br><span class="popup-member">${esc(detouristNote(v))}</span>${isSanFranciscoDestination() && venueOccasions(v).length ? `<br><span class="popup-occasions">Good for: ${esc(occasionSummary(v))}</span>` : ''}`,
       { closeButton: false, offset: [0, -6] }
     );
     const select = () => {
@@ -414,7 +430,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
         pin.setAttribute('aria-pressed', String(selected));
         pin.setAttribute(
           'aria-label',
-          `${v.name}, ${DETOURIST_LIST_NOTE}${isSanFranciscoDestination() && venueOccasions(v).length ? ` Good for ${occasionSummary(v)}.` : ''} ${selected ? 'Selected.' : 'Select for details.'}`
+          `${v.name}, ${detouristNote(v)}${isSanFranciscoDestination() && venueOccasions(v).length ? ` Good for ${occasionSummary(v)}.` : ''} ${selected ? 'Selected.' : 'Select for details.'}`
         );
         pin.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -597,10 +613,7 @@ function venueCard(v: Venue): string {
     <article class="card card-detourist${selected ? ' card-selected' : ''}">
       <button type="button" class="card-main" data-venue="${esc(v.id)}" aria-expanded="${selected}">
         ${venueCover(v)}
-        <div class="card-top">
-          <h3>${esc(v.name)}</h3>
-          <span class="detourist-badge" aria-label="${esc(DETOURIST_LIST_NOTE)}">${esc(DETOURIST_LIST_LABEL)}</span>
-        </div>
+        <h3>${esc(v.name)}</h3>
         <p class="card-meta">${esc([v.category, v.neighborhood].filter(Boolean).join(' · '))}</p>
         ${distinctLocality ? `<p class="card-locality"><span>${esc(v.city)}</span><small>${esc(venueRouteName(v))} selection</small></p>` : ''}
         <p class="card-address">${
@@ -610,7 +623,7 @@ function venueCard(v: Venue): string {
         }</p>
         ${isSanFranciscoDestination() && venueOccasions(v).length ? `<span class="card-occasions" aria-label="Good for ${esc(occasionSummary(v))}"><span class="card-occasions-label">Good for</span>${venueOccasions(v).map((occasion) => `<span>${esc(occasionLabel(occasion))}</span>`).join('')}</span>` : ''}
       </button>
-      <p class="card-list-note">${esc(DETOURIST_LIST_NOTE)}</p>
+      <p class="card-list-note">${esc(detouristNote(v))}</p>
     </article>
   </li>`;
 }
@@ -625,6 +638,7 @@ function detailPanel(): string {
     return `<p class="map-prompt" aria-live="polite">${prompt}</p>`;
   }
   const distinctLocality = hasDistinctLocality(v);
+  const signal = detouristSignal(v);
   const detailMeta = [v.category, v.neighborhood, distinctLocality ? v.city : '']
     .filter(Boolean)
     .join(' · ');
@@ -656,8 +670,11 @@ function detailPanel(): string {
       })()}
       <section class="detail-recommendation" aria-labelledby="detail-recommendation-title">
         <h3 id="detail-recommendation-title">Why it’s here</h3>
-        <p class="detail-list-badge">${esc(DETOURIST_LIST_LABEL)}</p>
-        <p class="detail-note">Recommended by Detour members as a place worth a deliberate detour.</p>
+        <p class="detail-note">${esc(
+          signal
+            ? `${signal} — a place worth a deliberate detour.`
+            : 'Recommended by Detour members as a place worth a deliberate detour.'
+        )}</p>
       </section>
       <section class="detail-practical" aria-labelledby="detail-practical-title">
         <h3 id="detail-practical-title">Place details</h3>

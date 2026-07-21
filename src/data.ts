@@ -75,6 +75,12 @@ export interface Venue {
    * rather than shown as awards.
    */
   detouristList?: boolean;
+  /**
+   * Distinct members who have recommended or shared this place through the
+   * member loops. Aggregate only — no identity attached. Absent when the
+   * backend predates the signals route or the place has no recorded signals.
+   */
+  detouristCount?: number;
 }
 
 export const GUIDE_YEAR = 2026;
@@ -510,7 +516,7 @@ function sortAwards(awards: VenueAward[]): VenueAward[] {
  * links stay attached to the recognition that supplied them.
  */
 export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
-  const [venueRecords, awardRecords, sourceRecords, cityRecords, contributionRecords] = await Promise.all([
+  const [venueRecords, awardRecords, sourceRecords, cityRecords, contributionRecords, detouristCounts] = await Promise.all([
     pb.collection('venues').getFullList<VenueRecord>({
       fields: 'id,name,city,market,country,address,lat,lng,category,official_url,instagram_url,image_url,approx_location',
       // Keep the request compatible with pre-migration backends; final route
@@ -548,6 +554,13 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
         requestKey: null,
       })
       .catch(() => [] as MemberContributionRecord[]),
+    // Aggregate social proof: distinct members who recommended or shared each
+    // venue, keyed by venue id. Purely additive — tolerate backends without
+    // the route by falling back to no counts.
+    pb
+      .send<{ counts?: Record<string, unknown> }>('/api/detour/place-detourists', { requestKey: null })
+      .then((payload) => payload?.counts ?? {})
+      .catch(() => ({} as Record<string, unknown>)),
   ]);
 
   const sourceById = new Map(sourceRecords.map((source) => [source.id, source]));
@@ -709,6 +722,9 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     const existing = venueByIdentity.get(identityKey(name, city.name));
     if (existing) {
       existing.detouristList = true;
+      // The contributing member is at least one signal even when the counts
+      // route is unavailable or missed this identity.
+      existing.detouristCount = Math.max(existing.detouristCount ?? 0, 1);
       existing.occasions = mergeOccasions(existing.occasions, occasions);
       if (!existing.country) existing.country = cleanString(record.country) || city.country;
       if (!existing.address) existing.address = cleanString(record.address);
@@ -735,9 +751,19 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       approxLocation: false,
       occasions,
       detouristList: true,
+      // Contribution-only places have no catalogue venue record for the
+      // counts route to key on; the contributing member is the one signal.
+      detouristCount: 1,
     };
     venuesById.set(venue.id, venue);
     venueByIdentity.set(identityKey(venue.name, venue.city), venue);
+  }
+
+  // Attach aggregate member signals (distinct recommenders/sharers) to their
+  // venues. Server counts win when larger — they dedupe across every loop.
+  for (const venue of venuesById.values()) {
+    const count = positiveInteger(detouristCounts[venue.id]);
+    if (count !== null) venue.detouristCount = Math.max(venue.detouristCount ?? 0, count);
   }
 
   const cities = [...citiesByName.values()].sort((a, b) => a.name.localeCompare(b.name));

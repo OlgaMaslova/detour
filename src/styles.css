@@ -489,7 +489,6 @@ a:hover { color: var(--wine-deep); }
   height: clamp(10rem, 32vw, 15rem);
   object-fit: cover;
 }
-.card-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 0.7rem; }
 .card h3 { margin: 0; font-family: var(--serif); font-size: 1.18rem; font-weight: 700; letter-spacing: 0.005em; }
 .card-awards { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .award {
@@ -1979,16 +1978,6 @@ a.brand:focus-visible {
 .detail-award-community span[aria-hidden] { color: var(--mint); }
 .detail-award-member { color: white; background: var(--ink); }
 .detail-source-badge { color: var(--ink); background: var(--mint); }
-.detail-list-badge {
-  width: fit-content;
-  margin: 0;
-  padding: 0.35rem 0.6rem;
-  color: white;
-  background: var(--violet);
-  border-radius: 4px;
-  font-size: 0.82rem;
-  font-weight: 800;
-}
 .detail-description { margin-top: 1rem; }
 .detail-note { margin: 0.8rem 0 0; max-width: 48ch; color: var(--ink-soft); font-family: var(--sans); font-style: normal; }
 .detail-facts { gap: 0; }
@@ -2169,16 +2158,6 @@ a.brand:focus-visible {
   color: var(--ink-soft);
   font-size: 0.72rem;
   font-weight: 650;
-}
-.detourist-badge {
-  flex: none;
-  padding: 0.25rem 0.48rem;
-  color: white;
-  background: var(--violet);
-  border-radius: 4px;
-  font-size: 0.7rem;
-  font-weight: 800;
-  line-height: 1.2;
 }
 .card-list-note {
   margin: auto 0 0;

@@ -230,6 +230,92 @@ routerAdd(
   $apis.requireAuth("members")
 );
 
+// Public, aggregate-only social proof for the catalogue: how many distinct
+// Detourists have recommended or shared each place. Recommendation signals,
+// shares, and contributions are private collections, so this route exposes
+// counts keyed by public venue id and nothing else — no member identity,
+// prose, or timing ever leaves the server.
+routerAdd("GET", "/api/detour/place-detourists", (e) => {
+  const { normalizePlacePart } = require(__hooks + "/community_waitlist.js");
+
+  // Distinct (venue, member) pairs from recommendation signals and shares.
+  // Waiting-list entries resolve to their published venue first, then to the
+  // canonical catalogue venue they were matched to before publication.
+  const pairs = arrayOf(new DynamicModel({ venue_id: "", member_id: "" }));
+  e.app
+    .db()
+    .newQuery(
+      "SELECT venue_id, member_id FROM (" +
+        "SELECT COALESCE(NULLIF(w.published_venue, ''), w.canonical_venue) AS venue_id, r.member AS member_id " +
+        "FROM community_recommendations r " +
+        "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+        "UNION " +
+        "SELECT s.venue AS venue_id, s.sender AS member_id " +
+        "FROM community_shares s " +
+        "UNION " +
+        "SELECT COALESCE(NULLIF(w.published_venue, ''), w.canonical_venue) AS venue_id, s.sender AS member_id " +
+        "FROM community_shares s " +
+        "JOIN community_waitlist_entries w ON w.id = s.waitlist" +
+        ") WHERE venue_id IS NOT NULL AND venue_id != '' AND member_id != ''"
+    )
+    .all(pairs);
+
+  // Approved legacy contributions are one member's recommendation each,
+  // matched to catalogue venues by the same normalized place identity the
+  // waiting-list loop uses.
+  const contributionPairs = [];
+  const contributions = arrayOf(
+    new DynamicModel({ member_id: "", normalized_name: "", normalized_city: "" })
+  );
+  e.app
+    .db()
+    .newQuery(
+      "SELECT member AS member_id, normalized_name, normalized_city " +
+        "FROM member_place_contributions WHERE status = 'approved'"
+    )
+    .all(contributions);
+  const contributionRows = [];
+  for (const row of contributions) {
+    contributionRows.push({
+      member_id: row.member_id,
+      normalized_name: row.normalized_name,
+      normalized_city: row.normalized_city,
+    });
+  }
+  if (contributionRows.length) {
+    const venues = arrayOf(new DynamicModel({ id: "", name: "", city: "" }));
+    e.app.db().newQuery("SELECT id, name, city FROM venues").all(venues);
+    // Normalized parts never contain ":" (normalizePlacePart strips it), so
+    // "::" joins name and city without cross-boundary collisions.
+    const venueByIdentity = {};
+    for (const venue of venues) {
+      venueByIdentity[
+        normalizePlacePart(venue.name) + "::" + normalizePlacePart(venue.city)
+      ] = venue.id;
+    }
+    for (const row of contributionRows) {
+      const venueId =
+        venueByIdentity[row.normalized_name + "::" + row.normalized_city];
+      if (venueId && row.member_id) {
+        contributionPairs.push({ venue_id: venueId, member_id: row.member_id });
+      }
+    }
+  }
+
+  const seen = {};
+  const counts = {};
+  function addPair(venueId, memberId) {
+    const key = venueId + "::" + memberId;
+    if (seen[key]) return;
+    seen[key] = true;
+    counts[venueId] = (counts[venueId] || 0) + 1;
+  }
+  for (const row of pairs) addPair(row.venue_id, row.member_id);
+  for (const pair of contributionPairs) addPair(pair.venue_id, pair.member_id);
+
+  return e.json(200, { counts: counts });
+});
+
 routerAdd(
   "GET",
   "/api/detour/member-directory",
@@ -507,16 +593,23 @@ onRecordAfterCreateSuccess((e) => {
   const waitlistId = e.record.getString("waitlist");
   community.recalculateAndPublish(e.app, waitlistId);
   // Publication happened inside the transaction above; the external
-  // address/location validation runs after it so a geocoder outage can never
-  // block or roll back the publish. Failures are retried by the nightly sweep.
+  // enrichment runs after it so an outage of OpenStreetMap or of the place's
+  // own website can never block or roll back the publish. Members only supply
+  // name, city, country, and optionally an address — the address-based
+  // geocoder validates what they gave, then the OSM place lookup fills the
+  // remaining public facts (website, Instagram, missing address/coordinates),
+  // and the cover resolver turns those links into a place image. Failures are
+  // retried by the nightly sweeps.
   try {
     const entry = e.app.findRecordById("community_waitlist_entries", waitlistId);
     const publishedVenue = entry.getString("published_venue");
     if (entry.getString("status") === "published" && publishedVenue) {
       community.geocodeVenue(e.app, publishedVenue);
+      community.enrichVenueFromOsm(e.app, publishedVenue);
+      community.resolveCoverImage(e.app, publishedVenue);
     }
   } catch {
-    // Entry lookup is best-effort; the sweep covers anything missed.
+    // Entry lookup is best-effort; the sweeps cover anything missed.
   }
   e.next();
 }, "community_recommendations");
@@ -541,6 +634,33 @@ cronAdd("community_geocode_sweep", "0 4 * * *", () => {
   for (const award of awards) {
     const venueId = award.getString("venue");
     if (venueId) community.geocodeVenue($app, venueId);
+  }
+});
+
+// Nightly retry for Detourist-list venues that still lack discovered facts or
+// a cover image (OSM or the place's site was down at publication, the OSM
+// record gained contact tags later, …). Both steps exit early for venues that
+// already have everything.
+cronAdd("community_cover_sweep", "30 4 * * *", () => {
+  const community = require(__hooks + "/community_waitlist.js");
+  let awards = [];
+  try {
+    awards = $app.findRecordsByFilter(
+      "venue_awards",
+      "level = 'Detour community selection' && current = true",
+      "-created",
+      50,
+      0
+    );
+  } catch {
+    return;
+  }
+  for (const award of awards) {
+    const venueId = award.getString("venue");
+    if (venueId) {
+      community.enrichVenueFromOsm($app, venueId);
+      community.resolveCoverImage($app, venueId);
+    }
   }
 });
 

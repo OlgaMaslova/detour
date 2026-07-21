@@ -112,6 +112,35 @@ function mergePlaceFacts(app, entry, category, occasions) {
   if (changed) app.save(entry);
 }
 
+// Host guard for member-supplied place links and for every URL the cover
+// resolver fetches. Blocks non-http(s) schemes, credentials, and hosts that
+// could point the server at itself or its private network (literal IPs,
+// localhost, and internal-only suffixes). Local validators run against
+// loopback servers and disable the host restrictions explicitly via
+// DETOUR_COVER_ALLOW_PRIVATE_HOSTS=1.
+function publicHttpUrl(value) {
+  const raw = cleanText(value, 300);
+  if (!raw) return "";
+  const withScheme = /^https?:\/\//i.test(raw) ? raw : "https://" + raw;
+  const match = withScheme.match(/^(https?):\/\/([^/?#]+)([/?#].*)?$/i);
+  if (!match) return "";
+  const authority = match[2];
+  if (authority.indexOf("@") !== -1 || authority.indexOf("[") !== -1) return "";
+  const host = authority.split(":")[0].toLowerCase();
+  if (!host) return "";
+  if ($os.getenv("DETOUR_COVER_ALLOW_PRIVATE_HOSTS") !== "1") {
+    if (
+      host.indexOf(".") === -1 ||
+      /^\d+\.\d+\.\d+\.\d+$/.test(host) ||
+      host === "localhost" ||
+      /\.(localhost|local|internal|flycast)$/.test(host)
+    ) {
+      return "";
+    }
+  }
+  return withScheme;
+}
+
 function requireVerifiedMember(auth, action) {
   if (!auth || auth.getString("community_status") !== "verified") {
     throw new BadRequestError(
@@ -267,10 +296,6 @@ function createOrResolveEntry(app, input) {
     }
     if (changed) app.save(existing);
     return { entry: existing, created: false };
-  }
-
-  if (!place.address) {
-    throw new BadRequestError("A street address is required for a new place.");
   }
 
   const collection = app.findCollectionByNameOrId("community_waitlist_entries");
@@ -585,7 +610,8 @@ function geocodeVenue(app, venueId) {
       // accept-language=en keeps returned place names in English exonyms
       // (Lisbon, not Lisboa) so they compare cleanly against member input.
       url:
-        "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&accept-language=en&q=" +
+        nominatimBaseUrl() +
+        "/search?format=jsonv2&limit=1&addressdetails=1&accept-language=en&q=" +
         encodeURIComponent(address + ", " + city + ", " + country),
       method: "GET",
       headers: { "User-Agent": "Detour community place verification (contact: olga@supernaut.dev)" },
@@ -633,17 +659,272 @@ function geocodeVenue(app, venueId) {
   app.save(venue);
 }
 
+// Where OpenStreetMap lookups go. Overridable only so local validators can
+// run against a loopback fixture server; production always uses the public
+// Nominatim service.
+function nominatimBaseUrl() {
+  return $os.getenv("DETOUR_NOMINATIM_BASE_URL") || "https://nominatim.openstreetmap.org";
+}
+
+// Normalizes an OSM contact:instagram tag — either a full profile URL or a
+// bare handle like "@thebistro" — into a canonical profile link, or "".
+function instagramProfileUrl(value) {
+  const raw = cleanText(value, 300);
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) {
+    const url = publicHttpUrl(raw);
+    if (!url) return "";
+    const authority = (url.match(/^https?:\/\/([^/?#]+)/i) || [])[1] || "";
+    const host = authority.split(":")[0].toLowerCase();
+    return host === "instagram.com" || host.endsWith(".instagram.com") ? url : "";
+  }
+  const handle = raw.replace(/^@/, "");
+  return /^[A-Za-z0-9._]{1,64}$/.test(handle)
+    ? "https://www.instagram.com/" + handle + "/"
+    : "";
+}
+
+// Fills a published venue's public facts from OpenStreetMap by looking the
+// place up by name and city: official website and Instagram profile (OSM
+// contact tags) always when missing, plus street address and coordinates when
+// the recommending members supplied none. Fill-if-missing only — existing
+// values are never overwritten — and the same claimed-city guard the address
+// geocoder uses is applied before trusting a match. Best-effort and never
+// throws: publication must not depend on an external service; the nightly
+// sweep retries.
+function enrichVenueFromOsm(app, venueId) {
+  let venue;
+  try {
+    venue = app.findRecordById("venues", venueId);
+  } catch {
+    return;
+  }
+  const name = cleanText(venue.getString("name"), 200);
+  const city = cleanText(venue.getString("city"), 120);
+  const country = cleanText(venue.getString("country"), 120);
+  if (!name || !city) return;
+
+  const existingLat = Number(venue.get("lat"));
+  const existingLng = Number(venue.get("lng"));
+  const hasCoords =
+    (existingLat !== 0 || existingLng !== 0) &&
+    Number.isFinite(existingLat) &&
+    Number.isFinite(existingLng);
+  const needsWebsite = !venue.getString("official_url");
+  const needsInstagram = !venue.getString("instagram_url");
+  const needsAddress = !cleanText(venue.getString("address"), 300);
+  if (!needsWebsite && !needsInstagram && !needsAddress && hasCoords) return;
+
+  let response;
+  try {
+    response = $http.send({
+      url:
+        nominatimBaseUrl() +
+        "/search?format=jsonv2&limit=3&addressdetails=1&extratags=1&accept-language=en&q=" +
+        encodeURIComponent(name + ", " + city + (country ? ", " + country : "")),
+      method: "GET",
+      headers: { "User-Agent": "Detour community place verification (contact: olga@supernaut.dev)" },
+      timeout: 10,
+    });
+  } catch {
+    return;
+  }
+  if (!response || response.statusCode !== 200) return;
+
+  let results;
+  try {
+    results = response.json;
+  } catch {
+    return;
+  }
+  if (!Array.isArray(results)) return;
+
+  let hit = null;
+  for (const candidate of results) {
+    const parts = (candidate && candidate.address) || {};
+    const hitCity = String(parts.city || parts.town || parts.village || parts.municipality || "");
+    if (!hitCity || normalizePlacePart(hitCity) === normalizePlacePart(city)) {
+      hit = candidate;
+      break;
+    }
+  }
+  if (!hit) return;
+
+  const tags = hit.extratags || {};
+  let changed = false;
+  if (needsWebsite) {
+    const website = publicHttpUrl(cleanText(tags.website || tags["contact:website"], 300));
+    if (website) {
+      venue.set("official_url", website);
+      changed = true;
+    }
+  }
+  if (needsInstagram) {
+    const instagram = instagramProfileUrl(tags["contact:instagram"]);
+    if (instagram) {
+      venue.set("instagram_url", instagram);
+      changed = true;
+    }
+  }
+  if (needsAddress) {
+    const parts = hit.address || {};
+    const road = cleanText(String(parts.road || parts.pedestrian || parts.square || ""), 200);
+    const houseNumber = cleanText(String(parts.house_number || ""), 20);
+    const address = cleanText((houseNumber ? houseNumber + " " : "") + road, 300);
+    if (address) {
+      venue.set("address", address);
+      changed = true;
+    }
+  }
+  if (!hasCoords) {
+    const hitLat = parseFloat(hit.lat);
+    const hitLng = parseFloat(hit.lon);
+    if (Number.isFinite(hitLat) && Number.isFinite(hitLng) && !(hitLat === 0 && hitLng === 0)) {
+      venue.set("lat", hitLat);
+      venue.set("lng", hitLng);
+      venue.set(
+        "coord_verification_note",
+        cleanText(
+          "Located via OpenStreetMap Nominatim place search: " + String(hit.display_name || ""),
+          300
+        )
+      );
+      changed = true;
+    }
+  }
+  if (changed) app.save(venue);
+}
+
+// A realistic browser UA: many restaurant sites (and all of Instagram) serve
+// bot-detected requests an empty shell without og tags.
+const COVER_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+
+function coverHeaderValue(response, name) {
+  const headers = (response && response.headers) || {};
+  const value = headers[name] !== undefined ? headers[name] : headers[name.toLowerCase()];
+  if (Array.isArray(value)) return String(value[0] || "");
+  return value === undefined || value === null ? "" : String(value);
+}
+
+// Pulls the social/cover image candidates out of an HTML document, resolving
+// protocol-relative and root-relative URLs against the page. Purely relative
+// paths are skipped — og:image is effectively always absolute in practice.
+function extractCoverCandidates(html, pageUrl) {
+  const origin = (String(pageUrl).match(/^(https?:\/\/[^/?#]+)/i) || [])[1] || "";
+  const protocol = origin.slice(0, origin.indexOf(":") + 1);
+  const candidates = [];
+  for (const tag of String(html).match(/<meta\s[^>]*>/gi) || []) {
+    const property = (tag.match(/(?:property|name)\s*=\s*["']([^"']+)["']/i) || [])[1];
+    const content = (tag.match(/content\s*=\s*["']([^"']+)["']/i) || [])[1];
+    if (!property || !content) continue;
+    const key = property.toLowerCase();
+    if (key === "og:image:secure_url") candidates.unshift(content);
+    else if (key === "og:image" || key === "og:image:url") candidates.push(content);
+    else if (key === "twitter:image" || key === "twitter:image:src") candidates.push(content);
+  }
+
+  const resolved = [];
+  for (const raw of candidates) {
+    const value = raw.replace(/&amp;/g, "&");
+    let absolute = "";
+    if (/^https?:\/\//i.test(value)) absolute = value;
+    else if (value.indexOf("//") === 0 && protocol) absolute = protocol + value;
+    else if (value.indexOf("/") === 0 && origin) absolute = origin + value;
+    if (absolute && resolved.indexOf(absolute) === -1) resolved.push(absolute);
+  }
+  return resolved.slice(0, 6);
+}
+
+// True when the URL actually serves an image, checked with a 1-byte range GET
+// so a cooperative server never sends the full file.
+function coverUrlServesImage(url) {
+  let response;
+  try {
+    response = $http.send({
+      url,
+      method: "GET",
+      headers: { "User-Agent": COVER_USER_AGENT, Range: "bytes=0-0", Accept: "image/*" },
+      timeout: 10,
+    });
+  } catch {
+    return false;
+  }
+  if (!response || response.statusCode < 200 || response.statusCode >= 300) return false;
+  return coverHeaderValue(response, "Content-Type").toLowerCase().indexOf("image/") === 0;
+}
+
+// Resolves a verified cover image URL from one venue web page, or "".
+function coverFromPage(pageUrl) {
+  const safeUrl = publicHttpUrl(pageUrl);
+  if (!safeUrl) return "";
+  let response;
+  try {
+    response = $http.send({
+      url: safeUrl,
+      method: "GET",
+      headers: {
+        "User-Agent": COVER_USER_AGENT,
+        Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
+        "Accept-Language": "en",
+      },
+      timeout: 10,
+    });
+  } catch {
+    return "";
+  }
+  if (!response || response.statusCode < 200 || response.statusCode >= 300) return "";
+  for (const candidate of extractCoverCandidates(response.raw, safeUrl)) {
+    // Candidate URLs (often long signed CDN links) get the same scheme/host
+    // guard as member links, applied to their origin so length never trips it.
+    const candidateOrigin = (candidate.match(/^(https?:\/\/[^/?#]+)/i) || [])[1] || "";
+    if (candidate.length <= 2048 && publicHttpUrl(candidateOrigin) && coverUrlServesImage(candidate)) {
+      return candidate;
+    }
+  }
+  return "";
+}
+
+// Resolves a cover image for a published venue from its own web presence
+// (og:image/twitter:image on the official site, then the Instagram profile)
+// and stores the verified image URL. Never throws: publication must not
+// depend on an external site. Venues that already have a cover are left
+// untouched; the nightly sweep retries anything missed.
+function resolveCoverImage(app, venueId) {
+  let venue;
+  try {
+    venue = app.findRecordById("venues", venueId);
+  } catch {
+    return;
+  }
+  if (venue.getString("image_url")) return;
+  const sources = [
+    publicHttpUrl(venue.getString("official_url")),
+    publicHttpUrl(venue.getString("instagram_url")),
+  ].filter(Boolean);
+  for (const source of sources) {
+    const cover = coverFromPage(source);
+    if (cover) {
+      venue.set("image_url", cover);
+      app.save(venue);
+      return;
+    }
+  }
+}
+
 module.exports = {
   addParticipants,
   cleanText,
   createOrResolveEntry,
   ensureEntryPending,
+  enrichVenueFromOsm,
   findMemberRecommendation,
   geocodeVenue,
   isParticipant,
   mergePlaceFacts,
   normalizePlacePart,
   recalculateAndPublish,
+  resolveCoverImage,
   validateCategory,
   validateOccasions,
   requireVerifiedMember,

@@ -315,7 +315,7 @@ function recommendationPanel(): string {
     <div class="community-action-grid community-recommend-action">
       <form class="community-form" data-community-recommendation>
         <label>Place name<input name="venue_name" maxlength="200" required placeholder="The place you would send someone"></label>
-        <label>Address<input name="address" maxlength="300" required placeholder="Street and number"></label>
+        <label>Address <span class="community-optional">Optional — we can look it up</span><input name="address" maxlength="300" placeholder="Street and number"></label>
         <div class="community-form-grid community-place-grid">
           <label>City or locality<input name="city" maxlength="120" required placeholder="City or locality"></label>
           <label>Country<input name="country" maxlength="120" required placeholder="Country"></label>
