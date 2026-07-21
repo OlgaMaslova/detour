@@ -2458,15 +2458,25 @@ a.brand:focus-visible {
   list-style: none;
 }
 .network-how li {
+  --how-rule: var(--violet);
+  --how-numeral: var(--violet);
   display: grid;
   grid-template-columns: 1.2rem minmax(0, 1fr);
   align-content: start;
   gap: 0.6rem;
   padding-top: 0.8rem;
-  border-top: 1px solid var(--line-strong);
+  border-top: 2px solid var(--how-rule);
+}
+.network-how li:nth-child(3n + 1) {
+  --how-rule: var(--wine);
+  --how-numeral: var(--wine);
+}
+.network-how li:nth-child(3n + 3) {
+  --how-rule: var(--brass);
+  --how-numeral: var(--brass-deep);
 }
 .network-how li > span {
-  color: var(--violet);
+  color: var(--how-numeral);
   font-family: var(--serif);
   font-size: 1.05rem;
   font-weight: 700;

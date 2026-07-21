@@ -762,7 +762,7 @@ function renderAccount(root: HTMLElement): void {
 /**
  * Resolves a free-text landing search to a destination or a single place.
  * Matching is case-insensitive over route markets, physical localities,
- * place names, and the 'Place — Locality' datalist form. Physical-locality
+ * place names, and the typed 'Place — Locality' form. Physical-locality
  * matches still open the venue's market route when those names differ.
  */
 function resolveSearch(query: string): { slug: string; venueId?: string } | null {
@@ -802,12 +802,15 @@ function renderHome(root: HTMLElement): void {
       : covered
           .map((d) => `<option value="${esc(d.country ? `${d.name}, ${d.country}` : d.name)}"></option>`)
           .join('') +
-        [...new Set(allVenues().filter(hasDistinctLocality).map((v) => v.city))]
+        [
+          ...new Set(
+            allVenues()
+              .filter(hasDistinctLocality)
+              .map((v) => (v.country ? `${v.city}, ${v.country}` : v.city))
+          ),
+        ]
           .sort((a, b) => a.localeCompare(b))
           .map((city) => `<option value="${esc(city)}"></option>`)
-          .join('') +
-        allVenues()
-          .map((v) => `<option value="${esc(`${v.name} — ${v.city}`)}"></option>`)
           .join('');
 
   root.innerHTML = `
