@@ -51,7 +51,6 @@ const REPLY_MIN_LENGTH = 8;
 const REPLY_MAX_LENGTH = 1200;
 
 interface NetworkDiscovery {
-  discovery_visible: boolean;
   recommendations: DiscoveryRecommendation[];
   shares: DiscoveryShare[];
 }
@@ -59,12 +58,8 @@ interface NetworkDiscovery {
 let status: DiscoveryStatus = 'idle';
 let loadedFor = '';
 let errorMessage = '';
-let visibilitySaving = false;
-let visibilityMessage = '';
-let visibilityError = false;
 const replyStates = new Map<string, ReplyState>();
 let discovery: NetworkDiscovery = {
-  discovery_visible: false,
   recommendations: [],
   shares: [],
 };
@@ -165,7 +160,6 @@ function cleanPayload(value: unknown): NetworkDiscovery {
     ? payload.shares.map(cleanShare).filter((item): item is DiscoveryShare => item !== null)
     : [];
   return {
-    discovery_visible: payload.discovery_visible === true,
     recommendations,
     shares,
   };
@@ -200,11 +194,8 @@ export function resetNetworkDiscovery(): void {
   status = 'idle';
   loadedFor = '';
   errorMessage = '';
-  visibilitySaving = false;
-  visibilityMessage = '';
-  visibilityError = false;
   replyStates.clear();
-  discovery = { discovery_visible: false, recommendations: [], shares: [] };
+  discovery = { recommendations: [], shares: [] };
 }
 
 function formatDate(value: string | undefined): string {
@@ -318,22 +309,6 @@ function shareMarkup(item: DiscoveryShare): string {
   </article>`;
 }
 
-function visibilityControl(): string {
-  const checked = discovery.discovery_visible;
-  return `<section class="network-visibility" aria-labelledby="network-visibility-title">
-    <div class="network-visibility-copy">
-      <h2 id="network-visibility-title">Let your recommendations travel</h2>
-      <p>Turn this on to let your direct network connections see your recommendations in their private discovery feed. It does not make them public.</p>
-    </div>
-    <label class="network-switch">
-      <input type="checkbox" data-network-visibility ${checked ? 'checked' : ''} ${visibilitySaving ? 'disabled' : ''}>
-      <span aria-hidden="true"></span>
-      <strong>${visibilitySaving ? 'Saving…' : checked ? 'Visible to connections' : 'Only visible to you'}</strong>
-    </label>
-    ${visibilityMessage ? `<p class="network-visibility-status${visibilityError ? ' is-error' : ''}" role="${visibilityError ? 'alert' : 'status'}">${esc(visibilityMessage)}</p>` : ''}
-  </section>`;
-}
-
 function memberFeedMarkup(): string {
   const recommendations = discovery.recommendations;
   const received = discovery.shares.filter((share) => share.direction === 'received');
@@ -355,7 +330,6 @@ function memberFeedMarkup(): string {
   }
 
   return `<div class="network-member-content">
-    ${visibilityControl()}
     <section class="network-stream" aria-labelledby="network-recommendations-title">
       <div class="network-section-heading">
         <div><h2 id="network-recommendations-title">Recommended by your network</h2><p>Notes from members directly connected to you.</p></div>
@@ -403,12 +377,9 @@ export function networkDiscoveryMarkup(accountHref: string): string {
   const firstName = (record.display_name || record.email?.split('@')[0] || 'Member').trim();
   return `<section class="network-home" aria-labelledby="network-home-title">
     <div class="network-home-heading">
-      <div>
-        <p class="network-kicker">Your private discovery</p>
-        <h1 id="network-home-title">Places passed hand to hand.</h1>
-        <p>Welcome back, ${esc(firstName)}. This is what your connections have recommended and what you have shared with each other.</p>
-      </div>
-      <a class="network-member-link" href="${esc(accountHref)}" data-community-route>Manage your Detour <span aria-hidden="true">↗</span></a>
+      <p class="network-kicker">Your private discovery</p>
+      <h1 id="network-home-title">Places passed hand to hand.</h1>
+      <p>Welcome back, ${esc(firstName)}. This is what your connections have recommended and what you have shared with each other.</p>
     </div>
     ${memberFeedMarkup()}
   </section>`;
@@ -428,7 +399,7 @@ async function loadNetworkDiscovery(render: () => void): Promise<void> {
     status = 'ready';
   } catch (error) {
     if (memberRecord()?.id !== record.id) return;
-    discovery = { discovery_visible: false, recommendations: [], shares: [] };
+    discovery = { recommendations: [], shares: [] };
     status = 'error';
     errorMessage = readableError(error, 'Your network is unavailable right now. Please try again shortly.');
   }
@@ -537,32 +508,4 @@ export function bindNetworkDiscovery(root: HTMLElement, render: () => void): voi
     });
   });
 
-  root.querySelector<HTMLInputElement>('[data-network-visibility]')?.addEventListener('change', async (event) => {
-    const active = memberRecord();
-    const input = event.currentTarget as HTMLInputElement;
-    if (!active || visibilitySaving) return;
-    const previous = discovery.discovery_visible;
-    const next = input.checked;
-    discovery.discovery_visible = next;
-    visibilitySaving = true;
-    visibilityMessage = '';
-    visibilityError = false;
-    render();
-    try {
-      await pb.collection('members').update(active.id, { discovery_visible: next }, { requestKey: null });
-      if (memberRecord()?.id !== active.id) return;
-      visibilityMessage = next
-        ? 'Your direct connections can now see your recommendations.'
-        : 'Your recommendations are now hidden from your connections.';
-      visibilityError = false;
-    } catch (error) {
-      if (memberRecord()?.id !== active.id) return;
-      discovery.discovery_visible = previous;
-      visibilityMessage = readableError(error, 'That visibility setting could not be saved. Please try again.');
-      visibilityError = true;
-    } finally {
-      visibilitySaving = false;
-      render();
-    }
-  });
 }

@@ -13,6 +13,7 @@ interface MemberRecord {
   display_name?: string;
   pseudo?: string;
   community_status?: string;
+  discovery_visible?: boolean;
 }
 
 interface InviteRecord {
@@ -118,6 +119,10 @@ let invitesLoaded = false;
 let loadingInvites = false;
 let submitting = false;
 let highlightedWaitlistId = '';
+let visibilitySaving = false;
+let visibilityPending: boolean | null = null;
+let memberRefreshed = false;
+let refreshingMember = false;
 const directories = new Map<string, DirectoryState>();
 
 function esc(value: string | undefined | null): string {
@@ -482,6 +487,7 @@ function detoursPanel(): string {
 }
 
 function settingsPanel(record: MemberRecord): string {
+  const visible = visibilityPending ?? record.discovery_visible === true;
   return `<section class="community-tab-panel community-settings-panel" id="member-panel-settings" role="tabpanel" aria-labelledby="member-tab-settings" tabindex="0">
     <div class="community-session-row">
       <p>Signed in as <strong>${esc(record.email || memberName(record))}</strong></p>
@@ -493,6 +499,17 @@ function settingsPanel(record: MemberRecord): string {
         <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Saving…' : 'Save pseudo'}</button>
       </form>
       <p class="community-form-note">Your unique handle — other members search for it to share places with you.</p>
+    </div>
+    <div class="community-visibility-row">
+      <div class="community-visibility-copy">
+        <h3>Let your recommendations travel</h3>
+        <p class="community-form-note">Turn this on to let your direct network connections see your recommendations in their private discovery feed. It does not make them public.</p>
+      </div>
+      <label class="community-switch">
+        <input type="checkbox" data-community-visibility ${visible ? 'checked' : ''} ${visibilitySaving ? 'disabled' : ''}>
+        <span aria-hidden="true"></span>
+        <strong>${visibilitySaving ? 'Saving…' : visible ? 'Visible to connections' : 'Only visible to you'}</strong>
+      </label>
     </div>
     <div class="community-danger-row">
       <p class="community-danger-note">Removing your account deletes your recommendations, shares, and invitations. This cannot be undone.</p>
@@ -555,6 +572,10 @@ function resetCommunityState(): void {
   invitesLoaded = false;
   loadingInvites = false;
   highlightedWaitlistId = '';
+  visibilitySaving = false;
+  visibilityPending = null;
+  memberRefreshed = false;
+  refreshingMember = false;
   directories.forEach((state) => {
     if (state.timer !== null) window.clearTimeout(state.timer);
   });
@@ -729,8 +750,23 @@ async function markIncomingSharesSeen(): Promise<void> {
   });
 }
 
+async function refreshMemberRecord(render: () => void): Promise<void> {
+  if (!member() || memberRefreshed || refreshingMember) return;
+  refreshingMember = true;
+  try {
+    await pb.collection('members').authRefresh({ requestKey: null });
+    memberRefreshed = true;
+    render();
+  } catch {
+    // Keep the cached auth record; the toggle still saves correctly on change.
+  } finally {
+    refreshingMember = false;
+  }
+}
+
 export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => void): void {
   knownVenues = venues;
+  if (memberTab === 'settings') void refreshMemberRecord(render);
   root.querySelectorAll<HTMLButtonElement>('[data-community-mode]').forEach((button) => {
     button.addEventListener('click', () => {
       mode = button.dataset.communityMode === 'join' ? 'join' : 'sign-in';
@@ -872,6 +908,36 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     } finally {
       submitting = false;
       render();
+    }
+  });
+
+  root.querySelector<HTMLInputElement>('[data-community-visibility]')?.addEventListener('change', async (event) => {
+    const record = member();
+    const input = event.currentTarget as HTMLInputElement;
+    if (!record || visibilitySaving) return;
+    const next = input.checked;
+    visibilitySaving = true;
+    visibilityPending = next;
+    notice = null;
+    render();
+    try {
+      await pb.collection('members').update(record.id, { discovery_visible: next }, { requestKey: null });
+      if (member()?.id !== record.id) return;
+      notice = {
+        kind: 'success',
+        text: next
+          ? 'Your direct connections can now see your recommendations.'
+          : 'Your recommendations are now hidden from your connections.',
+      };
+    } catch (error) {
+      if (member()?.id !== record.id) return;
+      notice = { kind: 'error', text: readableError(error, 'That visibility setting could not be saved. Please try again.') };
+    } finally {
+      if (member()?.id === record.id) {
+        visibilitySaving = false;
+        visibilityPending = null;
+        render();
+      }
     }
   });
 
