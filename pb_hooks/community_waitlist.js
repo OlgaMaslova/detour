@@ -527,7 +527,8 @@ function recalculateAndPublish(app, entryId) {
       .newQuery(
         "SELECT COUNT(DISTINCT r.member) AS signal_count, " +
           "COUNT(DISTINCT CASE " +
-          "WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE THEN r.member " +
+          "WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
+          "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE THEN r.member " +
           "END) AS founder_signal_count " +
           "FROM community_recommendations r " +
           "LEFT JOIN members m ON m.id = r.member " +
@@ -543,9 +544,9 @@ function recalculateAndPublish(app, entryId) {
       txApp.save(entry);
     }
 
-    // Only a recommendation by a directly Founder-invited member bypasses the
-    // standard three-distinct-member threshold. Issuer and descendant markers
-    // are intentionally not consulted here.
+    // A recommendation by the Founder (issuer) or a directly Founder-invited
+    // member bypasses the standard three-distinct-member threshold. Descendant
+    // markers are intentionally not consulted here.
     if (
       entry.getString("status") === "pending" &&
       (hasFounderSignal || signalCount >= 3)
