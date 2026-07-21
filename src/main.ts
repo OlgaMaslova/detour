@@ -37,8 +37,6 @@ interface State {
   selectedId: string | null;
   /** Whether the last selection came from a map pin or a list card — used to restore focus on close. */
   selectedVia: 'pin' | 'card' | null;
-  /** Progressive-disclosure filter tray visibility. */
-  trayOpen: boolean;
   /** Whether the full filtered selection is currently revealed. */
   selectionOpen: boolean;
   guideYear: number;
@@ -59,7 +57,6 @@ const state: State = {
   occasionFilters: [],
   selectedId: null,
   selectedVia: null,
-  trayOpen: false,
   selectionOpen: false,
   guideYear: GUIDE_YEAR,
   userLocation: null,
@@ -151,6 +148,9 @@ const DETOURIST_LIST_LABEL = 'Detourist List';
 /** How a place earns its entry — the Detourist List is member-recommended. */
 const DETOURIST_LIST_NOTE = `${DETOURIST_LIST_LABEL} — recommended by Detour members.`;
 const DETOURIST_LIST_FILTER = '__detourist_list__';
+/** Provenance filter: places holding any external guide recognition. */
+const GUIDES_FILTER = '__guides__';
+const GUIDES_LABEL = 'Guides';
 
 /** Whether the venue is on the Detourist List — Detour's member-recommended lane. */
 function onDetouristList(v: Venue): boolean {
@@ -273,7 +273,6 @@ function resetDestinationState(): void {
   state.occasionFilters = [];
   state.selectedId = null;
   state.selectedVia = null;
-  state.trayOpen = false;
   state.selectionOpen = false;
   state.geoStatus = '';
   state.geoBusy = false;
@@ -361,26 +360,18 @@ function applyRouteFromUrl(root: HTMLElement): void {
 /* ---------- filters ---------- */
 
 /**
- * Award-level filter options derived from the loaded data's literal labels.
- * Ranked-list awards (per-venue 'No. N' labels) are excluded — they are
- * discovered through the category and guide controls instead.
+ * Provenance filter options: how a place earned its entry. Either external
+ * guide recognition (any published award) or the member-recommended
+ * Detourist List — individual award levels are shown on the cards, not
+ * used as filters.
  */
-function awardFilters(): { value: Filter; label: string }[] {
-  const seen = new Map<string, number | null>();
-  for (const v of destinationVenues()) {
-    for (const a of v.awards) {
-      if (a.listRank !== null || a.sourceBadge) continue;
-      if (!seen.has(a.awardLevel)) seen.set(a.awardLevel, a.awardRank);
-    }
+function provenanceFilters(): { value: Filter; label: string }[] {
+  const venues = destinationVenues();
+  const filters = [{ value: '' as Filter, label: 'All' }];
+  if (venues.some((v) => v.awards.length > 0)) {
+    filters.push({ value: GUIDES_FILTER, label: GUIDES_LABEL });
   }
-  const levels = [...seen.entries()].sort(
-    (a, b) => (b[1] ?? -1) - (a[1] ?? -1) || a[0].localeCompare(b[0])
-  );
-  const filters = [
-    { value: '' as Filter, label: 'All' },
-    ...levels.map(([level]) => ({ value: level as Filter, label: level })),
-  ];
-  if (destinationVenues().some(onDetouristList)) {
+  if (venues.some(onDetouristList)) {
     filters.push({ value: DETOURIST_LIST_FILTER, label: DETOURIST_LIST_LABEL });
   }
   return filters;
@@ -404,14 +395,14 @@ function sourceNames(): string[] {
 }
 
 function filteredVenues(): Venue[] {
-  // A recognition filter matches when ANY of the venue's awards matches; the
-  // Detourist List lane is explicit and never treated as a guide award.
+  // Provenance is a two-lane split: external guide recognition (any award)
+  // vs. the member-recommended Detourist List — never treated as a guide award.
   const list = destinationVenues().filter(
     (v) =>
       (state.filter === '' ||
         (state.filter === DETOURIST_LIST_FILTER
           ? onDetouristList(v)
-          : v.awards.some((a) => a.awardLevel === state.filter))) &&
+          : v.awards.length > 0)) &&
       (state.sourceFilter === '' ||
         v.awards.some((a) => a.sourceName === state.sourceFilter)) &&
       (state.categoryFilter === '' || v.category === state.categoryFilter) &&
@@ -437,7 +428,7 @@ function activeFilters(): ActiveFilter[] {
   if (state.filter)
     chips.push({
       kind: 'award',
-      label: state.filter === DETOURIST_LIST_FILTER ? DETOURIST_LIST_LABEL : state.filter,
+      label: state.filter === DETOURIST_LIST_FILTER ? DETOURIST_LIST_LABEL : GUIDES_LABEL,
       value: state.filter,
     });
   if (state.categoryFilter)
@@ -725,8 +716,7 @@ function refineChips(): string {
   </div>`;
 }
 
-function filterTray(): string {
-  if (!state.trayOpen) return '';
+function filterPanel(): string {
   const group = (
     id: string,
     label: string,
@@ -735,7 +725,7 @@ function filterTray(): string {
       <span class="tray-label" id="${id}">${label}</span>
       <div class="tray-options" role="group" aria-labelledby="${id}">${buttons}</div>
     </div>`;
-  const awardButtons = awardFilters()
+  const provenanceButtons = provenanceFilters()
     .map(
       (f) => `<button type="button" class="filter${state.filter === f.value ? ' filter-active' : ''}"
         data-filter="${esc(f.value)}" aria-pressed="${state.filter === f.value}">${esc(f.label) || 'All'}</button>`
@@ -759,41 +749,16 @@ function filterTray(): string {
           data-source="${esc(name)}" aria-pressed="${state.sourceFilter === name}">${esc(name)}</button>`
       )
       .join('');
-  return `<div class="tray" id="filter-tray">
-    ${group('tray-award', 'Recognition', awardButtons)}
+  return `<div class="tray" id="filter-panel">
+    ${group('tray-provenance', 'Provenance', provenanceButtons)}
     ${group('tray-category', 'Category', categoryButtons)}
     ${group('tray-source', 'Source', sourceButtons)}
-    <div class="tray-actions">
-      <button type="button" class="tray-clear" data-clear-filters>Clear filters</button>
-      <button type="button" class="tray-done" data-tray-close>Done</button>
-    </div>
   </div>`;
 }
 
-function destinationSelector(): string {
-  return `<div class="city-control">
-      <label class="visually-hidden" for="destination-select">Destination</label>
-      <select id="destination-select" data-destination-select>
-        ${destinations()
-          .map(
-            (d) =>
-              `<option value="${esc(d.slug)}"${d.slug === state.destination ? ' selected' : ''}>${esc(d.name)}${d.country ? `, ${esc(d.country)}` : ''}</option>`
-          )
-          .join('')}
-      </select>
-    </div>`;
-}
-
 function discoveryBar(list: Venue[], hasMap: boolean): string {
-  const activeCount = activeFilters().length;
   return `<section class="discovery" aria-label="Explore the selection">
     <div class="discovery-row">
-      <a class="all-cities-control" href="${esc(homeHref())}" data-home>Search</a>
-      ${destinationSelector()}
-      <button type="button" class="refine-btn${activeCount ? ' refine-btn-active' : ''}" data-tray-toggle
-        aria-expanded="${state.trayOpen}" aria-controls="filter-tray">
-        Refine${activeCount ? ` <span class="refine-count">${activeCount}</span>` : ''}
-      </button>
       ${
         hasMap
           ? `<button type="button" class="nearby-btn" data-geolocate ${state.geoBusy ? 'disabled' : ''}>
@@ -804,7 +769,7 @@ function discoveryBar(list: Venue[], hasMap: boolean): string {
       <span class="count" aria-live="polite">${list.length} ${list.length === 1 ? 'place' : 'places'}</span>
     </div>
     ${occasionBrowser()}
-    ${filterTray()}
+    ${filterPanel()}
     ${refineChips()}
     ${state.geoStatus ? `<p class="geo-status" role="status">${esc(state.geoStatus)}</p>` : ''}
   </section>`;
@@ -1346,16 +1311,6 @@ function render(root: HTMLElement) {
       render(root);
     });
   });
-  root.querySelector<HTMLButtonElement>('[data-tray-toggle]')?.addEventListener('click', () => {
-    state.trayOpen = !state.trayOpen;
-    pendingFocus = '[data-tray-toggle]';
-    render(root);
-  });
-  root.querySelector<HTMLButtonElement>('[data-tray-close]')?.addEventListener('click', () => {
-    state.trayOpen = false;
-    pendingFocus = '[data-tray-toggle]';
-    render(root);
-  });
   root.querySelector<HTMLButtonElement>('[data-selection-toggle]')?.addEventListener('click', () => {
     state.selectionOpen = !state.selectionOpen;
     if (!state.selectionOpen && state.selectedVia === 'card') state.selectedVia = null;
@@ -1373,7 +1328,15 @@ function render(root: HTMLElement) {
         state.occasionFilters = state.occasionFilters.filter((occasion) => occasion !== value);
       }
       keepSelectionValid();
-      pendingFocus = '[data-tray-toggle]';
+      // Land focus on the "All" button of the group the chip belonged to.
+      pendingFocus =
+        kind === 'category'
+          ? '[data-category=""]'
+          : kind === 'source'
+            ? '[data-source=""]'
+            : kind === 'occasion'
+              ? '[data-occasion=""]'
+              : '[data-filter=""]';
       render(root);
     });
   });
@@ -1383,17 +1346,12 @@ function render(root: HTMLElement) {
       state.sourceFilter = '';
       state.categoryFilter = '';
       state.occasionFilters = [];
-      pendingFocus = '[data-tray-toggle]';
+      pendingFocus = '[data-filter=""]';
       render(root);
     });
   });
   root.querySelector<HTMLButtonElement>('[data-geolocate]')?.addEventListener('click', () => {
     requestUserLocation(root);
-  });
-  const destinationSelect = root.querySelector<HTMLSelectElement>('[data-destination-select]');
-  destinationSelect?.addEventListener('change', () => {
-    const next = destinationSelect.value.trim().toLowerCase();
-    if (destinationBySlug(next)) openDestination(root, next);
   });
   root.querySelectorAll<HTMLButtonElement>('[data-venue]').forEach((btn) => {
     btn.addEventListener('click', () => {

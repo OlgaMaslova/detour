@@ -164,33 +164,6 @@ a:hover { color: var(--wine-deep); }
   gap: 0.6rem;
 }
 
-.city-control { flex: 0 1 auto; min-width: 0; }
-.city-control select {
-  min-height: 44px;
-  max-width: 100%;
-  padding: 0.5rem 2.1rem 0.5rem 1rem;
-  font: inherit;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--ink);
-  background: var(--card);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235c4638' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.85rem center;
-  transition: border-color 0.15s, color 0.15s;
-}
-.city-control select:hover { border-color: var(--wine); color: var(--wine-deep); }
-.city-control select:focus-visible {
-  outline: 2px solid var(--wine);
-  outline-offset: 1px;
-  border-color: var(--wine);
-}
-
-.refine-btn,
 .nearby-btn {
   display: inline-flex;
   align-items: center;
@@ -207,29 +180,7 @@ a:hover { color: var(--wine-deep); }
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-.refine-btn:hover,
 .nearby-btn:hover { border-color: var(--wine); color: var(--wine-deep); }
-.refine-btn[aria-expanded='true'],
-.refine-btn-active {
-  background: var(--wine);
-  border-color: var(--wine);
-  color: var(--parchment);
-}
-.refine-btn[aria-expanded='true']:hover,
-.refine-btn-active:hover { color: var(--parchment); background: var(--wine-deep); }
-.refine-count {
-  display: inline-grid;
-  place-items: center;
-  min-width: 1.35rem;
-  height: 1.35rem;
-  padding: 0 0.3rem;
-  border-radius: 999px;
-  background: var(--brass);
-  color: var(--plum);
-  font-size: 0.75rem;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
 .nearby-btn::before {
   content: '';
   width: 9px;
@@ -252,7 +203,7 @@ a:hover { color: var(--wine-deep); }
 
 .geo-status { margin: 0; font-size: 0.85rem; color: var(--olive); }
 
-/* Filter tray — progressive disclosure */
+/* Filter panel — provenance, category, and source in one place */
 .tray {
   display: grid;
   gap: 0.85rem;
@@ -287,27 +238,6 @@ a:hover { color: var(--wine-deep); }
 .filter:hover { border-color: var(--wine); color: var(--wine-deep); }
 .filter-active,
 .filter-active:hover { background: var(--wine); border-color: var(--wine); color: var(--parchment); }
-.tray-actions {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.6rem;
-  border-top: 1px solid var(--line);
-  padding-top: 0.75rem;
-}
-.tray-clear,
-.tray-done {
-  min-height: 44px;
-  padding: 0.4rem 1rem;
-  border-radius: var(--radius-sm);
-  font: inherit;
-  font-size: 0.88rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-.tray-clear { border: 1px solid var(--line-strong); background: none; color: var(--ink-soft); }
-.tray-clear:hover { border-color: var(--wine); color: var(--wine-deep); }
-.tray-done { border: 1px solid var(--wine); background: var(--wine); color: var(--parchment); }
-.tray-done:hover { background: var(--wine-deep); }
 
 /* Removable active-filter chips */
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
@@ -986,29 +916,6 @@ a:hover { color: var(--wine-deep); }
   margin-left: auto;
 }
 
-/* Restrained return route beside the city selector on detail pages. */
-.all-cities-control {
-  display: inline-flex;
-  min-height: 44px;
-  flex: 0 0 auto;
-  align-items: center;
-  padding: 0.45rem 0.2rem;
-  color: var(--wine);
-  font-size: 0.84rem;
-  font-weight: 750;
-  line-height: 1.2;
-  text-decoration-color: var(--brass);
-  text-underline-offset: 0.25rem;
-}
-.all-cities-control:visited { color: var(--wine); }
-.all-cities-control:hover,
-.all-cities-control:active { color: var(--plum); }
-.all-cities-control:focus-visible {
-  outline: 3px solid var(--brass);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
-
 /* ------------------------------------------------ Footer */
 .footer { margin-top: 2.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
 .footer p { margin: 0; font-size: 0.82rem; color: var(--ink-soft); max-width: 65ch; }
@@ -1040,12 +947,7 @@ a:hover { color: var(--wine-deep); }
   .pin-label { max-width: 92px; }
   .detail-facts div { grid-template-columns: 1fr; gap: 0.1rem; }
   .discovery-row { gap: 0.5rem; }
-  .city-control { flex: 1 1 100%; }
-  .all-cities-control + .city-control { flex: 1 1 12rem; }
-  .city-control select { width: 100%; }
-  .refine-btn, .nearby-btn { flex: 1 1 auto; justify-content: center; }
-  .tray-actions { flex-direction: column; }
-  .tray-clear, .tray-done { width: 100%; }
+  .nearby-btn { flex: 1 1 auto; justify-content: center; }
   .empty-state { padding: 1.4rem 1rem; }
   .empty-state-reset { width: 100%; }
   .community-panel { padding: 1.1rem; }
@@ -1773,46 +1675,6 @@ a.brand:focus-visible {
   background: var(--canvas);
 }
 .discovery-row { gap: 0.65rem; }
-.all-cities-control {
-  justify-content: center;
-  padding: 0.5rem 0.85rem;
-  color: var(--ink);
-  background: white;
-  border: 1px solid var(--ink);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--sticker-shadow);
-  font-size: 0.82rem;
-  font-weight: 700;
-  text-decoration: none;
-  transition:
-    transform 140ms cubic-bezier(0.25, 1, 0.5, 1),
-    box-shadow 140ms cubic-bezier(0.25, 1, 0.5, 1);
-}
-.all-cities-control:visited { color: var(--ink); }
-.all-cities-control:hover,
-.all-cities-control:active { color: var(--ink); }
-.all-cities-control:hover {
-  box-shadow: var(--sticker-shadow-hover);
-  transform: translate(1.5px, 1.5px);
-}
-.all-cities-control:active {
-  box-shadow: none;
-  transform: translate(3px, 3px);
-}
-.city-control select {
-  min-height: 44px;
-  padding: 0.5rem 2.1rem 0.5rem 0.85rem;
-  color: var(--ink);
-  background-color: white;
-  border: 1px solid var(--ink);
-  border-radius: var(--radius-sm);
-  box-shadow: none;
-  font-size: 0.82rem;
-  font-weight: 700;
-  transition: border-color 140ms cubic-bezier(0.25, 1, 0.5, 1), background-color 140ms cubic-bezier(0.25, 1, 0.5, 1);
-}
-.city-control select:hover { border-color: var(--violet); color: var(--ink); background-color: var(--violet-soft); }
-.refine-btn,
 .nearby-btn {
   min-height: 44px;
   padding: 0.5rem 0.85rem;
@@ -1825,24 +1687,17 @@ a.brand:focus-visible {
   font-weight: 700;
   transition: color 140ms cubic-bezier(0.25, 1, 0.5, 1), background-color 140ms cubic-bezier(0.25, 1, 0.5, 1), transform 140ms cubic-bezier(0.25, 1, 0.5, 1), box-shadow 140ms cubic-bezier(0.25, 1, 0.5, 1);
 }
-.refine-btn:hover,
 .nearby-btn:not([disabled]):hover {
   color: var(--ink);
   border-color: var(--ink);
   box-shadow: var(--sticker-shadow-hover);
   transform: translate(1.5px, 1.5px);
 }
-.refine-btn:active,
 .nearby-btn:not([disabled]):active {
   box-shadow: none;
   transform: translate(3px, 3px);
 }
-.refine-btn[aria-expanded='true'],
-.refine-btn-active,
-.refine-btn[aria-expanded='true']:hover,
-.refine-btn-active:hover { background: var(--ink); border-color: var(--ink); color: white; }
 .nearby-btn[disabled] { color: var(--ink-faint); background: var(--canvas); border-color: var(--line-strong); box-shadow: 3px 3px 0 var(--line); opacity: 1; }
-.refine-count { background: var(--mint); color: var(--ink); }
 .nearby-btn::before { background: var(--mint); box-shadow: 0 0 0 3px color-mix(in oklch, var(--mint) 35%, transparent); }
 .count {
   color: var(--ink);
@@ -1863,23 +1718,6 @@ a.brand:focus-visible {
 .filter:hover { border-color: var(--violet); color: var(--violet); }
 .filter-active,
 .filter-active:hover { background: var(--violet); border-color: var(--violet); color: white; }
-.tray-clear,
-.tray-done {
-  color: var(--ink);
-  background: white;
-  border: 1px solid var(--ink);
-  box-shadow: var(--sticker-shadow);
-  font-size: 0.82rem;
-  font-weight: 700;
-  transition: color 140ms cubic-bezier(0.25, 1, 0.5, 1), background-color 140ms cubic-bezier(0.25, 1, 0.5, 1), transform 140ms cubic-bezier(0.25, 1, 0.5, 1), box-shadow 140ms cubic-bezier(0.25, 1, 0.5, 1);
-}
-.tray-done { color: white; background: var(--ink); }
-.tray-clear:hover,
-.tray-done:hover { border-color: var(--ink); box-shadow: var(--sticker-shadow-hover); transform: translate(1.5px, 1.5px); }
-.tray-clear:hover { color: var(--ink); }
-.tray-done:hover { color: white; background: var(--ink); }
-.tray-clear:active,
-.tray-done:active { box-shadow: none; transform: translate(3px, 3px); }
 .chip { background: var(--mint-soft); border-color: var(--mint); color: oklch(0.31 0.06 155); }
 .chip:hover { background: var(--mint); }
 .chip-clear { background: transparent; color: var(--ink-soft); border-color: var(--line-strong); }
@@ -2473,11 +2311,8 @@ a.brand:focus-visible {
     scrollbar-width: thin;
   }
   .occasion-option { flex: 0 0 auto; scroll-snap-align: start; }
-  .all-cities-control { order: 1; }
-  .city-control { order: 2; flex: 1 1 10rem; }
-  .refine-btn { order: 3; }
-  .nearby-btn { order: 4; }
-  .count { order: 5; margin-left: auto; }
+  .nearby-btn { order: 1; }
+  .count { order: 2; margin-left: auto; }
   .venue-map { min-height: clamp(330px, 52vh, 480px); }
   .selection-disclosure { margin-inline: 0; }
   .detail-head { align-items: flex-start; }
@@ -2520,7 +2355,6 @@ a.brand:focus-visible {
 @media (max-width: 390px) {
   .hero h1 { font-size: 2.28rem; }
   .city-chooser-hero h1 { font-size: 2.4rem; }
-  .refine-btn,
   .nearby-btn { flex: 1 1 calc(50% - 0.35rem); justify-content: center; }
   .count { width: 100%; margin-left: 0; }
   .map-pin .pin-label { max-width: 150px; }
@@ -2547,14 +2381,6 @@ a.brand:focus-visible {
   .selection-toggle:active,
   .empty-state-reset:hover,
   .empty-state-reset:active,
-  .tray-clear:hover,
-  .tray-clear:active,
-  .tray-done:hover,
-  .tray-done:active,
-  .refine-btn:hover,
-  .refine-btn:active,
   .nearby-btn:hover,
-  .nearby-btn:active,
-  .all-cities-control:hover,
-  .all-cities-control:active { transform: none; }
+  .nearby-btn:active { transform: none; }
 }
