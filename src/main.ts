@@ -1378,7 +1378,7 @@ function render(root: HTMLElement) {
       </div>
     </section>
     <footer class="footer">
-      <p>${sanFrancisco ? 'San Francisco places keep their provenance explicit: guide recognition, editorial local picks, Detour community selections, and approved local-member recommendations are distinct. Occasion tags reflect only published catalogue data.' : `Detour is a current, deliberately edited selection of ${esc(destination.name)}’s exceptional tables. Guide recognition and editorial picks keep their source attribution, with original links preserved.`}</p>
+      <p>Trusted sources, named. Take a detour.</p>
     </footer>
   `;
 
