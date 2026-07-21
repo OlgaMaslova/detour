@@ -28,10 +28,6 @@ interface State {
   /** Every loaded place, across all destinations. Never rendered directly — see destinationVenues(). */
   venues: Venue[];
   filter: Filter;
-  /** '' = all sources; otherwise a source name present in the loaded data. */
-  sourceFilter: string;
-  /** '' = all categories; otherwise a venue category present in the loaded data (e.g. 'Pizza', 'Coffee'). */
-  categoryFilter: string;
   /** San Francisco-only multi-select occasion browsing; selected values compose as AND. */
   occasionFilters: string[];
   selectedId: string | null;
@@ -52,8 +48,6 @@ const state: State = {
   pendingDestination: null,
   venues: [],
   filter: '',
-  sourceFilter: '',
-  categoryFilter: '',
   occasionFilters: [],
   selectedId: null,
   selectedVia: null,
@@ -268,8 +262,6 @@ function destinationVenues(): Venue[] {
 
 function resetDestinationState(): void {
   state.filter = '';
-  state.sourceFilter = '';
-  state.categoryFilter = '';
   state.occasionFilters = [];
   state.selectedId = null;
   state.selectedVia = null;
@@ -377,23 +369,6 @@ function provenanceFilters(): { value: Filter; label: string }[] {
   return filters;
 }
 
-/** Stable category options present in the loaded data (e.g. 'Coffee', 'Pizza'). */
-function categoryNames(): string[] {
-  const names = new Set<string>();
-  for (const v of destinationVenues()) if (v.category) names.add(v.category);
-  return [...names].sort((a, b) => a.localeCompare(b));
-}
-
-function sourceNames(): string[] {
-  const names = new Set<string>();
-  for (const v of destinationVenues()) {
-    for (const a of v.awards) {
-      if (a.sourceName) names.add(a.sourceName);
-    }
-  }
-  return [...names].sort((a, b) => a.localeCompare(b));
-}
-
 function filteredVenues(): Venue[] {
   // Provenance is a two-lane split: external guide recognition (any award)
   // vs. the member-recommended Detourist List — never treated as a guide award.
@@ -403,9 +378,6 @@ function filteredVenues(): Venue[] {
         (state.filter === DETOURIST_LIST_FILTER
           ? onDetouristList(v)
           : v.awards.length > 0)) &&
-      (state.sourceFilter === '' ||
-        v.awards.some((a) => a.sourceName === state.sourceFilter)) &&
-      (state.categoryFilter === '' || v.category === state.categoryFilter) &&
       state.occasionFilters.every((occasion) => venueOccasions(v).includes(occasion))
   );
   return [...list].sort(
@@ -418,7 +390,7 @@ function filteredVenues(): Venue[] {
 }
 
 interface ActiveFilter {
-  kind: 'award' | 'category' | 'source' | 'occasion';
+  kind: 'award' | 'occasion';
   label: string;
   value: string;
 }
@@ -431,10 +403,6 @@ function activeFilters(): ActiveFilter[] {
       label: state.filter === DETOURIST_LIST_FILTER ? DETOURIST_LIST_LABEL : GUIDES_LABEL,
       value: state.filter,
     });
-  if (state.categoryFilter)
-    chips.push({ kind: 'category', label: state.categoryFilter, value: state.categoryFilter });
-  if (state.sourceFilter)
-    chips.push({ kind: 'source', label: state.sourceFilter, value: state.sourceFilter });
   for (const occasion of state.occasionFilters) {
     chips.push({ kind: 'occasion', label: occasionLabel(occasion), value: occasion });
   }
@@ -717,42 +685,17 @@ function refineChips(): string {
 }
 
 function filterPanel(): string {
-  const group = (
-    id: string,
-    label: string,
-    buttons: string
-  ) => `<div class="tray-group">
-      <span class="tray-label" id="${id}">${label}</span>
-      <div class="tray-options" role="group" aria-labelledby="${id}">${buttons}</div>
-    </div>`;
   const provenanceButtons = provenanceFilters()
     .map(
       (f) => `<button type="button" class="filter${state.filter === f.value ? ' filter-active' : ''}"
         data-filter="${esc(f.value)}" aria-pressed="${state.filter === f.value}">${esc(f.label) || 'All'}</button>`
     )
     .join('');
-  const categoryButtons =
-    `<button type="button" class="filter${state.categoryFilter === '' ? ' filter-active' : ''}"
-      data-category="" aria-pressed="${state.categoryFilter === ''}">All</button>` +
-    categoryNames()
-      .map(
-        (name) => `<button type="button" class="filter${state.categoryFilter === name ? ' filter-active' : ''}"
-          data-category="${esc(name)}" aria-pressed="${state.categoryFilter === name}">${esc(name)}</button>`
-      )
-      .join('');
-  const sourceButtons =
-    `<button type="button" class="filter${state.sourceFilter === '' ? ' filter-active' : ''}"
-      data-source="" aria-pressed="${state.sourceFilter === ''}">All</button>` +
-    sourceNames()
-      .map(
-        (name) => `<button type="button" class="filter${state.sourceFilter === name ? ' filter-active' : ''}"
-          data-source="${esc(name)}" aria-pressed="${state.sourceFilter === name}">${esc(name)}</button>`
-      )
-      .join('');
   return `<div class="tray" id="filter-panel">
-    ${group('tray-provenance', 'Provenance', provenanceButtons)}
-    ${group('tray-category', 'Category', categoryButtons)}
-    ${group('tray-source', 'Source', sourceButtons)}
+    <div class="tray-group">
+      <span class="tray-label" id="tray-provenance">Provenance</span>
+      <div class="tray-options" role="group" aria-labelledby="tray-provenance">${provenanceButtons}</div>
+    </div>
   </div>`;
 }
 
@@ -1281,22 +1224,6 @@ function render(root: HTMLElement) {
       render(root);
     });
   });
-  root.querySelectorAll<HTMLButtonElement>('[data-category]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.categoryFilter = btn.dataset.category ?? '';
-      keepSelectionValid();
-      pendingFocus = `[data-category="${CSS.escape(btn.dataset.category ?? '')}"]`;
-      render(root);
-    });
-  });
-  root.querySelectorAll<HTMLButtonElement>('[data-source]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.sourceFilter = btn.dataset.source ?? '';
-      keepSelectionValid();
-      pendingFocus = `[data-source="${CSS.escape(btn.dataset.source ?? '')}"]`;
-      render(root);
-    });
-  });
   root.querySelectorAll<HTMLButtonElement>('[data-occasion]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const occasion = btn.dataset.occasion ?? '';
@@ -1321,30 +1248,19 @@ function render(root: HTMLElement) {
     btn.addEventListener('click', () => {
       const kind = btn.dataset.chip;
       if (kind === 'award') state.filter = '';
-      if (kind === 'category') state.categoryFilter = '';
-      if (kind === 'source') state.sourceFilter = '';
       if (kind === 'occasion') {
         const value = btn.dataset.chipValue ?? '';
         state.occasionFilters = state.occasionFilters.filter((occasion) => occasion !== value);
       }
       keepSelectionValid();
       // Land focus on the "All" button of the group the chip belonged to.
-      pendingFocus =
-        kind === 'category'
-          ? '[data-category=""]'
-          : kind === 'source'
-            ? '[data-source=""]'
-            : kind === 'occasion'
-              ? '[data-occasion=""]'
-              : '[data-filter=""]';
+      pendingFocus = kind === 'occasion' ? '[data-occasion=""]' : '[data-filter=""]';
       render(root);
     });
   });
   root.querySelectorAll<HTMLButtonElement>('[data-clear-filters]').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.filter = '';
-      state.sourceFilter = '';
-      state.categoryFilter = '';
       state.occasionFilters = [];
       pendingFocus = '[data-filter=""]';
       render(root);
@@ -1371,8 +1287,6 @@ function render(root: HTMLElement) {
   });
   root.querySelector<HTMLButtonElement>('[data-reset-filters]')?.addEventListener('click', () => {
     state.filter = '';
-    state.sourceFilter = '';
-    state.categoryFilter = '';
     state.occasionFilters = [];
     pendingFocus = '[data-selection-toggle]';
     render(root);
