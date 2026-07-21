@@ -381,15 +381,22 @@ export function networkDiscoveryMarkup(accountHref: string): string {
   if (!record) {
     return `<section class="network-invitation" aria-labelledby="network-home-title">
       <div class="network-invitation-copy">
-        <p class="network-kicker">A private community for considered places</p>
-        <h1 id="network-home-title">Places passed hand to hand.</h1>
-        <p>Detour is built around people you know: recommendations from your network and private place shares, without a public social feed.</p>
+        <p class="network-kicker">Private place discovery, person to person</p>
+        <h1 id="network-home-title">Discover places through people you trust.</h1>
+        <p class="network-invitation-lead">Detour is a private community where members pass memorable places and personal recommendations directly to people they know—not to a public audience.</p>
+        <ol class="network-how" aria-label="How Detour works">
+          <li><span aria-hidden="true">1</span><div><strong>Recommend a place</strong><p>Members recommend places they would genuinely send someone to.</p></div></li>
+          <li><span aria-hidden="true">2</span><div><strong>Pass it directly</strong><p>Places and personal notes move between direct connections.</p></div></li>
+          <li><span aria-hidden="true">3</span><div><strong>Discover privately</strong><p>Those shared recommendations become your private discovery feed.</p></div></li>
+        </ol>
       </div>
-      <div class="network-invitation-action">
-        <p>Membership is by personal invitation. Already a member?</p>
-        <a class="network-primary-link" href="${esc(accountHref)}" data-community-route>Sign in to your Detour <span aria-hidden="true">↗</span></a>
-        <p class="network-invitation-note">Have an invitation code? The same member page will help you join.</p>
-      </div>
+      <aside class="network-invitation-action" aria-labelledby="network-membership-title">
+        <p class="network-membership-label">Membership</p>
+        <h2 id="network-membership-title">Start with a personal invitation.</h2>
+        <p>Already a member, or holding an invitation code? Continue to the member area.</p>
+        <a class="network-primary-link" href="${esc(accountHref)}" data-community-route>Sign in or join with a code <span aria-hidden="true">↗</span></a>
+        <p class="network-invitation-note">Invitations are shared personally by current Detour members.</p>
+      </aside>
     </section>`;
   }
 

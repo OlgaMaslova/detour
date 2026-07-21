@@ -2440,7 +2440,7 @@ a.brand:focus-visible {
   text-wrap: balance;
 }
 .network-home-heading > div > p:last-child,
-.network-invitation-copy > p:last-child {
+.network-invitation-lead {
   max-width: 62ch;
   margin: 1rem 0 0;
   color: var(--ink-soft);
@@ -2448,6 +2448,33 @@ a.brand:focus-visible {
   line-height: 1.65;
   text-wrap: pretty;
 }
+.network-invitation h1 { max-width: 19ch; font-size: clamp(2.35rem, 4.7vw, 3.5rem); }
+.network-how {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(0.8rem, 2vw, 1.4rem);
+  margin: clamp(1.5rem, 3.5vw, 2.25rem) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.network-how li {
+  display: grid;
+  grid-template-columns: 1.2rem minmax(0, 1fr);
+  align-content: start;
+  gap: 0.6rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line-strong);
+}
+.network-how li > span {
+  color: var(--violet);
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+.network-how strong { display: block; color: var(--ink); font-size: 0.86rem; line-height: 1.35; }
+.network-how p { margin: 0.35rem 0 0; color: var(--ink-soft); font-size: 0.78rem; line-height: 1.5; text-wrap: pretty; }
 .network-member-link,
 .network-primary-link,
 .network-retry {
@@ -2498,8 +2525,24 @@ a.brand:focus-visible {
   color: white;
   background: var(--violet);
 }
-.network-invitation-action p { margin: 0; color: white; line-height: 1.55; }
-.network-invitation-action .network-primary-link { background: var(--ink); border-color: white; }
+.network-invitation-action h2 {
+  max-width: 15ch;
+  margin: 0;
+  color: white;
+  font-family: var(--serif);
+  font-size: clamp(1.55rem, 2.8vw, 2.1rem);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+.network-invitation-action p { max-width: 38ch; margin: 0; color: white; line-height: 1.55; }
+.network-membership-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.network-invitation-action .network-primary-link { width: 100%; background: var(--ink); border-color: white; }
 .network-invitation-note { font-size: 0.82rem; opacity: 0.9; }
 
 .network-state {
@@ -2816,6 +2859,8 @@ a.brand:focus-visible {
 
 @media (max-width: 820px) {
   .network-share-columns { grid-template-columns: 1fr; }
+  .network-invitation { grid-template-columns: 1fr; align-items: start; }
+  .network-invitation-action { min-height: 0; }
 }
 
 @media (max-width: 760px) {
@@ -2834,6 +2879,8 @@ a.brand:focus-visible {
   .network-invitation { padding-top: 2.4rem; }
   .network-home h1,
   .network-invitation h1 { font-size: clamp(2.2rem, 11vw, 2.85rem); }
+  .network-how { grid-template-columns: 1fr; gap: 0.75rem; }
+  .network-how li { grid-template-columns: 1.35rem minmax(0, 1fr); padding-top: 0.7rem; }
   .network-section-heading,
   .network-entry-head { align-items: flex-start; flex-direction: column; }
   .network-section-count { align-self: flex-start; }
