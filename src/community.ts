@@ -4,14 +4,14 @@ import { OCCASION_OPTIONS } from './occasions';
 
 type CommunityMode = 'sign-in' | 'join';
 type MemberTab = 'invitations' | 'detours' | 'settings';
-type DetourTab = 'recommendations' | 'contributions' | 'shares';
+type DetourTab = 'recommendations' | 'shares';
 type NoticeKind = 'success' | 'error' | 'info';
-type ContributionStatus = 'in_review' | 'approved' | 'rejected';
 
 interface MemberRecord {
   id: string;
   email?: string;
   display_name?: string;
+  pseudo?: string;
   community_status?: string;
 }
 
@@ -29,6 +29,8 @@ interface WaitlistEntry {
   city?: string;
   country?: string;
   address?: string;
+  category?: string;
+  occasions?: string[];
   status?: 'pending' | 'published';
   signal_count?: number;
   created?: string;
@@ -53,6 +55,8 @@ interface ShareRecord {
   venue?: string;
   sender_name?: string;
   recipient_name?: string;
+  sender_pseudo?: string;
+  recipient_pseudo?: string;
   seen?: boolean;
   personal_note?: string;
   venue_name?: string;
@@ -62,22 +66,10 @@ interface ShareRecord {
   created?: string;
 }
 
-interface ContributionRecord {
-  id: string;
-  place_name?: string;
-  city?: string;
-  country?: string;
-  address?: string;
-  category?: string;
-  occasions?: string[];
-  status?: ContributionStatus;
-  created?: string;
-  updated?: string;
-}
-
 interface DirectoryMember {
   id: string;
   display_name: string;
+  pseudo?: string;
 }
 
 interface DirectoryState {
@@ -96,7 +88,7 @@ interface Notice {
 }
 
 const MEMBER_TABS: MemberTab[] = ['invitations', 'detours', 'settings'];
-const CONTRIBUTION_CATEGORIES = [
+const CATEGORY_OPTIONS = [
   ['restaurant', 'Restaurant'],
   ['cafe', 'Café'],
   ['bakery', 'Bakery'],
@@ -124,14 +116,8 @@ let loadingCommunity = false;
 let invites: InviteRecord[] = [];
 let invitesLoaded = false;
 let loadingInvites = false;
-let contributions: ContributionRecord[] = [];
-let contributionsLoaded = false;
-let loadingContributions = false;
-let contributionNotice: Notice | null = null;
-let contributionNoteInvalid = false;
 let submitting = false;
 let highlightedWaitlistId = '';
-let highlightedContributionId = '';
 const directories = new Map<string, DirectoryState>();
 
 function esc(value: string | undefined | null): string {
@@ -149,10 +135,6 @@ function member(): MemberRecord | null {
 
 function memberName(record: MemberRecord): string {
   return record.display_name?.trim() || record.email?.split('@')[0] || 'Member';
-}
-
-function canContribute(record = member()): record is MemberRecord {
-  return record?.community_status === 'verified';
 }
 
 function readableError(error: unknown, fallback: string): string {
@@ -189,12 +171,6 @@ function noticeMarkup(): string {
   return `<p class="community-notice community-notice-${notice.kind}" role="${role}">${esc(notice.text)}</p>`;
 }
 
-function contributionNoticeMarkup(): string {
-  if (!contributionNotice) return '';
-  const role = contributionNotice.kind === 'error' ? 'alert' : 'status';
-  return `<p class="community-notice community-notice-${contributionNotice.kind} community-contribution-notice" role="${role}">${esc(contributionNotice.text)}</p>`;
-}
-
 function labelForOption(options: readonly (readonly [string, string])[], value: string | undefined): string {
   return options.find(([key]) => key === value)?.[1] || '';
 }
@@ -216,21 +192,25 @@ function directoryListId(key: string): string {
   return `member-directory-${key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 }
 
+function pseudoMarkup(pseudo: string | undefined): string {
+  return pseudo ? `<span class="member-pseudo">@${esc(pseudo)}</span>` : '';
+}
+
 function directoryResultsMarkup(key: string): string {
   const state = directoryState(key);
   if (state.selected) {
-    return `<p class="member-directory-selected"><span>Selected</span><strong>${esc(state.selected.display_name)}</strong></p>`;
+    return `<p class="member-directory-selected"><span>Selected</span><strong>${esc(state.selected.display_name)}</strong>${pseudoMarkup(state.selected.pseudo)}</p>`;
   }
   if (state.query.trim().length < 2) {
-    return '<p class="member-directory-hint">Type at least two characters.</p>';
+    return '<p class="member-directory-hint">Type a name or @pseudo — at least two characters.</p>';
   }
-  if (state.loading) return '<p class="member-directory-hint" role="status">Searching member names…</p>';
+  if (state.loading) return '<p class="member-directory-hint" role="status">Searching members…</p>';
   if (state.error) return `<p class="member-directory-error" role="alert">${esc(state.error)}</p>`;
-  if (!state.items.length) return '<p class="member-directory-hint">No matching member names.</p>';
+  if (!state.items.length) return '<p class="member-directory-hint">No matching members.</p>';
   return `<ul class="member-directory-results" role="listbox">${state.items
     .map(
       (item, index) =>
-        `<li><button type="button" role="option" id="${directoryListId(key)}-option-${index}" aria-selected="${state.activeIndex === index}" data-member-choice="${index}">${esc(item.display_name)}</button></li>`
+        `<li><button type="button" role="option" id="${directoryListId(key)}-option-${index}" aria-selected="${state.activeIndex === index}" data-member-choice="${index}">${esc(item.display_name)}${pseudoMarkup(item.pseudo)}</button></li>`
     )
     .join('')}</ul>`;
 }
@@ -264,6 +244,8 @@ function signedOutPanel(): string {
         isJoin
           ? `<form class="community-form" data-community-join>
               <label>How should we know you?<input name="display_name" autocomplete="name" maxlength="100" required></label>
+              <label>Pick a pseudo<input name="pseudo" autocomplete="off" spellcheck="false" minlength="3" maxlength="30" pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens" required placeholder="e.g. detour-anna"></label>
+              <p class="community-form-note">Your pseudo is your unique handle — it is how other members find you to share places.</p>
               <label>Email address<input name="email" type="email" autocomplete="email" required></label>
               <div class="community-form-grid">
                 <label>Password<input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
@@ -297,11 +279,14 @@ function waitlistCard(entry: WaitlistEntry): string {
   const progress = cleanCount(entry.signal_count, 3);
   const published = entry.status === 'published';
   const directoryKey = `share-${entry.id}`;
+  const category = labelForOption(CATEGORY_OPTIONS, entry.category);
+  const occasions = (entry.occasions || []).map((occasion) => labelForOption(OCCASION_OPTIONS, occasion)).filter(Boolean);
   return `<article class="community-queue-card${highlightedWaitlistId === entry.id ? ' is-highlighted' : ''}" id="waitlist-${esc(entry.id)}" tabindex="-1">
     <div class="community-queue-head">
       <div><h4>${esc(entry.venue_name || 'Unnamed place')}</h4><p>${esc([entry.address, entry.city, entry.country].filter(Boolean).join(', '))}</p></div>
       <span class="community-queue-status is-${published ? 'published' : 'pending'}">${published ? 'Published' : 'Pending'}</span>
     </div>
+    ${category || occasions.length ? `<dl class="community-place-facts">${category ? `<div><dt>Category</dt><dd>${esc(category)}</dd></div>` : ''}${occasions.length ? `<div><dt>Good for</dt><dd>${esc(occasions.join(' · '))}</dd></div>` : ''}</dl>` : ''}
     <div class="community-signal" aria-label="${progress} of 3 recommendations">
       <div class="community-signal-label"><span>Recommendations</span><strong>${progress}/3</strong></div>
       <div class="community-signal-track" aria-hidden="true"><span style="width: ${(progress / 3) * 100}%"></span></div>
@@ -335,6 +320,11 @@ function recommendationPanel(): string {
           <label>City<input name="city" maxlength="120" required placeholder="Madrid"></label>
           <label>Country<input name="country" maxlength="120" required placeholder="Spain"></label>
         </div>
+        <label>Category <span class="community-optional">Optional</span><select name="category"><option value="">Choose one</option>${CATEGORY_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label>
+        <fieldset class="community-choice-fieldset">
+          <legend>Good for <span class="community-optional">Optional — choose any that fit</span></legend>
+          <div class="community-choice-grid">${OCCASION_OPTIONS.map(([value, label]) => `<label><input type="checkbox" name="occasions" value="${value}"><span>${label}</span></label>`).join('')}</div>
+        </fieldset>
         <label>Your recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this place worth a deliberate detour?"></textarea></label>
         <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend'}</button>
       </form>
@@ -352,94 +342,17 @@ function recommendationPanel(): string {
   </section>`;
 }
 
-function contributionPrompt(): string {
-  if (!canContribute() || detourTab === 'contributions') return '';
-  return `<aside class="community-contribution-prompt" aria-labelledby="contribution-prompt-title">
-    <div><h3 id="contribution-prompt-title">A place you love in your city?</h3><p>Send it to Detour for a private review. Nothing is shown publicly before approval.</p></div>
-    <button class="community-secondary" type="button" data-open-contributions>Add a place</button>
-  </aside>`;
-}
-
-function contributionStatusDetails(status: ContributionStatus | undefined): { label: string; detail: string; className: string } {
-  if (status === 'approved') {
-    return { label: 'Approved', detail: 'Review complete. Approved contribution details can be shown publicly.', className: 'is-approved' };
-  }
-  if (status === 'rejected') {
-    return { label: 'Not approved', detail: 'Review complete. This contribution is not public.', className: 'is-rejected' };
-  }
-  return { label: 'In review', detail: 'We are reviewing the details. This is visible only in your account and is not public.', className: 'is-in-review' };
-}
-
-function contributionDate(value: string | undefined): string {
+function formatDate(value: string | undefined): string {
   if (!value) return '';
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return '';
   return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).format(parsed);
 }
 
-function contributionCard(record: ContributionRecord): string {
-  const status = contributionStatusDetails(record.status);
-  const category = labelForOption(CONTRIBUTION_CATEGORIES, record.category);
-  const occasions = (record.occasions || []).map((occasion) => labelForOption(OCCASION_OPTIONS, occasion)).filter(Boolean);
-  const submitted = contributionDate(record.created);
-  return `<article class="community-contribution-record${highlightedContributionId === record.id ? ' is-highlighted' : ''}" id="contribution-${esc(record.id)}" tabindex="-1">
-    <div class="community-contribution-record-head">
-      <div><h4>${esc(record.place_name || 'Unnamed place')}</h4><p>${esc([record.address, record.city, record.country].filter(Boolean).join(', '))}</p></div>
-      <span class="community-contribution-status ${status.className}">${status.label}</span>
-    </div>
-    ${category || occasions.length ? `<dl class="community-contribution-facts">${category ? `<div><dt>Category</dt><dd>${esc(category)}</dd></div>` : ''}${occasions.length ? `<div><dt>Good for</dt><dd>${esc(occasions.join(' · '))}</dd></div>` : ''}</dl>` : ''}
-    <p class="community-contribution-review-copy">${status.detail}</p>
-    ${submitted ? `<p class="community-contribution-date">Submitted ${esc(submitted)}</p>` : ''}
-  </article>`;
-}
-
-function contributionPanel(): string {
-  const noteErrorId = 'contribution-note-error';
-  return `<section class="community-ledger-section community-contribution-section" aria-labelledby="member-contributions-title">
-    <div class="community-section-heading">
-      <div><h3 id="member-contributions-title">Add a place you love</h3></div>
-      <p>Your recommendation stays private while Detour reviews the place.</p>
-    </div>
-    <div class="community-contribution-layout">
-      <form class="community-form community-contribution-form" data-member-contribution>
-        <label>Place name<input name="place_name" maxlength="200" autocomplete="organization" required placeholder="The place you keep returning to"></label>
-        <label>Address <span class="community-optional">Optional</span><input name="address" maxlength="300" autocomplete="street-address" placeholder="Street and number"></label>
-        <div class="community-form-grid community-place-grid">
-          <label>City<input name="city" maxlength="120" autocomplete="address-level2" required placeholder="Your city"></label>
-          <label>Country<input name="country" maxlength="120" autocomplete="country-name" required placeholder="Country"></label>
-        </div>
-        <label>Category <span class="community-optional">Optional</span><select name="category"><option value="">Choose one</option>${CONTRIBUTION_CATEGORIES.map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label>
-        <fieldset class="community-choice-fieldset">
-          <legend>Good for <span class="community-optional">Optional — choose any that fit</span></legend>
-          <div class="community-choice-grid">${OCCASION_OPTIONS.map(([value, label]) => `<label><input type="checkbox" name="occasions" value="${value}"><span>${label}</span></label>`).join('')}</div>
-        </fieldset>
-        <label>Why do you recommend it?<textarea name="recommendation_note" rows="5" maxlength="2400" minlength="24" required aria-describedby="contribution-note-help${contributionNoteInvalid ? ` ${noteErrorId}` : ''}" ${contributionNoteInvalid ? 'aria-invalid="true"' : ''} placeholder="What makes it worth a deliberate detour?"></textarea></label>
-        <p class="community-field-help" id="contribution-note-help">At least 24 characters and five words. Your note is for review and is not published.</p>
-        ${contributionNoteInvalid ? `<p class="community-field-error" id="${noteErrorId}">Add a meaningful recommendation of at least 24 characters and five words.</p>` : ''}
-        <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sending for review…' : 'Send for review'}</button>
-      </form>
-      <aside class="community-guidance community-contribution-guidance">
-        <strong>A quiet review, not an instant listing.</strong>
-        <p>We check each place before anything can appear publicly. You can follow its status here, and only you can see an in-review or declined contribution.</p>
-      </aside>
-    </div>
-    <div class="community-contribution-list" aria-labelledby="your-contributions-title">
-      <div class="community-subheading"><h4 id="your-contributions-title">Your submitted places</h4><p>Private account history</p></div>
-      ${
-        loadingContributions || !contributionsLoaded
-          ? '<p class="community-loading" role="status">Loading your submitted places…</p>'
-          : contributions.length
-            ? `<div class="community-contribution-records">${contributions.map(contributionCard).join('')}</div>`
-            : '<p class="community-empty">You have not sent a place for review yet.</p>'
-      }
-    </div>
-  </section>`;
-}
-
 function incomingShareCard(share: ShareRecord): string {
   return `<article class="community-share-card${share.seen ? '' : ' is-new'}">
     <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared place')}</h4><p>${esc([share.address, share.city, share.country].filter(Boolean).join(', '))}</p></div><span>${share.seen ? 'Shared with you' : 'New'}</span></div>
-    <p class="community-share-from"><strong>${esc(share.sender_name || 'A Detour member')}</strong> shared this place with you.</p>
+    <p class="community-share-from"><strong>${esc(share.sender_name || 'A Detour member')}</strong>${pseudoMarkup(share.sender_pseudo)} shared this place with you.</p>
     <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
     ${share.venue ? '<p class="community-share-state is-success">In the Detour selection.</p>' : ''}
   </article>`;
@@ -448,7 +361,7 @@ function incomingShareCard(share: ShareRecord): string {
 function outgoingShareCard(share: ShareRecord): string {
   return `<article class="community-share-card community-share-card-sent">
     <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared place')}</h4><p>${esc([share.address, share.city, share.country].filter(Boolean).join(', '))}</p></div><span>Sent</span></div>
-    <p class="community-share-from">Shared with <strong>${esc(share.recipient_name || 'a member')}</strong>.</p>
+    <p class="community-share-from">Shared with <strong>${esc(share.recipient_name || 'a member')}</strong>${pseudoMarkup(share.recipient_pseudo)}.</p>
     <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
   </article>`;
 }
@@ -508,11 +421,13 @@ function sharesPanel(): string {
 
 function invitesPanel(): string {
   const unclaimed = openInvites();
+  const claimed = invites.filter((invite) => invite.claimed_by);
   const available = Math.max(0, 3 - unclaimed.length);
   const allowanceKnown = invitesLoaded && !loadingInvites;
   const atLimit = allowanceKnown && available === 0;
   return `<section class="community-tab-panel community-invitation-panel" id="member-panel-invitations" role="tabpanel" aria-labelledby="member-tab-invitations" tabindex="0">
     <div class="community-invite-actions">
+      <p class="community-invite-explainer">Detour grows by personal invitation only — create a code and pass it to someone you trust so they can join as a member.</p>
       <div class="community-invite-bar">
         <button class="community-secondary" type="button" data-community-invite ${submitting || !allowanceKnown || atLimit ? 'disabled' : ''}>${submitting ? 'Preparing…' : atLimit ? 'Invitation limit reached' : 'New invitation'}</button>
         <p class="community-invite-allowance" aria-live="polite"><strong>${allowanceKnown ? available : '—'}</strong> ${allowanceKnown ? (available === 1 ? 'invitation left' : 'invitations left') : 'checking…'}</p>
@@ -522,9 +437,22 @@ function invitesPanel(): string {
           ? '<p class="community-loading" role="status">Loading…</p>'
           : unclaimed.length
             ? `<div class="community-invite-list"><h4>Unclaimed codes</h4><ul class="community-invite-codes" aria-label="Your unclaimed invitation codes">${unclaimed
-                .map((invite) => `<li><code>${esc(invite.code || '')}</code><span>Unclaimed</span></li>`)
+                .map(
+                  (invite) =>
+                    `<li><code>${esc(invite.code || '')}</code><button class="community-invite-copy" type="button" data-copy-invite="${esc(invite.code || '')}" aria-live="polite" aria-label="Copy invitation code ${esc(invite.code || '')}">Copy</button></li>`
+                )
                 .join('')}</ul></div>`
-            : '<p class="community-empty">No unclaimed codes.</p>'
+            : '<p class="community-empty">No unclaimed codes. Create one to invite someone.</p>'
+      }
+      ${
+        allowanceKnown && claimed.length
+          ? `<div class="community-invite-list community-invite-claimed"><h4>Claimed invitations</h4><ul class="community-invite-codes" aria-label="Your claimed invitation codes">${claimed
+              .map((invite) => {
+                const when = formatDate(invite.claimed_at);
+                return `<li><code>${esc(invite.code || '')}</code><span>Claimed${when ? ` ${esc(when)}` : ''}</span></li>`;
+              })
+              .join('')}</ul></div>`
+          : ''
       }
     </div>
   </section>`;
@@ -534,11 +462,9 @@ function detoursPanel(): string {
   const unseen = unseenShareCount();
   const tabs: { id: DetourTab; label: string }[] = [
     { id: 'recommendations', label: 'Recommendations' },
-    ...(canContribute() ? [{ id: 'contributions' as const, label: 'Places I love' }] : []),
     { id: 'shares', label: 'Shares' },
   ];
   return `<div class="community-tab-panel community-detours-panel" id="member-panel-detours" role="tabpanel" aria-labelledby="member-tab-detours" tabindex="0">
-    ${contributionPrompt()}
     <div class="community-tabs community-detour-tabs" role="tablist" aria-label="My detours sections">
       ${tabs
         .map(
@@ -550,9 +476,7 @@ function detoursPanel(): string {
     ${
       detourTab === 'recommendations'
         ? `<div id="detour-panel-recommendations" role="tabpanel" aria-labelledby="detour-tab-recommendations">${recommendationPanel()}</div>`
-        : detourTab === 'contributions' && canContribute()
-          ? `<div id="detour-panel-contributions" role="tabpanel" aria-labelledby="detour-tab-contributions">${contributionPanel()}</div>`
-          : `<div id="detour-panel-shares" role="tabpanel" aria-labelledby="detour-tab-shares">${sharesPanel()}</div>`
+        : `<div id="detour-panel-shares" role="tabpanel" aria-labelledby="detour-tab-shares">${sharesPanel()}</div>`
     }
   </div>`;
 }
@@ -563,7 +487,15 @@ function settingsPanel(record: MemberRecord): string {
       <p>Signed in as <strong>${esc(record.email || memberName(record))}</strong></p>
       <button class="community-signout" type="button" data-community-sign-out>Sign out</button>
     </div>
-    <div class="community-session-row community-danger-row">
+    <div class="community-pseudo-row">
+      <form class="community-form community-pseudo-form" data-community-pseudo>
+        <label>Your pseudo<input name="pseudo" value="${esc(record.pseudo || '')}" autocomplete="off" spellcheck="false" minlength="3" maxlength="30" pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens" required></label>
+        <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Saving…' : 'Save pseudo'}</button>
+      </form>
+      <p class="community-form-note">Your unique handle — other members search for it to share places with you.</p>
+    </div>
+    <div class="community-danger-row">
+      <p class="community-danger-note">Removing your account deletes your recommendations, shares, and invitations. This cannot be undone.</p>
       <button class="community-danger" type="button" data-community-remove-account ${submitting ? 'disabled' : ''}>${submitting ? 'Removing…' : 'Remove account'}</button>
     </div>
   </section>`;
@@ -597,7 +529,6 @@ function signedInPanel(): string {
   return `<section class="community-panel community-panel-member" aria-label="Detour member area">
     ${memberTabsMarkup()}
     ${noticeMarkup()}
-    ${contributionNoticeMarkup()}
     ${panel}
   </section>`;
 }
@@ -623,13 +554,7 @@ function resetCommunityState(): void {
   invites = [];
   invitesLoaded = false;
   loadingInvites = false;
-  contributions = [];
-  contributionsLoaded = false;
-  loadingContributions = false;
-  contributionNotice = null;
-  contributionNoteInvalid = false;
   highlightedWaitlistId = '';
-  highlightedContributionId = '';
   directories.forEach((state) => {
     if (state.timer !== null) window.clearTimeout(state.timer);
   });
@@ -668,31 +593,6 @@ async function loadInvites(render: () => void): Promise<void> {
     notice = { kind: 'error', text: readableError(error, 'Your invitations could not be loaded. Please try again.') };
   } finally {
     loadingInvites = false;
-    render();
-  }
-}
-
-async function loadContributions(render: () => void): Promise<void> {
-  const record = member();
-  if (!canContribute(record) || loadingContributions) return;
-  loadingContributions = true;
-  render();
-  try {
-    const response = await pb.send<{ items: ContributionRecord[] }>('/api/detour/member-place-contributions', {
-      method: 'GET',
-      requestKey: null,
-    });
-    contributions = response.items;
-    contributionsLoaded = true;
-  } catch (error) {
-    contributions = [];
-    contributionsLoaded = true;
-    contributionNotice = {
-      kind: 'error',
-      text: readableError(error, 'Your submitted places could not be loaded. Your other account details are still available.'),
-    };
-  } finally {
-    loadingContributions = false;
     render();
   }
 }
@@ -815,15 +715,6 @@ function focusWaitlistEntry(id: string): void {
   });
 }
 
-function focusContribution(id: string): void {
-  if (!id) return;
-  window.requestAnimationFrame(() => {
-    const target = document.getElementById(`contribution-${id}`);
-    target?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-    target?.focus({ preventScroll: true });
-  });
-}
-
 // Marks the recipient's new shares as seen once the inbox is on screen. Local
 // state is updated without re-rendering so the "New" markers stay visible
 // until the next render; the tab badge clears then too.
@@ -849,7 +740,6 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
   });
 
   const activateDetourTab = (nextTab: DetourTab, focusTab: boolean) => {
-    if (nextTab === 'contributions' && !canContribute()) return;
     if (detourTab === nextTab) return;
     detourTab = nextTab;
     if (nextTab === 'shares' && communityLoaded) void markIncomingSharesSeen();
@@ -880,10 +770,6 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
       const nextTab = detourTabButtons[nextIndex]?.dataset.detourTab as DetourTab | undefined;
       if (nextTab) activateDetourTab(nextTab, true);
     });
-  });
-
-  root.querySelector<HTMLButtonElement>('[data-open-contributions]')?.addEventListener('click', () => {
-    activateDetourTab('contributions', true);
   });
 
   const activateMemberTab = (nextTab: MemberTab, focusTab: boolean) => {
@@ -934,6 +820,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     try {
       await pb.collection('members').create({
         display_name: String(values.get('display_name') || '').trim(),
+        pseudo: String(values.get('pseudo') || '').trim(),
         email: String(values.get('email') || '').trim(),
         password,
         passwordConfirm,
@@ -967,6 +854,27 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     }
   });
 
+  root.querySelector<HTMLFormElement>('[data-community-pseudo]')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const record = member();
+    if (!record || submitting) return;
+    const values = new FormData(event.currentTarget as HTMLFormElement);
+    const pseudo = String(values.get('pseudo') || '').trim().replace(/^@+/, '').toLowerCase();
+    if (!pseudo || pseudo === (record.pseudo || '')) return;
+    submitting = true;
+    notice = null;
+    render();
+    try {
+      await pb.collection('members').update(record.id, { pseudo });
+      notice = { kind: 'success', text: `Your pseudo is now @${pseudo}.` };
+    } catch (error) {
+      notice = { kind: 'error', text: readableError(error, 'Your pseudo could not be updated. Please try again.') };
+    } finally {
+      submitting = false;
+      render();
+    }
+  });
+
   root.querySelector<HTMLButtonElement>('[data-community-sign-out]')?.addEventListener('click', () => {
     pb.authStore.clear();
     resetCommunityState();
@@ -977,7 +885,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
   root.querySelector<HTMLButtonElement>('[data-community-remove-account]')?.addEventListener('click', async () => {
     const record = member();
     if (!record || submitting) return;
-    if (!window.confirm('Remove your account? Your recommendations, submitted places, shares, and invitations will be deleted. This cannot be undone.')) return;
+    if (!window.confirm('Remove your account? Your recommendations, shares, and invitations will be deleted. This cannot be undone.')) return;
     submitting = true;
     notice = null;
     render();
@@ -1013,6 +921,23 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     }
   });
 
+  root.querySelectorAll<HTMLButtonElement>('[data-copy-invite]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const code = button.dataset.copyInvite || '';
+      if (!code) return;
+      try {
+        await navigator.clipboard.writeText(code);
+        button.textContent = 'Copied';
+        window.setTimeout(() => {
+          button.textContent = 'Copy';
+        }, 1800);
+      } catch {
+        notice = { kind: 'error', text: 'The code could not be copied automatically. Select it and copy it manually.' };
+        render();
+      }
+    });
+  });
+
   root.querySelector<HTMLFormElement>('[data-community-recommendation]')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const values = new FormData(event.currentTarget as HTMLFormElement);
@@ -1026,13 +951,18 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     notice = null;
     render();
     try {
-      const created = await pb.collection('community_recommendations').create<RecommendationRecord>({
+      const category = String(values.get('category') || '').trim();
+      const occasions = values.getAll('occasions').map((value) => String(value));
+      const payload: Record<string, string | string[]> = {
         venue_name: String(values.get('venue_name') || '').trim(),
         address: String(values.get('address') || '').trim(),
         city: String(values.get('city') || '').trim(),
         country: String(values.get('country') || '').trim(),
         note,
-      });
+      };
+      if (category) payload.category = category;
+      if (occasions.length) payload.occasions = occasions;
+      const created = await pb.collection('community_recommendations').create<RecommendationRecord>(payload);
       highlightedWaitlistId = created.waitlist || '';
       notice = { kind: 'success', text: 'Recommendation added.' };
       communityLoaded = false;
@@ -1043,59 +973,6 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     } finally {
       submitting = false;
       render();
-    }
-  });
-
-  root.querySelector<HTMLFormElement>('[data-member-contribution]')?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const record = member();
-    if (!canContribute(record)) return;
-    const values = new FormData(event.currentTarget as HTMLFormElement);
-    const note = String(values.get('recommendation_note') || '').trim();
-    if (!meaningfulRecommendation(note)) {
-      contributionNoteInvalid = true;
-      contributionNotice = { kind: 'error', text: 'Add a meaningful recommendation of at least 24 characters and five words.' };
-      render();
-      window.requestAnimationFrame(() => root.querySelector<HTMLTextAreaElement>('[name="recommendation_note"]')?.focus());
-      return;
-    }
-    contributionNoteInvalid = false;
-    contributionNotice = null;
-    submitting = true;
-    render();
-    let createdId = '';
-    try {
-      const address = String(values.get('address') || '').trim();
-      const category = String(values.get('category') || '').trim();
-      const occasions = values.getAll('occasions').map((value) => String(value));
-      const payload: Record<string, string | string[]> = {
-        place_name: String(values.get('place_name') || '').trim(),
-        city: String(values.get('city') || '').trim(),
-        country: String(values.get('country') || '').trim(),
-        recommendation_note: note,
-      };
-      if (address) payload.address = address;
-      if (category) payload.category = category;
-      if (occasions.length) payload.occasions = occasions;
-      const created = await pb.collection('member_place_contributions').create<ContributionRecord>(payload);
-      createdId = created.id;
-      highlightedContributionId = created.id;
-      detourTab = 'contributions';
-      contributionsLoaded = false;
-      contributionNotice = {
-        kind: 'success',
-        text: 'Place sent for review. It is visible only in your account until it is approved.',
-      };
-      await loadContributions(render);
-    } catch (error) {
-      contributionNotice = {
-        kind: 'error',
-        text: readableError(error, 'That place could not be sent for review. Check the details and try again.'),
-      };
-    } finally {
-      submitting = false;
-      render();
-      if (createdId) focusContribution(createdId);
     }
   });
 
@@ -1181,5 +1058,4 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     });
   }
   if (member() && !invitesLoaded && !loadingInvites) void loadInvites(render);
-  if (canContribute() && !contributionsLoaded && !loadingContributions) void loadContributions(render);
 }

@@ -4,6 +4,34 @@ routerAdd("GET", "/api/supernaut/ready", (event) => {
   return event.json(200, { ok: true });
 });
 
+// A pseudo is a member's unique public handle: the stable identity other
+// members search for when sharing a place. Stored lowercase without the "@".
+function normalizeMemberPseudo(raw) {
+  let pseudo = String(raw || "");
+  if (typeof pseudo.normalize === "function") {
+    pseudo = pseudo.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  }
+  pseudo = pseudo.trim().toLowerCase().replace(/^@+/, "");
+  if (!/^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/.test(pseudo)) {
+    throw new BadRequestError(
+      "A pseudo is 3-30 characters: lowercase letters, digits, and hyphens, starting and ending with a letter or digit."
+    );
+  }
+  return pseudo;
+}
+
+function assertPseudoAvailable(app, pseudo, selfId) {
+  let existing = null;
+  try {
+    existing = app.findFirstRecordByFilter("members", "pseudo = {:pseudo}", { pseudo: pseudo });
+  } catch {
+    // No member holds this pseudo.
+  }
+  if (existing && existing.id !== selfId) {
+    throw new BadRequestError("This pseudo is already taken. Choose another one.");
+  }
+}
+
 // These private routes bypass member rules only for explicit safe projections.
 routerAdd(
   "GET",
@@ -13,6 +41,7 @@ routerAdd(
       member: {
         id: e.auth.id,
         display_name: e.auth.getString("display_name"),
+        pseudo: e.auth.getString("pseudo"),
         community_status: e.auth.getString("community_status"),
       },
     });
@@ -58,11 +87,14 @@ routerAdd(
   "/api/detour/member-directory",
   (e) => {
     const rawQuery = e.request.url.query().get("q") || "";
+    // A leading "@" is the conventional way to write a pseudo; searching
+    // matches both the pseudo handle and the display name either way.
     const query = rawQuery
       .slice(0, 100)
       .replace(/[\x00-\x1F\x7F%_]/g, " ")
       .replace(/\s+/g, " ")
-      .trim();
+      .trim()
+      .replace(/^@+/, "");
 
     if (query.length < 2) {
       throw new BadRequestError("q must contain at least two searchable characters.");
@@ -70,8 +102,8 @@ routerAdd(
 
     const matches = e.app.findRecordsByFilter(
       "members",
-      "id != {:member} && display_name ~ {:query}",
-      "display_name",
+      "id != {:member} && (pseudo ~ {:query} || display_name ~ {:query})",
+      "pseudo",
       12,
       0,
       { member: e.auth.id, query: query }
@@ -81,6 +113,7 @@ routerAdd(
       candidates.push({
         id: match.id,
         display_name: match.getString("display_name"),
+        pseudo: match.getString("pseudo"),
       });
     }
 
@@ -113,6 +146,10 @@ onRecordCreateRequest((e) => {
     throw new BadRequestError("This invitation code is invalid or has already been used.");
   }
 
+  const pseudo = normalizeMemberPseudo(e.record.getString("pseudo"));
+  assertPseudoAvailable(e.app, pseudo, "");
+
+  e.record.set("pseudo", pseudo);
   e.record.set("invite_code", "");
   e.record.set("invited_by", invite.getString("issued_by"));
   e.record.set("redeemed_invite", invite.id);
@@ -151,6 +188,11 @@ onRecordUpdateRequest((e) => {
     e.record.getString("redeemed_invite") !== original.getString("redeemed_invite")
   ) {
     throw new BadRequestError("Membership verification and invitation details are managed by Detour.");
+  }
+  if (e.record.getString("pseudo") !== original.getString("pseudo")) {
+    const pseudo = normalizeMemberPseudo(e.record.getString("pseudo"));
+    assertPseudoAvailable(e.app, pseudo, e.record.id);
+    e.record.set("pseudo", pseudo);
   }
   e.record.set("invite_code", "");
   e.next();
@@ -238,6 +280,8 @@ onRecordCreateRequest((e) => {
   community.requireVerifiedMember(e.auth, "recommending a place");
 
   const note = community.validateRecommendationNote(e.record.getString("note"));
+  const category = community.validateCategory(e.record.getString("category"));
+  const occasions = community.validateOccasions(e.record.getStringSlice("occasions"));
   const resolved = community.resolveEntry(e.app, e.record.getString("waitlist"), {
     venueName: e.record.getString("venue_name"),
     city: e.record.getString("city"),
@@ -245,6 +289,7 @@ onRecordCreateRequest((e) => {
     address: e.record.getString("address"),
   });
   community.ensureEntryPending(resolved.entry, "recommended again");
+  community.mergePlaceFacts(e.app, resolved.entry, category, occasions);
 
   const duplicate = community.findMemberRecommendation(
     e.app,
@@ -266,6 +311,8 @@ onRecordCreateRequest((e) => {
   e.record.set("city", resolved.entry.getString("city"));
   e.record.set("country", resolved.entry.getString("country"));
   e.record.set("address", resolved.entry.getString("address"));
+  e.record.set("category", category);
+  e.record.set("occasions", occasions);
   e.next();
 }, "community_recommendations");
 
@@ -388,6 +435,8 @@ onRecordCreateRequest((e) => {
   e.record.set("recipient", recipientId);
   e.record.set("sender_name", e.auth.getString("display_name") || "A Detour member");
   e.record.set("recipient_name", recipient.getString("display_name") || "A Detour member");
+  e.record.set("sender_pseudo", e.auth.getString("pseudo"));
+  e.record.set("recipient_pseudo", recipient.getString("pseudo"));
   e.record.set("personal_note", note);
   e.record.set("seen", false);
   e.next();
@@ -415,6 +464,8 @@ onRecordUpdateRequest((e) => {
     "address",
     "sender_name",
     "recipient_name",
+    "sender_pseudo",
+    "recipient_pseudo",
   ];
   for (const field of frozen) {
     if (e.record.getString(field) !== original.getString(field)) {

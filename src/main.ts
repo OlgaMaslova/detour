@@ -646,13 +646,15 @@ function listPreviewStage(): string {
 function occasionBrowser(): string {
   if (!isSanFranciscoDestination()) return '';
   const venues = destinationVenues();
-  const buttons = OCCASION_OPTIONS.map(([value, label]) => {
+  const buttons = OCCASION_OPTIONS.flatMap(([value, label]) => {
     const active = state.occasionFilters.includes(value);
     // Faceted counts: what the list becomes with this occasion in the mix.
     const withThis = active ? state.occasionFilters : [...state.occasionFilters, value];
     const count = venues.filter((venue) => withThis.every((occasion) => venueOccasions(venue).includes(occasion))).length;
-    const disabled = !active && count === 0;
-    return `<button type="button" class="occasion-option${active ? ' occasion-option-active' : ''}" data-occasion="${esc(value)}" aria-pressed="${active}"${disabled ? ' disabled' : ''} aria-label="${esc(label)}, ${count} ${count === 1 ? 'place' : 'places'}">
+    // An occasion with nothing behind it is hidden entirely — except while
+    // selected, so it can still be deselected.
+    if (!active && count === 0) return [];
+    return `<button type="button" class="occasion-option${active ? ' occasion-option-active' : ''}" data-occasion="${esc(value)}" aria-pressed="${active}" aria-label="${esc(label)}, ${count} ${count === 1 ? 'place' : 'places'}">
       <span>${esc(label)}</span><small aria-hidden="true">${count}</small>
     </button>`;
   }).join('');
@@ -684,19 +686,36 @@ function refineChips(): string {
   </div>`;
 }
 
-function filterPanel(): string {
-  const provenanceButtons = provenanceFilters()
-    .map(
-      (f) => `<button type="button" class="filter${state.filter === f.value ? ' filter-active' : ''}"
-        data-filter="${esc(f.value)}" aria-pressed="${state.filter === f.value}">${esc(f.label) || 'All'}</button>`
-    )
+function provenanceBrowser(): string {
+  // Counts are faceted the same way as occasions: what the list becomes
+  // with this provenance lane applied to the current occasion picks.
+  const base = destinationVenues().filter((v) =>
+    state.occasionFilters.every((occasion) => venueOccasions(v).includes(occasion))
+  );
+  const buttons = provenanceFilters()
+    .flatMap(({ value, label }) => {
+      const active = state.filter === value;
+      const count =
+        value === ''
+          ? base.length
+          : value === DETOURIST_LIST_FILTER
+            ? base.filter(onDetouristList).length
+            : base.filter((v) => v.awards.length > 0).length;
+      if (!active && value !== '' && count === 0) return [];
+      return `<button type="button" class="occasion-option${value === '' ? ' occasion-option-all' : ''}${active ? ' occasion-option-active' : ''}" data-filter="${esc(value)}" aria-pressed="${active}" aria-label="${esc(label)}, ${count} ${count === 1 ? 'place' : 'places'}">
+      <span>${esc(label)}</span><small aria-hidden="true">${count}</small>
+    </button>`;
+    })
     .join('');
-  return `<div class="tray" id="filter-panel">
-    <div class="tray-group">
-      <span class="tray-label" id="tray-provenance">Provenance</span>
-      <div class="tray-options" role="group" aria-labelledby="tray-provenance">${provenanceButtons}</div>
+  return `<section class="occasion-browser" aria-labelledby="provenance-browser-title" aria-describedby="provenance-browser-help">
+    <div class="occasion-browser-copy">
+      <h2 id="provenance-browser-title">Whose list is it on?</h2>
+      <p id="provenance-browser-help">External guide recognition and the member-built Detourist List stay distinct.</p>
     </div>
-  </div>`;
+    <div class="occasion-options" role="group" aria-label="Filter by provenance">
+      ${buttons}
+    </div>
+  </section>`;
 }
 
 function discoveryBar(list: Venue[], hasMap: boolean): string {
@@ -712,10 +731,33 @@ function discoveryBar(list: Venue[], hasMap: boolean): string {
       <span class="count" aria-live="polite">${list.length} ${list.length === 1 ? 'place' : 'places'}</span>
     </div>
     ${occasionBrowser()}
-    ${filterPanel()}
+    ${provenanceBrowser()}
     ${refineChips()}
     ${state.geoStatus ? `<p class="geo-status" role="status">${esc(state.geoStatus)}</p>` : ''}
   </section>`;
+}
+
+// Cover URLs that failed to load this session; those venues render the
+// monogram placeholder directly instead of retrying a dead image every render.
+const failedCoverUrls = new Set<string>();
+
+function coverInitial(v: Venue): string {
+  return (v.name.trim().charAt(0) || '•').toUpperCase();
+}
+
+/**
+ * Editorial cover for a place card. Venues without a usable image (or whose
+ * image failed to load) get a serif monogram placeholder so every card keeps
+ * the same silhouette. Decorative: the venue name is already the card heading.
+ */
+function venueCover(v: Venue): string {
+  const image = safeExternalHref(v.imageUrl);
+  const usable = image && !failedCoverUrls.has(image);
+  return `<figure class="card-cover${usable ? '' : ' card-cover-placeholder'}" data-cover-initial="${esc(coverInitial(v))}" aria-hidden="true">${
+    usable
+      ? `<img src="${esc(image)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-cover-image>`
+      : `<span>${esc(coverInitial(v))}</span>`
+  }</figure>`;
 }
 
 function venueCard(v: Venue): string {
@@ -731,6 +773,7 @@ function venueCard(v: Venue): string {
   return `<li>
     <article class="card${cardTone}${selected ? ' card-selected' : ''}">
       <button type="button" class="card-main" data-venue="${esc(v.id)}" aria-expanded="${selected}">
+        ${venueCover(v)}
         <div class="card-top">
           <h3>${esc(v.name)}</h3>
           <span class="card-awards" role="list" aria-label="${esc(awardSummary(v))}">
@@ -827,6 +870,12 @@ function detailPanel(): string {
       <button type="button" class="detail-close" data-close aria-label="Close details"><span aria-hidden="true">×</span></button>
     </div>
     <div class="detail-body">
+      ${(() => {
+        const cover = safeExternalHref(v.imageUrl);
+        return cover && !failedCoverUrls.has(cover)
+          ? `<figure class="detail-cover"><img src="${esc(cover)}" alt="${esc(v.name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-cover-image></figure>`
+          : '';
+      })()}
       <section class="detail-recognition" aria-labelledby="detail-recognition-title">
         <h3 id="detail-recognition-title">Why it’s here</h3>
         ${
@@ -1202,7 +1251,7 @@ function render(root: HTMLElement) {
       </div>
     </section>
     <footer class="footer">
-      <p>${sanFrancisco ? `San Francisco places keep their provenance explicit: external guide recognition and member-recommended Detourist List entries are distinct. Occasion tags reflect only published catalogue data.` : `Detour is a current, deliberately edited selection of ${esc(destination.name)}’s exceptional tables. External guide recognition keeps its source attribution and original links; Detourist List entries are recommended by Detour members.`}</p>
+      <p>Trusted sources, named. Take a detour.</p>
     </footer>
   `;
 
@@ -1268,6 +1317,25 @@ function render(root: HTMLElement) {
   });
   root.querySelector<HTMLButtonElement>('[data-geolocate]')?.addEventListener('click', () => {
     requestUserLocation(root);
+  });
+  // A cover that fails to load falls back to the monogram placeholder in
+  // place (cards) or disappears (detail); the URL is remembered so later
+  // renders skip it without re-requesting.
+  root.querySelectorAll<HTMLImageElement>('[data-cover-image]').forEach((img) => {
+    img.addEventListener('error', () => {
+      failedCoverUrls.add(img.src);
+      const figure = img.closest<HTMLElement>('.card-cover, .detail-cover');
+      if (!figure) return;
+      if (figure.classList.contains('card-cover')) {
+        figure.classList.add('card-cover-placeholder');
+        figure.textContent = '';
+        const initial = document.createElement('span');
+        initial.textContent = figure.dataset.coverInitial || '•';
+        figure.append(initial);
+      } else {
+        figure.remove();
+      }
+    });
   });
   root.querySelectorAll<HTMLButtonElement>('[data-venue]').forEach((btn) => {
     btn.addEventListener('click', () => {

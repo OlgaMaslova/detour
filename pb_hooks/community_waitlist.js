@@ -25,6 +25,93 @@ function normalizePlacePart(value) {
     .trim();
 }
 
+// Optional place facts carried by recommendations. Values mirror the select
+// fields on community_waitlist_entries / community_recommendations; labels are
+// what publication writes to the public venue category.
+const PLACE_CATEGORY_LABELS = {
+  restaurant: "Restaurant",
+  cafe: "Café",
+  bakery: "Bakery",
+  bar: "Bar",
+  cocktail_bar: "Cocktail bar",
+  wine_bar: "Wine bar",
+  brewery: "Brewery",
+  food_market: "Food market",
+  deli: "Deli",
+  dessert_shop: "Dessert shop",
+  ice_cream: "Ice cream",
+  takeaway: "Takeaway",
+  other: "Other",
+};
+const PLACE_OCCASIONS = [
+  "celebration",
+  "casual_local_favorite",
+  "coffee",
+  "bakery",
+  "drinks_nightcap",
+  "neighborhood_meal",
+  "date_night",
+  "group_gathering",
+  "quick_bite",
+  "breakfast_brunch",
+  "solo_friendly",
+  "family_friendly",
+  "late_night",
+  "outdoor_seating",
+];
+
+function validateCategory(value) {
+  const category = cleanText(value, 40);
+  if (!category) return "";
+  if (!Object.prototype.hasOwnProperty.call(PLACE_CATEGORY_LABELS, category)) {
+    throw new BadRequestError("Choose a category from the provided list.");
+  }
+  return category;
+}
+
+function validateOccasions(values) {
+  const seen = {};
+  const occasions = [];
+  for (const value of Array.isArray(values) ? values : []) {
+    const occasion = cleanText(value, 40);
+    if (!occasion) continue;
+    if (PLACE_OCCASIONS.indexOf(occasion) === -1) {
+      throw new BadRequestError("Choose occasions from the provided list.");
+    }
+    if (!seen[occasion]) {
+      seen[occasion] = true;
+      occasions.push(occasion);
+    }
+  }
+  return occasions;
+}
+
+// The first recommender seeds the entry's place facts; later recommenders can
+// fill a missing category and add occasions, never overwrite or remove.
+function mergePlaceFacts(app, entry, category, occasions) {
+  let changed = false;
+  if (category && !entry.getString("category")) {
+    entry.set("category", category);
+    changed = true;
+  }
+  if (occasions && occasions.length) {
+    const existing = entry.getStringSlice("occasions");
+    const seen = {};
+    const merged = [];
+    for (const occasion of existing.concat(occasions)) {
+      if (occasion && !seen[occasion]) {
+        seen[occasion] = true;
+        merged.push(occasion);
+      }
+    }
+    if (merged.length !== existing.length) {
+      entry.set("occasions", merged);
+      changed = true;
+    }
+  }
+  if (changed) app.save(entry);
+}
+
 function requireVerifiedMember(auth, action) {
   if (!auth || auth.getString("community_status") !== "verified") {
     throw new BadRequestError(
@@ -308,6 +395,7 @@ function publishEntry(app, entry) {
   if (!venue) venue = findCanonicalVenue(app, normalizedName, normalizedCity);
 
   const entryAddress = cleanText(entry.getString("address"), 300);
+  const entryCategoryLabel = PLACE_CATEGORY_LABELS[entry.getString("category")] || "";
   if (venue) {
     if (!cleanText(venue.getString("country"), 120)) {
       throw new BadRequestError("The canonical venue is missing its required country.");
@@ -319,10 +407,16 @@ function publishEntry(app, entry) {
         "The waiting-list country does not match the canonical venue country."
       );
     }
+    let venueChanged = false;
     if (!cleanText(venue.getString("address"), 300) && entryAddress) {
       venue.set("address", entryAddress);
-      app.save(venue);
+      venueChanged = true;
     }
+    if (!cleanText(venue.getString("category"), 120) && entryCategoryLabel) {
+      venue.set("category", entryCategoryLabel);
+      venueChanged = true;
+    }
+    if (venueChanged) app.save(venue);
   } else {
     const venues = app.findCollectionByNameOrId("venues");
     venue = new Record(venues);
@@ -331,7 +425,7 @@ function publishEntry(app, entry) {
     venue.set("country", country);
     venue.set("address", entryAddress);
     venue.set("official_url", "");
-    venue.set("category", "");
+    venue.set("category", entryCategoryLabel);
     venue.set("approx_location", false);
     app.save(venue);
   }
@@ -375,6 +469,9 @@ function publishEntry(app, entry) {
   award.set("source_url", "");
   award.set("current", true);
   award.set("verification_status", "verified");
+  // Occasion tags are factual place facts; the public catalogue aggregates
+  // them from recognition records.
+  award.set("occasions", entry.getStringSlice("occasions"));
   app.save(award);
 
   // Keep exactly one current community-selection event for this venue while
@@ -528,8 +625,11 @@ module.exports = {
   findMemberRecommendation,
   geocodeVenue,
   isParticipant,
+  mergePlaceFacts,
   normalizePlacePart,
   recalculateAndPublish,
+  validateCategory,
+  validateOccasions,
   requireVerifiedMember,
   resolveEntry,
   validateRecommendationNote,

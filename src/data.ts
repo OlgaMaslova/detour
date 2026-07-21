@@ -330,6 +330,7 @@ type VenueRecord = Record<string, unknown> & {
   category?: string;
   official_url?: string;
   instagram_url?: string;
+  image_url?: string;
   approx_location?: boolean;
 };
 
@@ -511,7 +512,7 @@ function sortAwards(awards: VenueAward[]): VenueAward[] {
 export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
   const [venueRecords, awardRecords, sourceRecords, cityRecords, contributionRecords] = await Promise.all([
     pb.collection('venues').getFullList<VenueRecord>({
-      fields: 'id,name,city,market,country,address,lat,lng,category,official_url,instagram_url,approx_location',
+      fields: 'id,name,city,market,country,address,lat,lng,category,official_url,instagram_url,image_url,approx_location',
       // Keep the request compatible with pre-migration backends; final route
       // ordering is applied client-side after optional market values load.
       sort: 'city,name',
@@ -652,6 +653,7 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       approxLocation: record.approx_location === true,
       officialUrl: cleanExternalUrl(record.official_url) || undefined,
       instagramUrl: cleanExternalUrl(record.instagram_url) || undefined,
+      imageUrl: cleanExternalUrl(record.image_url) || undefined,
     });
   }
 
