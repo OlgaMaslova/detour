@@ -14,7 +14,16 @@ interface DiscoveryRecommendation {
   created?: string;
 }
 
+interface DiscoveryReply {
+  id: string;
+  body: string;
+  author_name?: string;
+  author_pseudo?: string;
+  created?: string;
+}
+
 interface DiscoveryShare {
+  id?: string;
   direction: ShareDirection;
   venue_name?: string;
   city?: string;
@@ -27,7 +36,19 @@ interface DiscoveryShare {
   recipient_pseudo?: string;
   seen?: boolean;
   created?: string;
+  replies: DiscoveryReply[];
 }
+
+interface ReplyState {
+  body: string;
+  submitting: boolean;
+  message: string;
+  error: boolean;
+  validationError: boolean;
+}
+
+const REPLY_MIN_LENGTH = 8;
+const REPLY_MAX_LENGTH = 1200;
 
 interface NetworkDiscovery {
   discovery_visible: boolean;
@@ -41,6 +62,7 @@ let errorMessage = '';
 let visibilitySaving = false;
 let visibilityMessage = '';
 let visibilityError = false;
+const replyStates = new Map<string, ReplyState>();
 let discovery: NetworkDiscovery = {
   discovery_visible: false,
   recommendations: [],
@@ -86,12 +108,38 @@ function cleanRecommendation(value: unknown): DiscoveryRecommendation | null {
   };
 }
 
+function cleanReply(value: unknown): DiscoveryReply | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Record<string, unknown>;
+  const id = cleanText(item.id);
+  const body = cleanText(item.body);
+  if (!id || !body) return null;
+  return {
+    id,
+    body,
+    author_name: cleanText(item.author_name),
+    author_pseudo: cleanText(item.author_pseudo),
+    created: cleanDate(item.created),
+  };
+}
+
 function cleanShare(value: unknown): DiscoveryShare | null {
   if (!value || typeof value !== 'object') return null;
   const item = value as Record<string, unknown>;
   const venueName = cleanText(item.venue_name);
   if (!venueName || (item.direction !== 'received' && item.direction !== 'sent')) return null;
+  const replies = Array.isArray(item.replies)
+    ? item.replies
+        .map(cleanReply)
+        .filter((reply): reply is DiscoveryReply => reply !== null)
+        .sort((a, b) => {
+          const first = a.created ? new Date(a.created).getTime() : Number.MAX_SAFE_INTEGER;
+          const second = b.created ? new Date(b.created).getTime() : Number.MAX_SAFE_INTEGER;
+          return first - second;
+        })
+    : [];
   return {
+    id: cleanText(item.id),
     direction: item.direction,
     venue_name: venueName,
     city: cleanText(item.city),
@@ -104,6 +152,7 @@ function cleanShare(value: unknown): DiscoveryShare | null {
     recipient_pseudo: cleanText(item.recipient_pseudo),
     seen: item.seen === true,
     created: cleanDate(item.created),
+    replies,
   };
 }
 
@@ -130,6 +179,14 @@ function readableError(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function replyCreateError(error: unknown): string {
+  if (error && typeof error === 'object') {
+    const response = error as { response?: { message?: string } };
+    if (response.response?.message) return response.response.message;
+  }
+  return 'That reply could not be sent. Check your connection and the reply text, then try again.';
+}
+
 function memberRecord(): { id: string; display_name?: string; email?: string } | null {
   if (!pb.authStore.isValid || !pb.authStore.record?.id) return null;
   return pb.authStore.record as unknown as { id: string; display_name?: string; email?: string };
@@ -146,6 +203,7 @@ export function resetNetworkDiscovery(): void {
   visibilitySaving = false;
   visibilityMessage = '';
   visibilityError = false;
+  replyStates.clear();
   discovery = { discovery_visible: false, recommendations: [], shares: [] };
 }
 
@@ -162,6 +220,65 @@ function placeMeta(item: { address?: string; city?: string; country?: string }):
 
 function pseudo(value: string | undefined): string {
   return value ? `<span class="network-pseudo">@${esc(value.replace(/^@+/, ''))}</span>` : '';
+}
+
+function replyState(shareId: string): ReplyState {
+  const existing = replyStates.get(shareId);
+  if (existing) return existing;
+  const next = { body: '', submitting: false, message: '', error: false, validationError: false };
+  replyStates.set(shareId, next);
+  return next;
+}
+
+function replyValidation(body: string): string {
+  if (body.length > REPLY_MAX_LENGTH) return `Reply must be ${REPLY_MAX_LENGTH.toLocaleString()} characters or fewer.`;
+  const cleaned = body.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const words = cleaned
+    .split(/\s+/)
+    .map((word) => word.replace(/[.,!?;:'"()\[\]{}<>/\\|`~@#$%^&*+=_-]+/g, ''))
+    .filter((word) => word.length >= 2);
+  if (cleaned.length < REPLY_MIN_LENGTH || words.length < 2) return `Use at least ${REPLY_MIN_LENGTH} characters and two words.`;
+  return '';
+}
+
+function domToken(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, '-');
+}
+
+function replyMarkup(item: DiscoveryReply): string {
+  const who = item.author_name || 'A member';
+  const when = formatDate(item.created);
+  return `<li class="network-reply">
+    <p class="network-reply-byline"><strong>${esc(who)}</strong>${pseudo(item.author_pseudo)}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
+    <p class="network-reply-body">${esc(item.body)}</p>
+  </li>`;
+}
+
+function replyThreadMarkup(item: DiscoveryShare): string {
+  if (!item.id) return '';
+  const state = replyState(item.id);
+  const token = domToken(item.id);
+  const titleId = `network-replies-${token}`;
+  const fieldId = `network-reply-body-${token}`;
+  const helpId = `network-reply-help-${token}`;
+  const statusId = `network-reply-status-${token}`;
+  const count = item.replies.length;
+  return `<section class="network-replies" aria-labelledby="${titleId}">
+    <div class="network-replies-heading">
+      <h4 id="${titleId}">Private replies</h4>
+      <p>${count} ${count === 1 ? 'reply' : 'replies'}</p>
+    </div>
+    ${count ? `<ol class="network-reply-list">${item.replies.map(replyMarkup).join('')}</ol>` : '<p class="network-replies-empty">No replies yet. Keep the conversation tied to this place.</p>'}
+    <form class="network-reply-form" data-network-reply-form data-share-id="${esc(item.id)}" novalidate>
+      <label for="${fieldId}">Reply about ${esc(item.venue_name || 'this place')}</label>
+      <textarea id="${fieldId}" name="body" rows="3" minlength="${REPLY_MIN_LENGTH}" maxlength="${REPLY_MAX_LENGTH}" required aria-describedby="${helpId} ${statusId}"${state.validationError ? ' aria-invalid="true"' : ''} placeholder="Add a private note about this place…" ${state.submitting ? 'disabled' : ''}>${esc(state.body)}</textarea>
+      <div class="network-reply-form-footer">
+        <p id="${helpId}" class="network-reply-help">Visible only within this private share · ${REPLY_MIN_LENGTH}–${REPLY_MAX_LENGTH.toLocaleString()} characters · at least two words</p>
+        <button type="submit" class="network-reply-submit" ${state.submitting ? 'disabled aria-busy="true"' : ''}>${state.submitting ? 'Sending…' : 'Send reply'}</button>
+      </div>
+      <p id="${statusId}" class="network-reply-status${state.error ? ' is-error' : state.message && !state.submitting ? ' is-success' : ''}" ${state.error ? 'role="alert"' : 'role="status"'} aria-live="${state.error ? 'assertive' : 'polite'}">${esc(state.message)}</p>
+    </form>
+  </section>`;
 }
 
 function recommendationMarkup(item: DiscoveryRecommendation): string {
@@ -197,6 +314,7 @@ function shareMarkup(item: DiscoveryShare): string {
     </header>
     ${item.personal_note ? `<blockquote><p>${esc(item.personal_note)}</p></blockquote>` : '<p class="network-entry-note-empty">No personal note was included.</p>'}
     <p class="network-entry-byline">${received ? 'From' : 'To'} <strong>${esc(person)}</strong>${pseudo(personPseudo)}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
+    ${replyThreadMarkup(item)}
   </article>`;
 }
 
@@ -310,6 +428,25 @@ async function loadNetworkDiscovery(render: () => void): Promise<void> {
   render();
 }
 
+function showReplyFeedback(form: HTMLFormElement, state: ReplyState, message: string, error: boolean, validationError: boolean): void {
+  state.message = message;
+  state.error = error;
+  state.validationError = validationError;
+  const textarea = form.querySelector<HTMLTextAreaElement>('textarea[name="body"]');
+  const statusElement = form.querySelector<HTMLElement>('.network-reply-status');
+  if (textarea) {
+    if (validationError) textarea.setAttribute('aria-invalid', 'true');
+    else textarea.removeAttribute('aria-invalid');
+  }
+  if (statusElement) {
+    statusElement.textContent = message;
+    statusElement.classList.toggle('is-error', error);
+    statusElement.classList.toggle('is-success', Boolean(message) && !error);
+    statusElement.setAttribute('role', error ? 'alert' : 'status');
+    statusElement.setAttribute('aria-live', error ? 'assertive' : 'polite');
+  }
+}
+
 export function bindNetworkDiscovery(root: HTMLElement, render: () => void): void {
   const record = memberRecord();
   if (record && loadedFor !== record.id && status !== 'loading') {
@@ -320,6 +457,77 @@ export function bindNetworkDiscovery(root: HTMLElement, render: () => void): voi
   root.querySelector<HTMLButtonElement>('[data-network-retry]')?.addEventListener('click', () => {
     status = 'idle';
     void loadNetworkDiscovery(render);
+  });
+
+  root.querySelectorAll<HTMLFormElement>('[data-network-reply-form]').forEach((form) => {
+    const shareId = form.dataset.shareId || '';
+    if (!shareId) return;
+    const state = replyState(shareId);
+    const textarea = form.querySelector<HTMLTextAreaElement>('textarea[name="body"]');
+
+    textarea?.addEventListener('input', () => {
+      state.body = textarea.value;
+    });
+
+    textarea?.addEventListener('blur', () => {
+      state.body = textarea.value;
+      if (!state.body.trim()) return;
+      const validationMessage = replyValidation(state.body);
+      if (validationMessage) showReplyFeedback(form, state, validationMessage, true, true);
+      else if (state.validationError) showReplyFeedback(form, state, '', false, false);
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const active = memberRecord();
+      if (!active || state.submitting) return;
+      const body = String(new FormData(form).get('body') || '');
+      state.body = body;
+      const validationMessage = replyValidation(body);
+      if (validationMessage) {
+        showReplyFeedback(form, state, validationMessage, true, true);
+        textarea?.focus();
+        return;
+      }
+
+      state.submitting = true;
+      state.message = 'Sending reply…';
+      state.error = false;
+      state.validationError = false;
+      render();
+
+      try {
+        await pb.collection('community_share_replies').create({ share: shareId, body: body.trim() }, { requestKey: null });
+        if (memberRecord()?.id !== active.id) return;
+        state.body = '';
+        state.message = 'Reply sent. Updating the thread…';
+        render();
+
+        try {
+          const payload = await pb.send<unknown>('/api/detour/network-discovery', { requestKey: null });
+          if (memberRecord()?.id !== active.id) return;
+          discovery = cleanPayload(payload);
+          loadedFor = active.id;
+          status = 'ready';
+          errorMessage = '';
+          state.message = 'Reply sent.';
+          state.error = false;
+        } catch {
+          if (memberRecord()?.id !== active.id) return;
+          state.message = 'Your reply was sent, but the thread could not refresh. Reload the page to see it.';
+          state.error = true;
+        }
+      } catch (error) {
+        if (memberRecord()?.id !== active.id) return;
+        state.message = replyCreateError(error);
+        state.error = true;
+      } finally {
+        if (memberRecord()?.id === active.id) {
+          state.submitting = false;
+          render();
+        }
+      }
+    });
   });
 
   root.querySelector<HTMLInputElement>('[data-network-visibility]')?.addEventListener('change', async (event) => {

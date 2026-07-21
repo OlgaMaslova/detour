@@ -55,41 +55,44 @@ routerAdd(
   (e) => {
     // Route handlers run in isolated VMs, so all route-specific helpers and
     // query models live inside this handler.
-    function projectShare(row) {
+    function projectReply(row) {
+      return {
+        id: row.id,
+        body: row.body,
+        author_name: row.author_name,
+        author_pseudo: row.author_pseudo,
+        created: row.created,
+      };
+    }
+
+    function projectShare(row, replies) {
       return {
         id: row.id,
         direction: row.direction,
-        counterpart: {
-          display_name: row.counterpart_name,
-          pseudo: row.counterpart_pseudo,
-        },
+        venue_name: row.venue_name,
+        city: row.city,
+        country: row.country,
+        address: row.address,
         personal_note: row.personal_note,
-        place: {
-          kind: row.place_kind,
-          name: row.place_name,
-          city: row.city,
-          country: row.country,
-          address: row.address,
-        },
+        sender_name: row.sender_name,
+        sender_pseudo: row.sender_pseudo,
+        recipient_name: row.recipient_name,
+        recipient_pseudo: row.recipient_pseudo,
         seen: row.seen,
         created: row.created,
+        replies: replies,
       };
     }
 
     function projectRecommendation(row) {
       return {
-        kind: row.kind,
-        recommender: {
-          display_name: row.recommender_name,
-          pseudo: row.recommender_pseudo,
-        },
-        recommendation_note: row.recommendation_note,
-        place: {
-          name: row.place_name,
-          city: row.city,
-          country: row.country,
-          address: row.address,
-        },
+        venue_name: row.venue_name,
+        recommender_name: row.recommender_name,
+        recommender_pseudo: row.recommender_pseudo,
+        note: row.note,
+        city: row.city,
+        country: row.country,
+        address: row.address,
         created: row.created,
       };
     }
@@ -99,21 +102,22 @@ routerAdd(
     const invitedBy = caller.getString("invited_by");
 
     // The endpoint deliberately uses bounded, explicit SQL projections. It
-    // bypasses collection rules only to combine the caller's own shares with
-    // opted-in direct-peer recommendations, and never selects relation ids,
-    // participant lists, emails, or moderation-only fields.
+    // bypasses collection rules only for caller-participant shares/replies and
+    // opted-in direct-peer recommendations. No email, relation, moderation, or
+    // unrelated member fields are selected or returned.
     const shareRows = arrayOf(
       new DynamicModel({
         id: "",
         direction: "",
-        counterpart_name: "",
-        counterpart_pseudo: "",
-        personal_note: "",
-        place_kind: "",
-        place_name: "",
+        venue_name: "",
         city: "",
         country: "",
         address: "",
+        personal_note: "",
+        sender_name: "",
+        sender_pseudo: "",
+        recipient_name: "",
+        recipient_pseudo: "",
         seen: false,
         created: "",
       })
@@ -122,12 +126,9 @@ routerAdd(
       .db()
       .newQuery(
         "SELECT id, " +
-          "CASE WHEN sender = {:caller} THEN 'outbound' ELSE 'inbound' END AS direction, " +
-          "CASE WHEN sender = {:caller} THEN recipient_name ELSE sender_name END AS counterpart_name, " +
-          "CASE WHEN sender = {:caller} THEN recipient_pseudo ELSE sender_pseudo END AS counterpart_pseudo, " +
-          "personal_note, " +
-          "CASE WHEN COALESCE(venue, '') != '' THEN 'catalogue_place' ELSE 'member_shared_place' END AS place_kind, " +
-          "venue_name AS place_name, city, country, address, seen, created " +
+          "CASE WHEN recipient = {:caller} THEN 'received' ELSE 'sent' END AS direction, " +
+          "venue_name, city, country, address, personal_note, " +
+          "sender_name, sender_pseudo, recipient_name, recipient_pseudo, seen, created " +
           "FROM community_shares " +
           "WHERE sender = {:caller} OR recipient = {:caller} " +
           "ORDER BY created DESC, id DESC LIMIT 100"
@@ -135,13 +136,51 @@ routerAdd(
       .bind({ caller: callerId })
       .all(shareRows);
 
+    // At most 50 chronological replies are returned for each of the same 100
+    // caller-owned share threads selected above. The repeated bounded share CTE
+    // avoids loading replies from older or unrelated threads.
+    const replyRows = arrayOf(
+      new DynamicModel({
+        id: "",
+        share_id: "",
+        body: "",
+        author_name: "",
+        author_pseudo: "",
+        created: "",
+      })
+    );
+    e.app
+      .db()
+      .newQuery(
+        "WITH selected_shares AS (" +
+          "SELECT id FROM community_shares " +
+          "WHERE sender = {:caller} OR recipient = {:caller} " +
+          "ORDER BY created DESC, id DESC LIMIT 100" +
+          "), ranked_replies AS (" +
+          "SELECT r.id, r.share AS share_id, r.body, r.author_name, r.author_pseudo, r.created, " +
+          "ROW_NUMBER() OVER (PARTITION BY r.share ORDER BY r.created ASC, r.id ASC) AS reply_rank " +
+          "FROM community_share_replies r " +
+          "JOIN selected_shares selected ON selected.id = r.share" +
+          ") " +
+          "SELECT id, share_id, body, author_name, author_pseudo, created " +
+          "FROM ranked_replies WHERE reply_rank <= 50 " +
+          "ORDER BY share_id ASC, created ASC, id ASC LIMIT 5000"
+      )
+      .bind({ caller: callerId })
+      .all(replyRows);
+
+    const repliesByShare = {};
+    for (const row of replyRows) {
+      if (!repliesByShare[row.share_id]) repliesByShare[row.share_id] = [];
+      repliesByShare[row.share_id].push(projectReply(row));
+    }
+
     const recommendationRows = arrayOf(
       new DynamicModel({
-        kind: "",
         recommender_name: "",
         recommender_pseudo: "",
-        recommendation_note: "",
-        place_name: "",
+        note: "",
+        venue_name: "",
         city: "",
         country: "",
         address: "",
@@ -151,10 +190,8 @@ routerAdd(
     e.app
       .db()
       .newQuery(
-        "SELECT 'member_recommendation' AS kind, " +
-          "m.display_name AS recommender_name, m.pseudo AS recommender_pseudo, " +
-          "r.note AS recommendation_note, r.venue_name AS place_name, " +
-          "r.city, r.country, r.address, r.created " +
+        "SELECT m.display_name AS recommender_name, m.pseudo AS recommender_pseudo, " +
+          "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
           "FROM community_recommendations r " +
           "JOIN members m ON m.id = r.member " +
           "WHERE m.id != {:caller} AND m.discovery_visible = TRUE AND (" +
@@ -171,7 +208,9 @@ routerAdd(
       .all(recommendationRows);
 
     const shares = [];
-    for (const row of shareRows) shares.push(projectShare(row));
+    for (const row of shareRows) {
+      shares.push(projectShare(row, repliesByShare[row.id] || []));
+    }
     const recommendations = [];
     for (const row of recommendationRows) {
       recommendations.push(projectRecommendation(row));
@@ -623,6 +662,83 @@ onRecordUpdateRequest((e) => {
   }
   e.next();
 }, "community_shares");
+
+// Replies are contextual to one existing share, never a generic chat/feed. The
+// server owns author attribution and accepts replies only from a verified share
+// participant.
+onRecordCreateRequest((e) => {
+  if (e.hasSuperuserAuth()) {
+    return e.next();
+  }
+
+  const community = require(__hooks + "/community_waitlist.js");
+  community.requireVerifiedMember(e.auth, "replying to a shared place");
+
+  const shareId = e.record.getString("share");
+  if (!shareId) {
+    throw new BadRequestError("Choose a valid shared place to reply to.");
+  }
+
+  let share;
+  try {
+    share = e.app.findRecordById("community_shares", shareId);
+  } catch {
+    throw new BadRequestError("The referenced shared place is not available.");
+  }
+  if (
+    share.getString("sender") !== e.auth.id &&
+    share.getString("recipient") !== e.auth.id
+  ) {
+    throw new BadRequestError("Only the share participants can reply.");
+  }
+
+  const rawBody = String(e.record.getString("body") || "");
+  if (rawBody.length > 1200) {
+    throw new BadRequestError("A reply can be at most 1200 characters.");
+  }
+  const body = rawBody
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = body
+    .split(/\s+/)
+    .map((word) =>
+      word.replace(/[.,!?;:'"()\[\]{}<>/\\|`~@#$%^&*+=_-]+/g, "")
+    )
+    .filter((word) => word.length >= 2);
+  if (body.length < 8 || words.length < 2) {
+    throw new BadRequestError("Add a thoughtful reply of at least 8 characters and two words.");
+  }
+
+  const authorName = e.auth.getString("display_name") || "A Detour member";
+  const authorPseudo = e.auth.getString("pseudo");
+  if (!authorPseudo) {
+    throw new BadRequestError("Complete your member pseudo before replying.");
+  }
+
+  e.record.set("share", share.id);
+  e.record.set("author", e.auth.id);
+  e.record.set("author_name", authorName);
+  e.record.set("author_pseudo", authorPseudo);
+  e.record.set("body", body);
+  e.next();
+}, "community_share_replies");
+
+// Member replies cannot be edited or deleted after creation. This preserves
+// the private thread as sent while still allowing superuser moderation tools.
+onRecordUpdateRequest((e) => {
+  if (e.hasSuperuserAuth()) {
+    return e.next();
+  }
+  throw new BadRequestError("Replies cannot be edited after they are sent.");
+}, "community_share_replies");
+
+onRecordDeleteRequest((e) => {
+  if (e.hasSuperuserAuth()) {
+    return e.next();
+  }
+  throw new BadRequestError("Replies cannot be deleted after they are sent.");
+}, "community_share_replies");
 
 // Recommendations enter a private, pending curation queue. A verified status
 // is checked server-side as well as in the collection rule.
