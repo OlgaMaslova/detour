@@ -7,10 +7,14 @@
 // derived from their display name, and shares denormalize both participants'
 // pseudos the same way they already denormalize display names.
 migrate((app) => {
-  function addIndexIfMissing(collection, index) {
-    if (collection.indexes.indexOf(index) === -1) {
-      collection.indexes.push(index);
+  // Guarded by index name rather than the exact SQL string: this migration
+  // re-runs after a partial failure, and PocketBase may store a normalized
+  // form of the statement it was given.
+  function addIndexIfMissing(collection, indexName, index) {
+    for (const existing of collection.indexes) {
+      if (existing.indexOf(indexName) !== -1) return;
     }
+    collection.indexes.push(index);
   }
 
   function slugifyPseudo(value) {
@@ -35,6 +39,7 @@ migrate((app) => {
   }
   addIndexIfMissing(
     members,
+    "idx_members_pseudo",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_members_pseudo ON members (pseudo) WHERE pseudo != ''"
   );
   app.save(members);
@@ -51,8 +56,10 @@ migrate((app) => {
 
   // Backfill: every existing member becomes findable immediately. Collisions
   // get a numeric suffix; members can pick a different pseudo in Settings.
+  // Sorted by id: the members collection has no autodate created field, and a
+  // deterministic order keeps collision suffixes stable across re-runs.
   const taken = {};
-  const existingMembers = app.findRecordsByFilter("members", "id != ''", "created", 0, 0);
+  const existingMembers = app.findRecordsByFilter("members", "id != ''", "id", 0, 0);
   for (const memberRecord of existingMembers) {
     const current = memberRecord.getString("pseudo");
     if (current) taken[current] = true;
