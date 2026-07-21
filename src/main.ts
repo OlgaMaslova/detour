@@ -102,6 +102,13 @@ function hasDistinctLocality(v: Venue): boolean {
   return citySlug(v.city) !== venueRouteSlug(v);
 }
 
+/* ---------- brand ---------- */
+
+/** Detour mark — keep in sync with the favicon artwork in index.html. */
+function brandMark(): string {
+  return `<svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><rect width="64" height="64" rx="12" fill="#6e5493"/><path d="M11 13h42v26H39L32 52l-7-13H11z" fill="#87c2a5"/><path d="M39 39h14V26z" fill="#86231e"/><path d="M24 22h16v6H24z" fill="#86231e"/></svg>`;
+}
+
 /* ---------- public member-list framing ---------- */
 
 const DETOURIST_LIST_LABEL = 'Detourist List';
@@ -816,18 +823,18 @@ function renderHome(root: HTMLElement): void {
   root.innerHTML = `
     <a class="skip-link" href="#network-home-title">Skip to private discovery</a>
     <header class="network-masthead">
-      <p class="network-brand">Detour</p>
+      <p class="network-brand">${brandMark()}Detour</p>
       ${communityControl(accountHref())}
     </header>
     ${networkDiscoveryMarkup(accountHref())}
     <section class="network-search-context" aria-labelledby="network-search-title">
       <div class="network-search-heading">
-        <div><h2 id="network-search-title">Find a place in context</h2><p>Search by place or destination when you need the wider Detour selection. City is context here, not the starting point.</p></div>
+        <div><h2 id="network-search-title">Find your city</h2><p>Search by city when you want the wider Detour selection. Each city opens with every place members recommend there.</p></div>
       </div>
-      <form class="destination-search network-destination-search" data-destination-search role="search" aria-label="Find a destination or place">
-        <label for="destination-search">Place or destination</label>
+      <form class="destination-search network-destination-search" data-destination-search role="search" aria-label="Find a city">
+        <label for="destination-search">City or destination</label>
         <div class="network-search-controls">
-          <input id="destination-search" name="query" type="search" list="destination-search-options" autocomplete="off" spellcheck="false" placeholder="Madrid, Casa Botín…" ${state.mode !== 'live' ? 'disabled' : ''}>
+          <input id="destination-search" name="query" type="search" list="destination-search-options" autocomplete="off" spellcheck="false" placeholder="Madrid, San Francisco…" ${state.mode !== 'live' ? 'disabled' : ''}>
           <datalist id="destination-search-options">${searchOptions}</datalist>
           <button class="destination-go" type="submit" ${state.mode !== 'live' ? 'disabled' : ''}>Search</button>
           <button class="destination-near" type="button" data-geolocate ${state.geoBusy || state.mode !== 'live' ? 'disabled' : ''}>${state.geoBusy ? 'Finding you…' : 'Use my location'}</button>

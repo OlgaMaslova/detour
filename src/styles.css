@@ -2387,8 +2387,11 @@ a.brand:focus-visible {
   border-bottom: 0.35rem solid var(--violet);
 }
 .network-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   margin: 0;
-  padding: 0.38rem 0.55rem;
+  padding: 0.3rem 0.55rem 0.3rem 0.4rem;
   color: var(--ink);
   background: var(--mint);
   font-size: 0.72rem;
@@ -2396,6 +2399,12 @@ a.brand:focus-visible {
   letter-spacing: 0.16em;
   line-height: 1;
   text-transform: uppercase;
+}
+.brand-mark {
+  display: block;
+  width: 18px;
+  height: 18px;
+  flex: none;
 }
 .network-masthead .community-toggle { flex: none; }
 
@@ -2460,20 +2469,24 @@ a.brand:focus-visible {
 .network-how li {
   --how-rule: var(--violet);
   --how-numeral: var(--violet);
+  --how-bg: var(--violet-soft);
   display: grid;
   grid-template-columns: 1.2rem minmax(0, 1fr);
   align-content: start;
   gap: 0.6rem;
-  padding-top: 0.8rem;
+  padding: 0.8rem 0.95rem 1rem;
+  background: var(--how-bg);
   border-top: 2px solid var(--how-rule);
 }
 .network-how li:nth-child(3n + 1) {
   --how-rule: var(--wine);
   --how-numeral: var(--wine);
+  --how-bg: var(--oxblood-soft);
 }
 .network-how li:nth-child(3n + 3) {
   --how-rule: var(--brass);
   --how-numeral: var(--brass-deep);
+  --how-bg: var(--brass-soft);
 }
 .network-how li > span {
   color: var(--how-numeral);
@@ -2890,7 +2903,7 @@ a.brand:focus-visible {
   .network-home h1,
   .network-invitation h1 { font-size: clamp(2.2rem, 11vw, 2.85rem); }
   .network-how { grid-template-columns: 1fr; gap: 0.75rem; }
-  .network-how li { grid-template-columns: 1.35rem minmax(0, 1fr); padding-top: 0.7rem; }
+  .network-how li { grid-template-columns: 1.35rem minmax(0, 1fr); padding: 0.7rem 0.85rem 0.85rem; }
   .network-section-heading,
   .network-entry-head { align-items: flex-start; flex-direction: column; }
   .network-section-count { align-self: flex-start; }
