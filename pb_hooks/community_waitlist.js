@@ -515,26 +515,41 @@ function recalculateAndPublish(app, entryId) {
       return;
     }
 
-    const recommendations = txApp.findRecordsByFilter(
-      "community_recommendations",
-      "waitlist = {:waitlist}",
-      "",
-      10000,
-      0,
-      { waitlist: entry.id }
-    );
-    const distinctMembers = {};
-    for (const recommendation of recommendations) {
-      const memberId = recommendation.getString("member");
-      if (memberId) distinctMembers[memberId] = true;
-    }
-    const signalCount = Object.keys(distinctMembers).length;
+    // Count and Founder eligibility in one indexed aggregate instead of loading
+    // every recommendation (and then every member) into the hook VM. COUNT
+    // DISTINCT remains the source of truth for the persisted signal total.
+    const summary = new DynamicModel({
+      signal_count: 0,
+      founder_signal_count: 0,
+    });
+    txApp
+      .db()
+      .newQuery(
+        "SELECT COUNT(DISTINCT r.member) AS signal_count, " +
+          "COUNT(DISTINCT CASE " +
+          "WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE THEN r.member " +
+          "END) AS founder_signal_count " +
+          "FROM community_recommendations r " +
+          "LEFT JOIN members m ON m.id = r.member " +
+          "WHERE r.waitlist = {:waitlist}"
+      )
+      .bind({ waitlist: entry.id })
+      .one(summary);
+
+    const signalCount = Number(summary.signal_count || 0);
+    const hasFounderSignal = Number(summary.founder_signal_count || 0) > 0;
     if (entry.getInt("signal_count") !== signalCount) {
       entry.set("signal_count", signalCount);
       txApp.save(entry);
     }
 
-    if (entry.getString("status") === "pending" && signalCount >= 3) {
+    // Only a recommendation by a directly Founder-invited member bypasses the
+    // standard three-distinct-member threshold. Issuer and descendant markers
+    // are intentionally not consulted here.
+    if (
+      entry.getString("status") === "pending" &&
+      (hasFounderSignal || signalCount >= 3)
+    ) {
       publishEntry(txApp, entry);
     }
   });

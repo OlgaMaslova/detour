@@ -4,34 +4,6 @@ routerAdd("GET", "/api/supernaut/ready", (event) => {
   return event.json(200, { ok: true });
 });
 
-// A pseudo is a member's unique public handle: the stable identity other
-// members search for when sharing a place. Stored lowercase without the "@".
-function normalizeMemberPseudo(raw) {
-  let pseudo = String(raw || "");
-  if (typeof pseudo.normalize === "function") {
-    pseudo = pseudo.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
-  }
-  pseudo = pseudo.trim().toLowerCase().replace(/^@+/, "");
-  if (!/^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/.test(pseudo)) {
-    throw new BadRequestError(
-      "A pseudo is 3-30 characters: lowercase letters, digits, and hyphens, starting and ending with a letter or digit."
-    );
-  }
-  return pseudo;
-}
-
-function assertPseudoAvailable(app, pseudo, selfId) {
-  let existing = null;
-  try {
-    existing = app.findFirstRecordByFilter("members", "pseudo = {:pseudo}", { pseudo: pseudo });
-  } catch {
-    // No member holds this pseudo.
-  }
-  if (existing && existing.id !== selfId) {
-    throw new BadRequestError("This pseudo is already taken. Choose another one.");
-  }
-}
-
 // These private routes bypass member rules only for explicit safe projections.
 routerAdd(
   "GET",
@@ -310,6 +282,11 @@ onRecordCreateRequest((e) => {
     return e.next();
   }
 
+  // Founder policy is server-owned. Public signup can neither authorize a new
+  // issuer nor self-assert the direct-invite fast track.
+  e.record.set("founder_invitation_issuer", false);
+  e.record.set("direct_founder_invited", false);
+
   const inviteCode = e.record.getString("invite_code").trim().toUpperCase();
   if (!inviteCode) {
     throw new BadRequestError("A valid invitation code is required to join Detour.");
@@ -326,14 +303,26 @@ onRecordCreateRequest((e) => {
     throw new BadRequestError("This invitation code is invalid or has already been used.");
   }
 
+  const { assertPseudoAvailable, normalizeMemberPseudo } = require(
+    __hooks + "/member_profile.js"
+  );
   const pseudo = normalizeMemberPseudo(e.record.getString("pseudo"));
   assertPseudoAvailable(e.app, pseudo, "");
 
+  const issuerId = invite.getString("issued_by");
+  const issuer = e.app.findRecordById("members", issuerId);
+
   e.record.set("pseudo", pseudo);
   e.record.set("invite_code", "");
-  e.record.set("invited_by", invite.getString("issued_by"));
+  e.record.set("invited_by", issuerId);
   e.record.set("redeemed_invite", invite.id);
   e.record.set("community_status", "verified");
+  // Derive from the invitation's actual issuer marker, not ancestry: a direct
+  // Founder invitee does not confer Founder status on people they later invite.
+  e.record.set(
+    "direct_founder_invited",
+    issuer.getBool("founder_invitation_issuer")
+  );
   e.next();
 }, "members");
 
@@ -373,11 +362,20 @@ onRecordUpdateRequest((e) => {
     e.record.getString("community_status") !== original.getString("community_status") ||
     e.record.getBool("founding_verified") !== original.getBool("founding_verified") ||
     e.record.getString("invited_by") !== original.getString("invited_by") ||
-    e.record.getString("redeemed_invite") !== original.getString("redeemed_invite")
+    e.record.getString("redeemed_invite") !== original.getString("redeemed_invite") ||
+    e.record.getBool("founder_invitation_issuer") !==
+      original.getBool("founder_invitation_issuer") ||
+    e.record.getBool("direct_founder_invited") !==
+      original.getBool("direct_founder_invited")
   ) {
+    // Keep both Founder markers inside the existing protected membership
+    // provenance boundary; profile requests may never change publication trust.
     throw new BadRequestError("Membership verification and invitation details are managed by Detour.");
   }
   if (e.record.getString("pseudo") !== original.getString("pseudo")) {
+    const { assertPseudoAvailable, normalizeMemberPseudo } = require(
+      __hooks + "/member_profile.js"
+    );
     const pseudo = normalizeMemberPseudo(e.record.getString("pseudo"));
     assertPseudoAvailable(e.app, pseudo, e.record.id);
     e.record.set("pseudo", pseudo);
