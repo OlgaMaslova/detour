@@ -2083,8 +2083,10 @@ a.brand:focus-visible {
 }
 .map-pin.pin-community .pin-label small { color: var(--violet); }
 .map-pin:hover .pin-label,
-.map-pin.pin-selected .pin-label,
 .map-pin:focus-visible .pin-label { display: block; }
+/* Selected pins show the Leaflet popup instead — suppress the hover label so
+   the two bubbles never stack. */
+.map-pin.pin-selected .pin-label { display: none; }
 .venue-map .map-pin:focus-visible { outline: 0; }
 .venue-map .map-pin:focus-visible .pin-pearl {
   box-shadow:

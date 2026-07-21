@@ -146,45 +146,19 @@ function bestListRank(v: Venue): number {
 
 /* ---------- recognition provenance (public only) ---------- */
 
-/** The exact visible phrase used everywhere a community selection is shown. */
-const COMMUNITY_LABEL = 'Detour community selection';
-/** The exact visible phrase used everywhere an editorial_local_pick is shown publicly. */
+/** The exact visible phrase used everywhere a Detourist List place is shown. */
 const DETOURIST_LIST_LABEL = 'Detourist List';
-const LOCAL_MEMBER_TEXT = 'Recommended by a local member';
-/** The exact visible phrase used for approved public member contributions. */
-const LOCAL_MEMBER_LABEL = `${LOCAL_MEMBER_TEXT}.`;
-const LOCAL_MEMBER_FILTER = '__local_member_recommendation__';
+/** How a place earns its entry — the Detourist List is member-recommended. */
+const DETOURIST_LIST_NOTE = `${DETOURIST_LIST_LABEL} — recommended by Detour members.`;
+const DETOURIST_LIST_FILTER = '__detourist_list__';
 
-function isEditorialAward(a: VenueAward): boolean {
-  return a.provenance === 'editorial_local_pick';
-}
-
-/** Whether the venue holds a current Detour community selection. */
-function hasCommunityAward(v: Venue): boolean {
-  return v.awards.some((a) => a.community);
-}
-
-/** Whether ALL of the venue's recognition is community provenance (no external guide). */
-function onlyCommunityAwards(v: Venue): boolean {
-  return v.awards.length > 0 && v.awards.every((a) => a.community);
-}
-
-function hasEditorialAward(v: Venue): boolean {
-  return v.awards.some(isEditorialAward);
-}
-
-function onlyEditorialAwards(v: Venue): boolean {
-  return v.awards.length > 0 && v.awards.every(isEditorialAward);
+/** Whether the venue is on the Detourist List — Detour's member-recommended lane. */
+function onDetouristList(v: Venue): boolean {
+  return v.detouristList === true;
 }
 
 function hasGuideBackedAward(v: Venue): boolean {
-  return v.awards.some(
-    (a) => a.provenance === 'guide_backed' && !a.community && !a.sourceBadge
-  );
-}
-
-function hasLocalMemberRecommendation(v: Venue): boolean {
-  return v.localMemberRecommendation === true;
+  return v.awards.some((a) => !a.sourceBadge);
 }
 
 function venueOccasions(v: Venue): string[] {
@@ -199,22 +173,18 @@ function spokenAwardSummary(v: Venue): string {
   return awardSummary(v).replace(/[.!?]+$/, '');
 }
 
-/** Plain-text award/source label: ranked guide wording, provenance label, or literal level. */
+/** Plain-text award/source label: ranked guide wording or literal level. */
 function awardText(a: VenueAward): string {
-  if (a.community) return COMMUNITY_LABEL;
-  if (isEditorialAward(a)) return DETOURIST_LIST_LABEL;
   return a.listRank !== null ? `No. ${a.listRank} — ${a.edition}` : a.awardLevel;
 }
 
 /** Plain-text summary of live source badges and any retained recognition metadata. */
 function awardSummary(v: Venue): string {
   const summary = v.awards.map((a) => {
-    if (a.community) return COMMUNITY_LABEL;
-    if (isEditorialAward(a)) return DETOURIST_LIST_LABEL;
     if (a.sourceBadge) return `Source badge: ${a.sourceName}`;
     return `${awardText(a)} — ${a.sourceName} ${a.awardYear}`;
   });
-  if (hasLocalMemberRecommendation(v)) summary.push(LOCAL_MEMBER_LABEL);
+  if (onDetouristList(v)) summary.push(DETOURIST_LIST_NOTE);
   return summary.join('; ') || [v.category, v.city].filter(Boolean).join(' in ');
 }
 
@@ -223,7 +193,7 @@ function guideNames(v: Venue): string[] {
   return [
     ...new Set(
       v.awards
-        .filter((a) => !a.community && !isEditorialAward(a) && !a.sourceBadge)
+        .filter((a) => !a.sourceBadge)
         .map((a) => a.sourceName)
         .filter(Boolean)
     ),
@@ -408,17 +378,10 @@ function awardFilters(): { value: Filter; label: string }[] {
   );
   const filters = [
     { value: '' as Filter, label: 'All' },
-    ...levels.map(([level]) => ({
-      value: level as Filter,
-      label: destinationVenues().some((v) =>
-        v.awards.some((a) => isEditorialAward(a) && a.awardLevel === level)
-      )
-        ? DETOURIST_LIST_LABEL
-        : level,
-    })),
+    ...levels.map(([level]) => ({ value: level as Filter, label: level })),
   ];
-  if (destinationVenues().some(hasLocalMemberRecommendation)) {
-    filters.push({ value: LOCAL_MEMBER_FILTER, label: LOCAL_MEMBER_LABEL });
+  if (destinationVenues().some(onDetouristList)) {
+    filters.push({ value: DETOURIST_LIST_FILTER, label: DETOURIST_LIST_LABEL });
   }
   return filters;
 }
@@ -430,16 +393,11 @@ function categoryNames(): string[] {
   return [...names].sort((a, b) => a.localeCompare(b));
 }
 
-function publicSourceLabel(a: VenueAward): string {
-  return isEditorialAward(a) ? DETOURIST_LIST_LABEL : a.sourceName;
-}
-
 function sourceNames(): string[] {
   const names = new Set<string>();
   for (const v of destinationVenues()) {
     for (const a of v.awards) {
-      const label = publicSourceLabel(a);
-      if (label) names.add(label);
+      if (a.sourceName) names.add(a.sourceName);
     }
   }
   return [...names].sort((a, b) => a.localeCompare(b));
@@ -447,15 +405,15 @@ function sourceNames(): string[] {
 
 function filteredVenues(): Venue[] {
   // A recognition filter matches when ANY of the venue's awards matches; the
-  // approved local-member lane is explicit and never treated as a guide award.
+  // Detourist List lane is explicit and never treated as a guide award.
   const list = destinationVenues().filter(
     (v) =>
       (state.filter === '' ||
-        (state.filter === LOCAL_MEMBER_FILTER
-          ? hasLocalMemberRecommendation(v)
+        (state.filter === DETOURIST_LIST_FILTER
+          ? onDetouristList(v)
           : v.awards.some((a) => a.awardLevel === state.filter))) &&
       (state.sourceFilter === '' ||
-        v.awards.some((a) => publicSourceLabel(a) === state.sourceFilter)) &&
+        v.awards.some((a) => a.sourceName === state.sourceFilter)) &&
       (state.categoryFilter === '' || v.category === state.categoryFilter) &&
       state.occasionFilters.every((occasion) => venueOccasions(v).includes(occasion))
   );
@@ -479,16 +437,7 @@ function activeFilters(): ActiveFilter[] {
   if (state.filter)
     chips.push({
       kind: 'award',
-      label:
-        state.filter === LOCAL_MEMBER_FILTER
-          ? LOCAL_MEMBER_LABEL
-          : destinationVenues().some((v) =>
-                v.awards.some(
-                  (a) => isEditorialAward(a) && a.awardLevel === state.filter
-                )
-              )
-            ? DETOURIST_LIST_LABEL
-            : state.filter,
+      label: state.filter === DETOURIST_LIST_FILTER ? DETOURIST_LIST_LABEL : state.filter,
       value: state.filter,
     });
   if (state.categoryFilter)
@@ -581,16 +530,18 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
   for (const v of mappable) {
     const selected = v.id === state.selectedId;
     const markerRank = maxAwardRank(v);
-    // Community-only venues keep a distinct outlined centre; venues that also
+    // Detourist List–only venues keep a distinct outlined centre; venues that
     // hold an external guide award retain that guide's ranked pearl treatment.
     const markerClass =
-      markerRank > 0 ? `pin-${markerRank}` : onlyCommunityAwards(v) ? 'pin-community' : 'pin-ranked';
+      markerRank > 0
+        ? `pin-${markerRank}`
+        : onDetouristList(v) && v.awards.length === 0
+          ? 'pin-community'
+          : 'pin-ranked';
     const markerMeanings: string[] = [];
     if (markerRank > 0) markerMeanings.push(`${markerRank}-level guide recognition`);
     else if (hasGuideBackedAward(v)) markerMeanings.push('guide selection');
-    if (hasEditorialAward(v)) markerMeanings.push(DETOURIST_LIST_LABEL);
-    if (hasCommunityAward(v)) markerMeanings.push(COMMUNITY_LABEL);
-    if (hasLocalMemberRecommendation(v)) markerMeanings.push(LOCAL_MEMBER_TEXT);
+    if (onDetouristList(v)) markerMeanings.push(DETOURIST_LIST_LABEL);
     const markerMeaning = markerMeanings.join(' · ') || 'current selection';
     const icon = L.divIcon({
       className: '',
@@ -612,15 +563,11 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
     marker.bindPopup(
       `<strong>${esc(v.name)}</strong>${v.awards
         .map((a) =>
-          a.community
-            ? `<br><span class="popup-community"><span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)}</span>`
-            : isEditorialAward(a)
-              ? `<br>${esc(DETOURIST_LIST_LABEL)}`
-              : a.sourceBadge
-                ? `<br>Source badge · ${esc(a.sourceName)}`
-                : `<br>${awardIcons(a)} ${esc(awardText(a))} · ${esc(a.sourceName)} ${a.awardYear}`
+          a.sourceBadge
+            ? `<br>Source badge · ${esc(a.sourceName)}`
+            : `<br>${awardIcons(a)} ${esc(awardText(a))} · ${esc(a.sourceName)} ${a.awardYear}`
         )
-        .join('')}${hasLocalMemberRecommendation(v) ? `<br><span class="popup-member">${esc(LOCAL_MEMBER_LABEL)}</span>` : ''}${isSanFranciscoDestination() && venueOccasions(v).length ? `<br><span class="popup-occasions">Good for: ${esc(occasionSummary(v))}</span>` : ''}`,
+        .join('')}${onDetouristList(v) ? `<br><span class="popup-member">${esc(DETOURIST_LIST_NOTE)}</span>` : ''}${isSanFranciscoDestination() && venueOccasions(v).length ? `<br><span class="popup-occasions">Good for: ${esc(occasionSummary(v))}</span>` : ''}`,
       { closeButton: false, offset: [0, -6] }
     );
     const select = () => {
@@ -870,11 +817,9 @@ function venueCard(v: Venue): string {
   const cardTone =
     rank > 0
       ? ` card-rank-${rank}`
-      : onlyCommunityAwards(v)
-        ? ' card-community'
-        : hasLocalMemberRecommendation(v) && v.awards.length === 0
-          ? ' card-member'
-          : ' card-ranked';
+      : onDetouristList(v) && v.awards.length === 0
+        ? ' card-member'
+        : ' card-ranked';
   return `<li>
     <article class="card${cardTone}${selected ? ' card-selected' : ''}">
       <button type="button" class="card-main" data-venue="${esc(v.id)}" aria-expanded="${selected}">
@@ -883,24 +828,18 @@ function venueCard(v: Venue): string {
           <span class="card-awards" role="list" aria-label="${esc(awardSummary(v))}">
             ${v.awards
               .map((a) =>
-                a.community
-                  ? `<span role="listitem" class="award award-community" title="${esc(COMMUNITY_LABEL)}">
-                  <span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)}
-                </span>`
-                  : isEditorialAward(a)
-                    ? `<span role="listitem" class="award award-ranked" title="${esc(DETOURIST_LIST_LABEL)}">${esc(DETOURIST_LIST_LABEL)}</span>`
-                    : a.sourceBadge
-                      ? `<span role="listitem" class="award award-source ${sourceBadgeClass(a.sourceName)}" title="Source badge: ${esc(a.sourceName)}">${esc(a.sourceName)}</span>`
-                    : a.listRank !== null
-                      ? `<span role="listitem" class="award award-ranked" title="${esc(awardText(a))} — ${esc(a.sourceName)} ${a.awardYear}">
+                a.sourceBadge
+                  ? `<span role="listitem" class="award award-source ${sourceBadgeClass(a.sourceName)}" title="Source badge: ${esc(a.sourceName)}">${esc(a.sourceName)}</span>`
+                  : a.listRank !== null
+                    ? `<span role="listitem" class="award award-ranked" title="${esc(awardText(a))} — ${esc(a.sourceName)} ${a.awardYear}">
                   <span class="award-rank-no">No. ${a.listRank}</span> ${esc(a.edition)}
                 </span>`
-                      : `<span role="listitem" class="award award-${a.awardRank ?? 0}" title="${esc(a.awardLevel)} — ${esc(a.sourceName)} ${a.awardYear}">
+                    : `<span role="listitem" class="award award-${a.awardRank ?? 0}" title="${esc(a.awardLevel)} — ${esc(a.sourceName)} ${a.awardYear}">
                   <span aria-hidden="true">${awardIcons(a)}</span> ${esc(a.awardLevel)}
                 </span>`
               )
               .join('')}
-            ${hasLocalMemberRecommendation(v) ? `<span role="listitem" class="award award-member" title="${esc(LOCAL_MEMBER_LABEL)}">${esc(LOCAL_MEMBER_LABEL)}</span>` : ''}
+            ${onDetouristList(v) ? `<span role="listitem" class="award award-member" title="${esc(DETOURIST_LIST_NOTE)}">${esc(DETOURIST_LIST_LABEL)}</span>` : ''}
           </span>
         </div>
         <p class="card-meta">${esc([v.category, v.neighborhood].filter(Boolean).join(' · '))}</p>
@@ -915,10 +854,6 @@ function venueCard(v: Venue): string {
       <div class="card-sources">
         ${v.awards
           .map((a) => {
-            if (a.community)
-              return `<p class="card-source card-source-community"><span aria-hidden="true">❦</span> ${esc(COMMUNITY_LABEL)} — Detour’s editorial selection</p>`;
-            if (isEditorialAward(a))
-              return `<p class="card-source">${esc(DETOURIST_LIST_LABEL)}</p>`;
             if (a.sourceBadge)
               return `<p class="card-source card-source-badge ${sourceBadgeClass(a.sourceName)}"><span>Source badge</span> · ${esc(a.sourceName)}</p>`;
             const sourceUrl = safeExternalHref(a.sourceUrl);
@@ -933,7 +868,7 @@ function venueCard(v: Venue): string {
             }</p>`;
           })
           .join('')}
-        ${hasLocalMemberRecommendation(v) ? `<p class="card-source card-source-member">${esc(LOCAL_MEMBER_LABEL)}</p>` : ''}
+        ${onDetouristList(v) ? `<p class="card-source card-source-member">${esc(DETOURIST_LIST_NOTE)}</p>` : ''}
       </div>
     </article>
   </li>`;
@@ -949,8 +884,7 @@ function detailPanel(): string {
     return `<p class="map-prompt" aria-live="polite">${prompt}</p>`;
   }
   const guides = guideNames(v);
-  const communityHere = hasCommunityAward(v);
-  const memberHere = hasLocalMemberRecommendation(v);
+  const onList = onDetouristList(v);
   const distinctLocality = hasDistinctLocality(v);
   const detailMeta = [v.category, v.neighborhood, distinctLocality ? v.city : '']
     .filter(Boolean)
@@ -968,13 +902,12 @@ function detailPanel(): string {
   const sentences: string[] = [];
   if (guides.length > 0)
     sentences.push(`A current selection, independently recognised by ${guides.join(' and ')}.`);
-  if (communityHere)
+  if (onList)
     sentences.push(
       guides.length > 0
-        ? 'Also a Detour community selection, selected editorially by Detour.'
-        : 'A Detour community selection, selected editorially by Detour.'
+        ? `Also on the ${DETOURIST_LIST_LABEL}, recommended by Detour members.`
+        : `On the ${DETOURIST_LIST_LABEL}, recommended by Detour members.`
     );
-  if (memberHere) sentences.push(LOCAL_MEMBER_LABEL);
   const provenanceSentence = sentences.join(' ');
   return `<aside class="detail" id="selected-place-detail" aria-live="polite" aria-label="Selected place">
     <div class="detail-head">
@@ -989,26 +922,22 @@ function detailPanel(): string {
       <section class="detail-recognition" aria-labelledby="detail-recognition-title">
         <h3 id="detail-recognition-title">Why it’s here</h3>
         ${
-          v.awards.length || memberHere
+          v.awards.length || onList
             ? `<ul class="detail-awards" aria-label="Source badges, recognition, and recommendation provenance">
           ${v.awards
             .map((a) =>
-              a.community
-                ? `<li class="detail-award detail-award-community"><span aria-hidden="true">◆</span> ${esc(COMMUNITY_LABEL)}</li>`
-                : isEditorialAward(a)
-                  ? `<li class="detail-award detail-award-ranked">${esc(DETOURIST_LIST_LABEL)}</li>`
-                  : a.sourceBadge
-                    ? `<li class="detail-award detail-source-badge ${sourceBadgeClass(a.sourceName)}"><span>Source badge</span>${esc(a.sourceName)}</li>`
-                  : a.listRank !== null
-                    ? `<li class="detail-award detail-award-ranked"><span class="award-rank-no">No. ${a.listRank}</span> ${esc(
-                        a.edition
-                      )} · ${esc(a.sourceName)}</li>`
-                    : `<li class="detail-award award-${a.awardRank ?? 0}"><span aria-hidden="true">${awardIcons(a)}</span> ${esc(
-                        a.awardLevel
-                      )} · ${esc(a.sourceName)} ${a.awardYear}</li>`
+              a.sourceBadge
+                ? `<li class="detail-award detail-source-badge ${sourceBadgeClass(a.sourceName)}"><span>Source badge</span>${esc(a.sourceName)}</li>`
+                : a.listRank !== null
+                  ? `<li class="detail-award detail-award-ranked"><span class="award-rank-no">No. ${a.listRank}</span> ${esc(
+                      a.edition
+                    )} · ${esc(a.sourceName)}</li>`
+                  : `<li class="detail-award award-${a.awardRank ?? 0}"><span aria-hidden="true">${awardIcons(a)}</span> ${esc(
+                      a.awardLevel
+                    )} · ${esc(a.sourceName)} ${a.awardYear}</li>`
             )
             .join('')}
-          ${memberHere ? `<li class="detail-award detail-award-member">${esc(LOCAL_MEMBER_LABEL)}</li>` : ''}
+          ${onList ? `<li class="detail-award detail-award-member">${esc(DETOURIST_LIST_NOTE)}</li>` : ''}
         </ul>`
             : ''
         }
@@ -1027,10 +956,7 @@ function detailPanel(): string {
           ${isSanFranciscoDestination() && venueOccasions(v).length ? `<div><dt>Good for</dt><dd>${esc(venueOccasions(v).map(occasionLabel).join(' · '))}</dd></div>` : ''}
           ${(() => {
             // Only retained external-guide recognition belongs under “Official guide”.
-            const external = v.awards.filter(
-              (a) => !a.community && !isEditorialAward(a) && !a.sourceBadge
-            );
-            const editorial = v.awards.filter(isEditorialAward);
+            const external = v.awards.filter((a) => !a.sourceBadge);
             const guideRow = external.length
               ? `<div><dt>Official guide${external.length === 1 ? '' : 's'}</dt><dd>${external
                   .map((a) => {
@@ -1041,16 +967,10 @@ function detailPanel(): string {
                   })
                   .join('<br>')}</dd></div>`
               : '';
-            const editorialRow = editorial.length
-              ? `<div><dt>${esc(DETOURIST_LIST_LABEL)}</dt><dd>Venue details and official links verified by Detour.</dd></div>`
+            const listRow = onList
+              ? `<div><dt>${esc(DETOURIST_LIST_LABEL)}</dt><dd>Recommended by Detour members.</dd></div>`
               : '';
-            const communityRow = communityHere
-              ? `<div><dt>Community</dt><dd>${esc(COMMUNITY_LABEL)} — Detour’s editorial selection</dd></div>`
-              : '';
-            const memberRow = memberHere
-              ? `<div><dt>Local member</dt><dd>${esc(LOCAL_MEMBER_LABEL)}</dd></div>`
-              : '';
-            return guideRow + editorialRow + communityRow + memberRow;
+            return guideRow + listRow;
           })()}
         </dl>
         ${visitLinks ? `<nav class="detail-visit" aria-labelledby="detail-visit-title"><h3 id="detail-visit-title">Visit</h3><div class="detail-visit-links">${visitLinks}</div></nav>` : ''}
@@ -1076,7 +996,7 @@ function syncDocumentMeta(destinationName: string | null, account = false): void
         ? 'Sign in to Detour membership to manage invitations, recommend places, and exchange private place shares.'
         : destinationName
           ? destinationName === 'San Francisco'
-            ? 'Browse Detour’s San Francisco selection by occasion, with guide recognition, Detourist List entries, Detour community selections, and approved local-member recommendations clearly attributed.'
+            ? 'Browse Detour’s San Francisco selection by occasion, with guide recognition and member-recommended Detourist List entries clearly attributed.'
             : `Explore Detour’s current ${destinationName} selection: exceptional tables with published recognition from named guides or the Detour community.`
           : GLOBAL_META_DESCRIPTION
     );
@@ -1222,7 +1142,7 @@ function renderHome(root: HTMLElement): void {
       <div class="hero-inner city-chooser-header">
         <p class="brand">Detour</p>
         <h1>Where is your next detour?</h1>
-        <p class="tagline city-chooser-intro">A collection of exceptional tables with clear provenance — from named guides and Detourist List entries to community selections and approved local-member recommendations.</p>
+        <p class="tagline city-chooser-intro">A collection of exceptional tables with clear provenance — recognised by named guides or on the member-recommended Detourist List.</p>
         <form class="destination-search" data-destination-search role="search" aria-label="Find a destination or place">
           <label class="visually-hidden" for="destination-search">Destination or place</label>
           <input id="destination-search" name="query" type="search" list="destination-search-options" autocomplete="off" spellcheck="false" placeholder="A city or a place — Madrid, Casa Botín…" ${state.mode !== 'live' ? 'disabled' : ''}>
@@ -1374,7 +1294,7 @@ function render(root: HTMLElement) {
       </div>
     </section>
     <footer class="footer">
-      <p>${sanFrancisco ? `San Francisco places keep their provenance explicit: guide recognition, Detourist List entries, Detour community selections, and approved local-member recommendations are distinct. Occasion tags reflect only published catalogue data.` : `Detour is a current, deliberately edited selection of ${esc(destination.name)}’s exceptional tables. External guide recognition keeps its source attribution and original links; Detourist List entries are identified without external source attribution.`}</p>
+      <p>${sanFrancisco ? `San Francisco places keep their provenance explicit: external guide recognition and member-recommended Detourist List entries are distinct. Occasion tags reflect only published catalogue data.` : `Detour is a current, deliberately edited selection of ${esc(destination.name)}’s exceptional tables. External guide recognition keeps its source attribution and original links; Detourist List entries are recommended by Detour members.`}</p>
     </footer>
   `;
 
