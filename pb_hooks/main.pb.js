@@ -51,6 +51,143 @@ routerAdd(
 
 routerAdd(
   "GET",
+  "/api/detour/network-discovery",
+  (e) => {
+    // Route handlers run in isolated VMs, so all route-specific helpers and
+    // query models live inside this handler.
+    function projectShare(row) {
+      return {
+        id: row.id,
+        direction: row.direction,
+        counterpart: {
+          display_name: row.counterpart_name,
+          pseudo: row.counterpart_pseudo,
+        },
+        personal_note: row.personal_note,
+        place: {
+          kind: row.place_kind,
+          name: row.place_name,
+          city: row.city,
+          country: row.country,
+          address: row.address,
+        },
+        seen: row.seen,
+        created: row.created,
+      };
+    }
+
+    function projectRecommendation(row) {
+      return {
+        kind: row.kind,
+        recommender: {
+          display_name: row.recommender_name,
+          pseudo: row.recommender_pseudo,
+        },
+        recommendation_note: row.recommendation_note,
+        place: {
+          name: row.place_name,
+          city: row.city,
+          country: row.country,
+          address: row.address,
+        },
+        created: row.created,
+      };
+    }
+
+    const callerId = e.auth.id;
+    const caller = e.app.findRecordById("members", callerId);
+    const invitedBy = caller.getString("invited_by");
+
+    // The endpoint deliberately uses bounded, explicit SQL projections. It
+    // bypasses collection rules only to combine the caller's own shares with
+    // opted-in direct-peer recommendations, and never selects relation ids,
+    // participant lists, emails, or moderation-only fields.
+    const shareRows = arrayOf(
+      new DynamicModel({
+        id: "",
+        direction: "",
+        counterpart_name: "",
+        counterpart_pseudo: "",
+        personal_note: "",
+        place_kind: "",
+        place_name: "",
+        city: "",
+        country: "",
+        address: "",
+        seen: false,
+        created: "",
+      })
+    );
+    e.app
+      .db()
+      .newQuery(
+        "SELECT id, " +
+          "CASE WHEN sender = {:caller} THEN 'outbound' ELSE 'inbound' END AS direction, " +
+          "CASE WHEN sender = {:caller} THEN recipient_name ELSE sender_name END AS counterpart_name, " +
+          "CASE WHEN sender = {:caller} THEN recipient_pseudo ELSE sender_pseudo END AS counterpart_pseudo, " +
+          "personal_note, " +
+          "CASE WHEN COALESCE(venue, '') != '' THEN 'catalogue_place' ELSE 'member_shared_place' END AS place_kind, " +
+          "venue_name AS place_name, city, country, address, seen, created " +
+          "FROM community_shares " +
+          "WHERE sender = {:caller} OR recipient = {:caller} " +
+          "ORDER BY created DESC, id DESC LIMIT 100"
+      )
+      .bind({ caller: callerId })
+      .all(shareRows);
+
+    const recommendationRows = arrayOf(
+      new DynamicModel({
+        kind: "",
+        recommender_name: "",
+        recommender_pseudo: "",
+        recommendation_note: "",
+        place_name: "",
+        city: "",
+        country: "",
+        address: "",
+        created: "",
+      })
+    );
+    e.app
+      .db()
+      .newQuery(
+        "SELECT 'member_recommendation' AS kind, " +
+          "m.display_name AS recommender_name, m.pseudo AS recommender_pseudo, " +
+          "r.note AS recommendation_note, r.venue_name AS place_name, " +
+          "r.city, r.country, r.address, r.created " +
+          "FROM community_recommendations r " +
+          "JOIN members m ON m.id = r.member " +
+          "WHERE m.id != {:caller} AND m.discovery_visible = TRUE AND (" +
+          "m.invited_by = {:caller} OR " +
+          "({:invitedBy} != '' AND m.id = {:invitedBy}) OR " +
+          "EXISTS (" +
+          "SELECT 1 FROM community_shares peer_share " +
+          "WHERE (peer_share.sender = {:caller} AND peer_share.recipient = m.id) " +
+          "OR (peer_share.recipient = {:caller} AND peer_share.sender = m.id)" +
+          ")" +
+          ") ORDER BY r.created DESC, r.id DESC LIMIT 100"
+      )
+      .bind({ caller: callerId, invitedBy: invitedBy })
+      .all(recommendationRows);
+
+    const shares = [];
+    for (const row of shareRows) shares.push(projectShare(row));
+    const recommendations = [];
+    for (const row of recommendationRows) {
+      recommendations.push(projectRecommendation(row));
+    }
+
+    return e.json(200, {
+      discovery_visible: caller.getBool("discovery_visible"),
+      shares: shares,
+      recommendations: recommendations,
+    });
+  },
+  $apis.requireAuth("members")
+);
+
+routerAdd(
+  "GET",
   "/api/detour/member-place-contributions",
   (e) => {
     const records = e.app.findRecordsByFilter(
@@ -126,6 +263,10 @@ routerAdd(
 // generated invitation. `redeemed_invite` has a partial unique index, so a
 // simultaneous second redemption cannot create another member account.
 onRecordCreateRequest((e) => {
+  // Visibility is always an explicit post-signup opt-in by the member. Ignore
+  // any create payload (including privileged fixture creation) that attempts
+  // to make a new account discoverable immediately.
+  e.record.set("discovery_visible", false);
   if (e.hasSuperuserAuth()) {
     return e.next();
   }
@@ -173,14 +314,22 @@ onRecordAfterCreateSuccess((e) => {
 // Members may edit their own profile and auth details, but never alter the
 // verification or invitation provenance that is maintained on the server.
 onRecordUpdateRequest((e) => {
+  const original = e.record.original();
   if (e.hasSuperuserAuth()) {
+    if (
+      e.record.getBool("discovery_visible") !==
+      original.getBool("discovery_visible")
+    ) {
+      throw new BadRequestError(
+        "Network discovery visibility can be changed only by the member."
+      );
+    }
     return e.next();
   }
   if (!e.auth || e.auth.id !== e.record.id) {
     throw new BadRequestError("You can update only your own member profile.");
   }
 
-  const original = e.record.original();
   if (
     e.record.getString("community_status") !== original.getString("community_status") ||
     e.record.getBool("founding_verified") !== original.getBool("founding_verified") ||

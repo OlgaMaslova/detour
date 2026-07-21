@@ -6,6 +6,8 @@ import type { Venue } from './data';
 import { GLOBAL_META_DESCRIPTION, GLOBAL_META_TITLE } from './cities';
 import { OCCASION_OPTIONS, occasionLabel } from './occasions';
 import { bindCommunity, communityControl, communityPanel } from './community';
+import { pb } from './pocketbase';
+import { bindNetworkDiscovery, networkDiscoveryMarkup, resetNetworkDiscovery } from './network';
 
 type DataMode = 'loading' | 'live' | 'error';
 type AppView = 'home' | 'destination' | 'account';
@@ -225,7 +227,7 @@ function showHome(root: HTMLElement): void {
   state.destination = null;
   state.pendingDestination = null;
   updateRoute('home', null, 'push');
-  pendingFocus = '#destination-search';
+  pendingFocus = '#network-home-title';
   render(root);
 }
 
@@ -786,13 +788,13 @@ function renderHome(root: HTMLElement): void {
   destroyMap();
   syncDocumentMeta(null);
   const covered = destinations();
-  const status =
+  const catalogueStatus =
     state.mode === 'loading'
-      ? '<p class="city-chooser-status loading" role="status">Checking the current published selection…</p>'
+      ? '<p class="network-search-status loading" role="status">Preparing place search…</p>'
       : state.mode === 'error'
-        ? '<p class="city-chooser-status status-banner" role="status">The current selection could not be loaded. Please try again shortly.</p>'
+        ? '<p class="network-search-status is-error" role="status">Place search is unavailable right now. Your private network remains available.</p>'
         : covered.length === 0
-          ? '<p class="city-chooser-status" role="status">No places are published at the moment. Please return soon.</p>'
+          ? '<p class="network-search-status" role="status">There are no published places to search at the moment.</p>'
           : '';
   const searchOptions =
     state.mode !== 'live'
@@ -807,61 +809,37 @@ function renderHome(root: HTMLElement): void {
         allVenues()
           .map((v) => `<option value="${esc(`${v.name} — ${v.city}`)}"></option>`)
           .join('');
-  const coverage =
-    state.mode !== 'live'
-      ? ''
-      : `<ul class="city-choices" id="destination-choices" aria-label="Destinations with published places">
-          ${covered
-            .map(
-              (d) => `<li class="city-choice city-choice-${esc(d.slug)}">
-                <a class="city-choice-content" href="${esc(destinationHref(d.slug))}" data-open-destination="${esc(d.slug)}">
-                  <span class="city-choice-swatch" aria-hidden="true"><span></span></span>
-                  <p class="city-choice-place"><span class="city-choice-name">${esc(d.name)}</span>${d.country ? `<span class="city-choice-separator">, </span><span class="city-choice-country">${esc(d.country)}</span>` : ''}</p>
-                  <p class="city-choice-count">${d.count} ${d.count === 1 ? 'place' : 'places'} on the Detourist List</p>
-                </a>
-              </li>`
-            )
-            .join('')}
-        </ul>`;
 
   root.innerHTML = `
-    <a class="skip-link" href="#destination-search">Skip to destination search</a>
-    <header class="hero city-chooser-hero">
-      <div class="hero-inner city-chooser-header">
-        <p class="brand">Detour</p>
-        <h1>Where is your next detour?</h1>
-        <p class="tagline city-chooser-intro">Member-recommended places worth a detour, gathered city by city.</p>
-        <form class="destination-search" data-destination-search role="search" aria-label="Find a destination or place">
-          <label class="visually-hidden" for="destination-search">Destination or place</label>
-          <input id="destination-search" name="query" type="search" list="destination-search-options" autocomplete="off" spellcheck="false" placeholder="A city or a place — Madrid, Casa Botín…" ${state.mode !== 'live' ? 'disabled' : ''}>
-          <datalist id="destination-search-options">${searchOptions}</datalist>
-          <button class="destination-go" type="submit" ${state.mode !== 'live' ? 'disabled' : ''}>Go</button>
-          <button class="destination-near" type="button" data-geolocate ${state.geoBusy || state.mode !== 'live' ? 'disabled' : ''}>${state.geoBusy ? 'Finding you…' : 'Near me'}</button>
-        </form>
-        ${state.geoStatus ? `<p class="geo-status" role="status">${esc(state.geoStatus)}</p>` : ''}
-      </div>
-      <div class="hero-account">${communityControl(accountHref())}</div>
+    <a class="skip-link" href="#network-home-title">Skip to private discovery</a>
+    <header class="network-masthead">
+      <p class="network-brand">Detour</p>
+      ${communityControl(accountHref())}
     </header>
-    <section class="city-chooser" aria-labelledby="destination-choices-title">
-      <div class="city-chooser-heading">
-        <h2 id="destination-choices-title">Where Detour is today</h2>
-        <p>Every destination below has places recommended by Detour members.</p>
+    ${networkDiscoveryMarkup(accountHref())}
+    <section class="network-search-context" aria-labelledby="network-search-title">
+      <div class="network-search-heading">
+        <div><h2 id="network-search-title">Find a place in context</h2><p>Search by place or destination when you need the wider Detour selection. City is context here, not the starting point.</p></div>
       </div>
-      ${status}
-      ${coverage}
+      <form class="destination-search network-destination-search" data-destination-search role="search" aria-label="Find a destination or place">
+        <label for="destination-search">Place or destination</label>
+        <div class="network-search-controls">
+          <input id="destination-search" name="query" type="search" list="destination-search-options" autocomplete="off" spellcheck="false" placeholder="Madrid, Casa Botín…" ${state.mode !== 'live' ? 'disabled' : ''}>
+          <datalist id="destination-search-options">${searchOptions}</datalist>
+          <button class="destination-go" type="submit" ${state.mode !== 'live' ? 'disabled' : ''}>Search</button>
+          <button class="destination-near" type="button" data-geolocate ${state.geoBusy || state.mode !== 'live' ? 'disabled' : ''}>${state.geoBusy ? 'Finding you…' : 'Use my location'}</button>
+        </div>
+      </form>
+      ${catalogueStatus}
+      ${state.geoStatus ? `<p class="geo-status" role="status">${esc(state.geoStatus)}</p>` : ''}
     </section>
-    <section class="city-chooser community-cta" aria-label="Member community">
-      <div class="city-chooser-heading">
-        <h2>Nowhere near you yet?</h2>
-        <p>Detour is member-driven — places join the list when 3 members recommend them. <a href="${esc(accountHref())}" data-community-route>Recommend the first one ↗</a></p>
-      </div>
-    </section>
-    <footer class="footer city-chooser-footer">
-      <p>Built from recommendations by Detour members. Take a detour.</p>
+    <footer class="footer network-footer">
+      <p>Recommendations stay within the relationships that made them useful.</p>
     </footer>
   `;
 
   bindRouteLinks(root);
+  bindNetworkDiscovery(root, () => render(root));
   root.querySelector<HTMLFormElement>('[data-destination-search]')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const input = root.querySelector<HTMLInputElement>('#destination-search');
@@ -1224,6 +1202,14 @@ function requestNearestDestination(root: HTMLElement): void {
 
 const root = document.querySelector('#app');
 if (root instanceof HTMLElement) {
+  let authIdentity = pb.authStore.isValid ? pb.authStore.record?.id || '' : '';
+  pb.authStore.onChange((_token, record) => {
+    const nextIdentity = pb.authStore.isValid ? record?.id || '' : '';
+    if (nextIdentity === authIdentity) return;
+    authIdentity = nextIdentity;
+    resetNetworkDiscovery();
+    render(root);
+  }, false);
   applyRouteFromUrl(root);
   window.addEventListener('popstate', () => applyRouteFromUrl(root));
   loadLiveCatalogue()
