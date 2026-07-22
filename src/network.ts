@@ -50,6 +50,13 @@ interface ReplyState {
 const REPLY_MIN_LENGTH = 8;
 const REPLY_MAX_LENGTH = 1200;
 
+/**
+ * Resolves a recommended place to a published catalogue venue so the feed can
+ * open it on the destination map. Returns null when the place has no published
+ * venue yet — the entry then renders as plain text.
+ */
+export type NetworkPlaceResolver = (venueName: string, city: string) => { venueId: string; destinationSlug: string } | null;
+
 interface NetworkDiscovery {
   recommendations: DiscoveryRecommendation[];
   shares: DiscoveryShare[];
@@ -272,14 +279,19 @@ function replyThreadMarkup(item: DiscoveryShare): string {
   </section>`;
 }
 
-function recommendationMarkup(item: DiscoveryRecommendation): string {
+function recommendationMarkup(item: DiscoveryRecommendation, resolvePlace?: NetworkPlaceResolver): string {
   const who = item.recommender_name || 'A connection';
   const when = formatDate(item.created);
   const metadata = placeMeta(item);
+  const name = item.venue_name || 'Recommended place';
+  const place = item.venue_name && resolvePlace ? resolvePlace(item.venue_name, item.city || '') : null;
+  const title = place
+    ? `<button type="button" class="network-entry-place" data-open-destination="${esc(place.destinationSlug)}" data-open-venue="${esc(place.venueId)}" aria-label="Open ${esc(name)} on the map">${esc(name)}<span aria-hidden="true"> ↗</span></button>`
+    : esc(name);
   return `<article class="network-entry network-recommendation">
     <header class="network-entry-head">
       <div>
-        <h3>${esc(item.venue_name || 'Recommended place')}</h3>
+        <h3>${title}</h3>
         ${metadata ? `<p class="network-place-meta">${esc(metadata)}</p>` : ''}
       </div>
       <span class="network-entry-kind">Recommendation</span>
@@ -309,7 +321,7 @@ function shareMarkup(item: DiscoveryShare): string {
   </article>`;
 }
 
-function memberFeedMarkup(): string {
+function memberFeedMarkup(resolvePlace?: NetworkPlaceResolver): string {
   const recommendations = discovery.recommendations;
   const received = discovery.shares.filter((share) => share.direction === 'received');
   const sent = discovery.shares.filter((share) => share.direction === 'sent');
@@ -335,7 +347,7 @@ function memberFeedMarkup(): string {
         <div><h2 id="network-recommendations-title">Recommended by your network</h2><p>Notes from members directly connected to you.</p></div>
         <p class="network-section-count">${recommendations.length} ${recommendations.length === 1 ? 'recommendation' : 'recommendations'}</p>
       </div>
-      ${recommendations.length ? `<div class="network-entry-list">${recommendations.map(recommendationMarkup).join('')}</div>` : `<div class="network-empty"><h3>No network recommendations yet</h3><p>When a direct connection chooses to share their recommendations, they will appear here.</p></div>`}
+      ${recommendations.length ? `<div class="network-entry-list">${recommendations.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div>` : `<div class="network-empty"><h3>No network recommendations yet</h3><p>When a direct connection chooses to share their recommendations, they will appear here.</p></div>`}
     </section>
     <section class="network-stream network-shares" aria-labelledby="network-shares-title">
       <div class="network-section-heading">
@@ -350,7 +362,7 @@ function memberFeedMarkup(): string {
   </div>`;
 }
 
-export function networkDiscoveryMarkup(accountHref: string): string {
+export function networkDiscoveryMarkup(accountHref: string, resolvePlace?: NetworkPlaceResolver): string {
   const record = memberRecord();
   if (!record) {
     return `<section class="network-invitation" aria-labelledby="network-home-title">
@@ -381,7 +393,7 @@ export function networkDiscoveryMarkup(accountHref: string): string {
       <h1 id="network-home-title">Places passed hand to hand.</h1>
       <p>Welcome back, ${esc(firstName)}. This is what your connections have recommended and what you have shared with each other.</p>
     </div>
-    ${memberFeedMarkup()}
+    ${memberFeedMarkup(resolvePlace)}
   </section>`;
 }
 

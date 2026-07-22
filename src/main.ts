@@ -738,7 +738,14 @@ function bindRouteLinks(root: HTMLElement): void {
       const slug = el.dataset.openDestination?.trim().toLowerCase() ?? '';
       if (!slug) return;
       event.preventDefault();
+      const venueId = el.dataset.openVenue ?? '';
       openDestination(root, slug);
+      if (venueId && destinationVenues().some((v) => v.id === venueId)) {
+        state.selectedId = venueId;
+        state.selectedVia = 'card';
+        state.selectionOpen = true;
+        render(root);
+      }
     });
   });
   root.querySelectorAll<HTMLAnchorElement>('[data-home]').forEach((link) => {
@@ -774,7 +781,7 @@ function renderAccount(root: HTMLElement): void {
     </footer>
   `;
 
-  bindCommunity(root, state.venues, () => render(root));
+  bindCommunity(root, state.venues, () => render(root), () => showHome(root));
   bindRouteLinks(root);
   if (pendingFocus) {
     const target = root.querySelector<HTMLElement>(pendingFocus);
@@ -806,6 +813,39 @@ function resolveSearch(query: string): { slug: string; venueId?: string } | null
   const byName = venues.filter((v) => norm(v.name) === q);
   if (byName.length >= 1) return { slug: venueRouteSlug(byName[0]), venueId: byName[0].id };
   return null;
+}
+
+/**
+ * Mirrors the backend's normalizePlacePart so feed entries match published
+ * venues by the same place identity the waitlist publication uses.
+ */
+function normalizePlacePart(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[’'`´]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[\u2010-\u2015]/g, ' ')
+    .replace(/[.,/#!$%^*;:{}=\-_~()\[\]"?<>\\|+]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Matches a recommended place to a published venue, or null when it has none. */
+function resolveNetworkPlace(venueName: string, city: string): { venueId: string; destinationSlug: string } | null {
+  if (state.mode !== 'live') return null;
+  const name = normalizePlacePart(venueName);
+  if (!name) return null;
+  const matches = allVenues().filter((v) => normalizePlacePart(v.name) === name);
+  if (matches.length === 0) return null;
+  const normCity = normalizePlacePart(city);
+  const match = normCity
+    ? matches.find((v) => normalizePlacePart(v.city) === normCity)
+    : matches.length === 1
+      ? matches[0]
+      : undefined;
+  return match ? { venueId: match.id, destinationSlug: venueRouteSlug(match) } : null;
 }
 
 function renderHome(root: HTMLElement): void {
@@ -843,7 +883,7 @@ function renderHome(root: HTMLElement): void {
       <p class="network-brand">${brandMark()}Detour</p>
       ${communityControl(accountHref())}
     </header>
-    ${networkDiscoveryMarkup(accountHref())}
+    ${networkDiscoveryMarkup(accountHref(), resolveNetworkPlace)}
     <section class="network-search-context" aria-labelledby="network-search-title">
       <div class="network-search-heading">
         <div><h2 id="network-search-title">Find your city</h2><p>Search by city when you want the wider Detour selection. Each city opens with every place members recommend there.</p></div>

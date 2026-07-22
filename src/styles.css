@@ -2656,6 +2656,24 @@ a.brand:focus-visible {
   gap: 0.9rem;
 }
 .network-entry h3 { margin: 0; font-family: var(--serif); font-size: 1.22rem; line-height: 1.12; text-wrap: balance; }
+.network-entry-place {
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  text-wrap: inherit;
+  cursor: pointer;
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+  text-decoration-color: color-mix(in oklch, var(--ink) 35%, transparent);
+}
+.network-entry-place:hover { color: var(--oxblood); text-decoration-color: currentColor; }
+.network-entry-place:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
+.network-entry-place span { font-size: 0.8em; }
 .network-place-meta { margin: 0.28rem 0 0; color: var(--ink-soft); font-size: 0.78rem; overflow-wrap: anywhere; }
 .network-entry-kind {
   flex: none;

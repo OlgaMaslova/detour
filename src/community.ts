@@ -764,7 +764,7 @@ async function refreshMemberRecord(render: () => void): Promise<void> {
   }
 }
 
-export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => void): void {
+export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => void, onAuthed: () => void): void {
   knownVenues = venues;
   if (memberTab === 'settings') void refreshMemberRecord(render);
   root.querySelectorAll<HTMLButtonElement>('[data-community-mode]').forEach((button) => {
@@ -850,6 +850,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
       render();
       return;
     }
+    const email = String(values.get('email') || '').trim();
     submitting = true;
     notice = null;
     render();
@@ -857,17 +858,27 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
       await pb.collection('members').create({
         display_name: String(values.get('display_name') || '').trim(),
         pseudo: String(values.get('pseudo') || '').trim(),
-        email: String(values.get('email') || '').trim(),
+        email,
         password,
         passwordConfirm,
         invite_code: String(values.get('invite_code') || '').trim().toUpperCase(),
       });
+    } catch (error) {
+      submitting = false;
+      notice = { kind: 'error', text: readableError(error, 'That invitation could not be accepted. Check the code and try again.') };
+      render();
+      return;
+    }
+    try {
+      await pb.collection('members').authWithPassword(email, password);
+      submitting = false;
+      resetCommunityState();
+      notice = null;
+      onAuthed();
+    } catch {
+      submitting = false;
       mode = 'sign-in';
       notice = { kind: 'success', text: 'Your membership is ready. Sign in to continue.' };
-    } catch (error) {
-      notice = { kind: 'error', text: readableError(error, 'That invitation could not be accepted. Check the code and try again.') };
-    } finally {
-      submitting = false;
       render();
     }
   });
@@ -880,12 +891,13 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     render();
     try {
       await pb.collection('members').authWithPassword(String(values.get('email') || '').trim(), String(values.get('password') || ''));
+      submitting = false;
       resetCommunityState();
       notice = null;
+      onAuthed();
     } catch (error) {
-      notice = { kind: 'error', text: readableError(error, 'Those sign-in details were not recognised.') };
-    } finally {
       submitting = false;
+      notice = { kind: 'error', text: readableError(error, 'Those sign-in details were not recognised.') };
       render();
     }
   });
