@@ -486,7 +486,7 @@ a:hover { color: var(--wine-deep); }
 .detail-cover img {
   display: block;
   width: 100%;
-  height: clamp(10rem, 32vw, 15rem);
+  height: clamp(6rem, 16vw, 9rem);
   object-fit: cover;
 }
 .card h3 { margin: 0; font-family: var(--serif); font-size: 1.18rem; font-weight: 700; letter-spacing: 0.005em; }
@@ -2706,7 +2706,7 @@ a.brand:focus-visible {
   letter-spacing: -0.025em;
   text-wrap: balance;
 }
-.network-section-heading > div > p { max-width: 56ch; margin: 0.45rem 0 0; color: var(--ink-soft); font-size: 0.88rem; }
+.network-section-heading > div:not(.network-section-actions) > p { max-width: 56ch; margin: 0.45rem 0 0; color: var(--ink-soft); font-size: 0.88rem; }
 .network-section-actions { display: flex; flex: none; align-items: center; gap: 0.85rem; }
 .network-share-cta,
 .network-recommend-cta { min-height: 40px; }
@@ -2735,6 +2735,18 @@ a.brand:focus-visible {
   box-shadow: 4px 4px 0 color-mix(in oklch, var(--network-section-accent) 34%, white);
   transition: border-color 220ms cubic-bezier(0.25, 1, 0.5, 1), box-shadow 220ms cubic-bezier(0.25, 1, 0.5, 1);
 }
+.network-entry-with-thumb { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+.network-entry-main { display: grid; gap: 0.85rem; min-width: 0; }
+.network-entry-thumb {
+  width: 5.25rem;
+  height: 5.25rem;
+  margin: 0;
+  overflow: hidden;
+  background: var(--canvas);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+}
+.network-entry-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .network-entry:focus-within {
   border-color: var(--violet);
   box-shadow: 4px 4px 0 color-mix(in oklch, var(--violet) 50%, white);
@@ -3027,6 +3039,7 @@ a.brand:focus-visible {
   .network-entry-head { align-items: flex-start; flex-direction: column; }
   .network-section-count { align-self: flex-start; }
   .network-section-actions { flex-direction: row-reverse; align-self: stretch; justify-content: flex-end; }
+  .network-entry-thumb { width: 4rem; height: 4rem; }
   .network-entry-kind { order: -1; }
   .network-reply-form-footer { align-items: stretch; flex-direction: column; }
   .network-reply-submit { width: 100%; }

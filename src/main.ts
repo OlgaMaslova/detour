@@ -890,7 +890,7 @@ function normalizePlacePart(value: string): string {
 }
 
 /** Matches a recommended place to a published venue, or null when it has none. */
-function resolveNetworkPlace(venueName: string, city: string): { venueId: string; destinationSlug: string } | null {
+function resolveNetworkPlace(venueName: string, city: string): { venueId: string; destinationSlug: string; imageUrl?: string } | null {
   if (state.mode !== 'live') return null;
   const name = normalizePlacePart(venueName);
   if (!name) return null;
@@ -902,7 +902,13 @@ function resolveNetworkPlace(venueName: string, city: string): { venueId: string
     : matches.length === 1
       ? matches[0]
       : undefined;
-  return match ? { venueId: match.id, destinationSlug: venueRouteSlug(match) } : null;
+  if (!match) return null;
+  const image = safeExternalHref(match.imageUrl);
+  return {
+    venueId: match.id,
+    destinationSlug: venueRouteSlug(match),
+    imageUrl: image && !failedCoverUrls.has(image) ? image : undefined,
+  };
 }
 
 function renderHome(root: HTMLElement): void {
@@ -964,6 +970,15 @@ function renderHome(root: HTMLElement): void {
 
   bindRouteLinks(root);
   bindNetworkDiscovery(root, () => render(root));
+  // A feed thumb that fails to load disappears; the URL is remembered so
+  // later renders skip it without re-requesting.
+  root.querySelectorAll<HTMLImageElement>('[data-network-thumb]').forEach((img) => {
+    img.addEventListener('error', () => {
+      failedCoverUrls.add(img.src);
+      img.closest('.network-entry')?.classList.remove('network-entry-with-thumb');
+      img.closest('.network-entry-thumb')?.remove();
+    });
+  });
   root.querySelector<HTMLFormElement>('[data-destination-search]')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const input = root.querySelector<HTMLInputElement>('#destination-search');

@@ -51,7 +51,7 @@ const REPLY_MAX_LENGTH = 1200;
  * open it on the destination map. Returns null when the place has no published
  * venue yet — the entry then renders as plain text.
  */
-export type NetworkPlaceResolver = (venueName: string, city: string) => { venueId: string; destinationSlug: string } | null;
+export type NetworkPlaceResolver = (venueName: string, city: string) => { venueId: string; destinationSlug: string; imageUrl?: string } | null;
 
 interface NetworkDiscovery {
   recommendations: DiscoveryRecommendation[];
@@ -292,22 +292,28 @@ function replyThreadMarkup(item: DiscoveryShare): string {
 
 function recommendationMarkup(item: DiscoveryRecommendation, resolvePlace?: NetworkPlaceResolver): string {
   const when = formatDate(item.created);
-  const metadata = placeMeta(item);
+  const whereabouts = [item.city, item.country].filter(Boolean).join(', ');
   const name = item.venue_name || 'Recommended place';
   const place = item.venue_name && resolvePlace ? resolvePlace(item.venue_name, item.city || '') : null;
   const title = place
     ? `<button type="button" class="network-entry-place" data-open-destination="${esc(place.destinationSlug)}" data-open-venue="${esc(place.venueId)}" aria-label="Open ${esc(name)} on the map">${esc(name)}<span aria-hidden="true"> ↗</span></button>`
     : esc(name);
-  return `<article class="network-entry network-recommendation">
-    <header class="network-entry-head">
-      <div>
-        <h3>${title}</h3>
-        ${metadata ? `<p class="network-place-meta">${esc(metadata)}</p>` : ''}
-      </div>
-      <span class="network-entry-kind">Recommendation</span>
-    </header>
-    ${item.note ? `<blockquote><p>${esc(item.note)}</p></blockquote>` : '<p class="network-entry-note-empty">No note was included with this recommendation.</p>'}
-    <p class="network-entry-byline">${pseudo(item.recommender_pseudo)}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
+  const thumb = place?.imageUrl
+    ? `<figure class="network-entry-thumb"><img src="${esc(place.imageUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-network-thumb></figure>`
+    : '';
+  return `<article class="network-entry network-recommendation${thumb ? ' network-entry-with-thumb' : ''}">
+    <div class="network-entry-main">
+      <header class="network-entry-head">
+        <div>
+          <h3>${title}</h3>
+          ${whereabouts ? `<p class="network-place-meta">${esc(whereabouts)}</p>` : ''}
+        </div>
+        <span class="network-entry-kind">Recommendation</span>
+      </header>
+      ${item.note ? `<blockquote><p>${esc(item.note)}</p></blockquote>` : '<p class="network-entry-note-empty">No note was included with this recommendation.</p>'}
+      <p class="network-entry-byline">${pseudo(item.recommender_pseudo)}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
+    </div>
+    ${thumb}
   </article>`;
 }
 
