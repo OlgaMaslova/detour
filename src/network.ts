@@ -353,14 +353,14 @@ function memberFeedMarkup(resolvePlace?: NetworkPlaceResolver): string {
   return `<div class="network-member-content">
     <section class="network-stream" aria-labelledby="network-recommendations-title">
       <div class="network-section-heading">
-        <div><h2 id="network-recommendations-title">Recommended by the circle</h2><p>Recommendations shared by members across the invite-only Detour circle.</p></div>
+        <div><h2 id="network-recommendations-title">Recommended by the community</h2><p>Recommendations shared by members across the invite-only Detour circle.</p></div>
         <p class="network-section-count">${recommendations.length} ${recommendations.length === 1 ? 'recommendation' : 'recommendations'}</p>
       </div>
       ${recommendations.length ? `<div class="network-entry-list">${recommendations.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div>` : `<div class="network-empty"><h3>No circle recommendations yet</h3><p>Recommendations will appear here as members add them, unless they choose to keep theirs private.</p></div>`}
     </section>
     <section class="network-stream network-shares" aria-labelledby="network-shares-title">
       <div class="network-section-heading">
-        <div><h2 id="network-shares-title">Places passed between you</h2><p>Private incoming and outgoing shares, kept together.</p></div>
+        <div><h2 id="network-shares-title"Shared Places</h2><p>Private incoming and outgoing shares, kept together.</p></div>
         <p class="network-section-count">${shareCount} ${shareCount === 1 ? 'share' : 'shares'}</p>
       </div>
       ${shareCount ? `<div class="network-share-columns">

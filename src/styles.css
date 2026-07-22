@@ -705,8 +705,6 @@ a:hover { color: var(--wine-deep); }
 .community-notice-info { color: var(--brass-deep); background: var(--brass-soft); border: 1px solid #ddcb9e; }
 .community-member-head { display: flex; align-items: start; justify-content: space-between; gap: 1rem; padding-bottom: 1.1rem; border-bottom: 1px solid var(--line); }
 .community-member-head h2 { font-size: clamp(1.5rem, 2.5vw, 1.9rem); }
-.community-signout { min-height: 38px; padding: 0.35rem 0.65rem; color: var(--ink-soft); background: transparent; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
-.community-signout:hover { color: var(--wine); border-color: var(--wine); }
 .community-danger { min-height: 38px; padding: 0.35rem 0.65rem; color: var(--wine); background: transparent; border: 1px solid var(--wine); border-radius: var(--radius-sm); font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
 .community-danger:hover { color: var(--parchment); background: var(--wine); }
 .community-danger:disabled { opacity: 0.56; cursor: not-allowed; }
@@ -946,7 +944,7 @@ a:hover { color: var(--wine-deep); }
   .community-panel { padding: 1.1rem; }
   .community-form-grid { grid-template-columns: 1fr; }
   .community-member-head { align-items: start; flex-direction: column; }
-  .community-signout, .community-danger { width: 100%; }
+  .community-danger { width: 100%; }
   .community-primary { width: 100%; justify-self: stretch; }
   .community-evidence-list li, .community-submission-list li { flex-direction: column; }
   .community-evidence-status, .community-submission-status { align-self: flex-start; }
@@ -1301,16 +1299,9 @@ a.brand:focus-visible {
 .community-detours-panel { gap: 0; }
 .community-detours-panel .community-ledger-section { padding-top: 0; border-top: 0; }
 .community-detour-tabs { margin-bottom: 0.25rem; }
-.community-settings-panel { align-content: start; gap: 0; }
-.community-session-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  max-width: 46rem;
-  padding-block: 0.25rem;
-}
-.community-pseudo-row { display: grid; gap: 0.5rem; max-width: 46rem; margin-top: 1.9rem; }
+.community-settings-panel { align-content: start; gap: 0; padding-top: 1.1rem; }
+.community-session-note { max-width: 46rem; margin: 0; }
+.community-pseudo-row { display: grid; gap: 0.5rem; max-width: 46rem; margin-top: 1.25rem; }
 .community-pseudo-form { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem; }
 .community-pseudo-form label { flex: 1 1 16rem; }
 .community-visibility-row {
@@ -1373,8 +1364,8 @@ a.brand:focus-visible {
 }
 .community-danger-note { max-width: 52ch; margin: 0; color: var(--ink-soft); font-size: 0.86rem; }
 .community-danger { min-height: 44px; padding: 0.5rem 0.85rem; font-size: 0.82rem; }
-.community-session-row p { margin: 0; color: var(--ink-soft); font-size: 0.86rem; overflow-wrap: anywhere; }
-.community-session-row strong { color: var(--ink); }
+.community-session-note { color: var(--ink-soft); font-size: 0.86rem; overflow-wrap: anywhere; }
+.community-session-note strong { color: var(--ink); }
 .community-kicker { color: var(--violet); letter-spacing: 0.08em; }
 .community-tabs { gap: 1.25rem; }
 .community-tab { min-height: 44px; color: var(--ink-soft); }
@@ -1396,8 +1387,7 @@ a.brand:focus-visible {
 .community-form select:focus-visible,
 .community-form textarea:focus-visible { outline: var(--focus-ring); outline-offset: 2px; border-color: var(--violet); }
 .community-primary,
-.community-secondary,
-.community-signout {
+.community-secondary {
   min-height: 44px;
   padding: 0.5rem 0.85rem;
   border: 1px solid var(--ink);
@@ -1410,18 +1400,14 @@ a.brand:focus-visible {
   transition: color 140ms cubic-bezier(0.25, 1, 0.5, 1), background-color 140ms cubic-bezier(0.25, 1, 0.5, 1), transform 140ms cubic-bezier(0.25, 1, 0.5, 1), box-shadow 140ms cubic-bezier(0.25, 1, 0.5, 1);
 }
 .community-primary { color: white; background: var(--ink); }
-.community-secondary,
-.community-signout { color: var(--ink); background: white; }
+.community-secondary { color: var(--ink); background: white; }
 .community-primary:hover,
-.community-secondary:hover,
-.community-signout:hover { color: inherit; border-color: var(--ink); box-shadow: var(--sticker-shadow-hover); transform: translate(1.5px, 1.5px); }
+.community-secondary:hover { color: inherit; border-color: var(--ink); box-shadow: var(--sticker-shadow-hover); transform: translate(1.5px, 1.5px); }
 .community-primary:hover { color: white; background: var(--ink); }
 .community-primary:active,
-.community-secondary:active,
-.community-signout:active { box-shadow: none; transform: translate(3px, 3px); }
+.community-secondary:active { box-shadow: none; transform: translate(3px, 3px); }
 .community-primary:disabled,
-.community-secondary:disabled,
-.community-signout:disabled { color: var(--ink-faint); background: var(--canvas); border-color: var(--line-strong); box-shadow: 3px 3px 0 var(--line); cursor: not-allowed; opacity: 1; transform: none; }
+.community-secondary:disabled { color: var(--ink-faint); background: var(--canvas); border-color: var(--line-strong); box-shadow: 3px 3px 0 var(--line); cursor: not-allowed; opacity: 1; transform: none; }
 .community-invites,
 .community-submission-guidance,
 .community-submission-locked { background: var(--canvas); }
@@ -2403,8 +2389,6 @@ a.brand:focus-visible {
   .community-tab-panel { min-height: 17rem; padding: 1.25rem; }
   .community-tab-heading { flex-direction: column; gap: 0.75rem; }
   .community-invite-bar { align-items: center; flex-wrap: wrap; }
-  .community-session-row { align-items: stretch; flex-direction: column; }
-  .community-session-row .community-signout { width: 100%; }
   .community-pseudo-form .community-secondary { width: 100%; }
   .community-visibility-row { grid-template-columns: 1fr; align-items: start; }
   .community-subheading { grid-template-columns: 1fr; gap: 0.2rem; }
@@ -2438,8 +2422,6 @@ a.brand:focus-visible {
   .community-primary:active,
   .community-secondary:hover,
   .community-secondary:active,
-  .community-signout:hover,
-  .community-signout:active,
   .selection-toggle:hover,
   .selection-toggle:active,
   .empty-state-reset:hover,
@@ -2809,7 +2791,7 @@ a.brand:focus-visible {
   font-size: clamp(1rem, 1.8vw, 1.12rem);
   line-height: 1.55;
 }
-.network-recommendation blockquote { background: color-mix(in oklch, var(--oxblood-soft) 62%, white); }
+.network-recommendation blockquote { padding: 0; background: transparent; }
 .network-entry blockquote p,
 .network-entry-note-empty { margin: 0; }
 .network-entry-note-empty { color: var(--ink-soft); font-size: 0.84rem; font-style: italic; }

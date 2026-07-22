@@ -516,10 +516,7 @@ function detoursPanel(): string {
 function settingsPanel(record: MemberRecord): string {
   const keepPrivate = visibilityPending ?? record.discovery_visible === false;
   return `<section class="community-tab-panel community-settings-panel" id="member-panel-settings" role="tabpanel" aria-labelledby="member-tab-settings" tabindex="0">
-    <div class="community-session-row">
-      <p>Signed in as <strong>${esc(record.email || memberName(record))}</strong></p>
-      <button class="community-signout" type="button" data-community-sign-out>Sign out</button>
-    </div>
+    <p class="community-session-note">Signed in as <strong>${esc(record.email || memberName(record))}</strong></p>
     <div class="community-pseudo-row">
       <form class="community-form community-pseudo-form" data-community-pseudo>
         <label>Your pseudo<input name="pseudo" value="${esc(record.pseudo || '')}" autocomplete="off" spellcheck="false" minlength="3" maxlength="30" pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens" required></label>
