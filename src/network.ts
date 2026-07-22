@@ -298,7 +298,7 @@ function recommendationMarkup(item: DiscoveryRecommendation, resolvePlace?: Netw
   const name = item.venue_name || 'Recommended food-and-drink destination';
   const place = item.venue_name && resolvePlace ? resolvePlace(item.venue_name, item.city || '') : null;
   const title = place
-    ? `<button type="button" class="network-entry-place" data-open-destination="${esc(place.destinationSlug)}" data-open-venue="${esc(place.venueId)}" aria-label="Open ${esc(name)} on the map">${esc(name)}<span aria-hidden="true"> ↗</span></button>`
+    ? `<button type="button" class="network-entry-place" data-open-destination="${esc(place.destinationSlug)}" data-open-venue="${esc(place.venueId)}" aria-label="Open ${esc(name)} on the map">${esc(name)}</button>`
     : esc(name);
   const thumb = place?.imageUrl
     ? `<figure class="network-entry-thumb"><img src="${esc(place.imageUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-network-thumb></figure>`
