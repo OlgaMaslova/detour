@@ -133,10 +133,11 @@ routerAdd(
       };
     }
 
-    function projectRecommendation(row) {
+    function projectRecommendation(row, callerId) {
       return {
         venue_name: row.venue_name,
         recommender_pseudo: row.recommender_pseudo,
+        is_own: row.member_id === callerId,
         note: row.note,
         city: row.city,
         country: row.country,
@@ -149,11 +150,12 @@ routerAdd(
     const caller = e.app.findRecordById("members", callerId);
 
     // The endpoint deliberately uses bounded, explicit SQL projections. It
-    // bypasses collection rules only for caller-participant shares/replies and
+    // bypasses collection rules only for caller-participant shares/replies,
     // recommendations from verified members who remain visible to the shared
-    // invite-only circle. Only pseudos are projected for member attribution;
-    // no email, display name, relation, moderation, or unrelated member field
-    // is selected or returned.
+    // invite-only circle, and the caller's own recommendations (always shown
+    // to their author, even when kept private from the circle). Only pseudos
+    // are projected for member attribution; no email, display name, relation,
+    // moderation, or unrelated member field is selected or returned.
     const shareRows = arrayOf(
       new DynamicModel({
         id: "",
@@ -224,6 +226,7 @@ routerAdd(
     const recommendationRows = arrayOf(
       new DynamicModel({
         recommender_pseudo: "",
+        member_id: "",
         note: "",
         venue_name: "",
         city: "",
@@ -235,13 +238,12 @@ routerAdd(
     e.app
       .db()
       .newQuery(
-        "SELECT m.pseudo AS recommender_pseudo, " +
+        "SELECT m.pseudo AS recommender_pseudo, m.id AS member_id, " +
           "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
           "FROM community_recommendations r " +
           "JOIN members m ON m.id = r.member " +
-          "WHERE m.id != {:caller} " +
-          "AND m.community_status = 'verified' " +
-          "AND m.discovery_visible = TRUE " +
+          "WHERE (m.id = {:caller} " +
+          "OR (m.community_status = 'verified' AND m.discovery_visible = TRUE)) " +
           "ORDER BY r.created DESC, r.id DESC LIMIT 100"
       )
       .bind({ caller: callerId })
@@ -253,7 +255,7 @@ routerAdd(
     }
     const recommendations = [];
     for (const row of recommendationRows) {
-      recommendations.push(projectRecommendation(row));
+      recommendations.push(projectRecommendation(row, callerId));
     }
 
     return e.json(200, {

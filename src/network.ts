@@ -5,6 +5,7 @@ type ShareDirection = 'received' | 'sent';
 
 export interface DiscoveryRecommendation {
   recommender_pseudo?: string;
+  is_own?: boolean;
   note?: string;
   venue_name?: string;
   city?: string;
@@ -97,6 +98,7 @@ function cleanRecommendation(value: unknown): DiscoveryRecommendation | null {
   return {
     venue_name: venueName,
     recommender_pseudo: cleanText(item.recommender_pseudo),
+    is_own: item.is_own === true,
     note: cleanText(item.note),
     city: cleanText(item.city),
     country: cleanText(item.country),
@@ -191,8 +193,8 @@ export function isAuthenticatedMember(): boolean {
 
 /**
  * Recommendations from the shared Detour circle that carry a note, so the
- * catalogue detail can show what another member said about a place.
- * Empty until the discovery feed has loaded for the signed-in member.
+ * catalogue detail can show what members (including the signed-in member)
+ * said about a place. Empty until the discovery feed has loaded.
  */
 export function networkPlaceNotes(): DiscoveryRecommendation[] {
   if (!memberRecord() || status !== 'ready') return [];
@@ -308,10 +310,10 @@ function recommendationMarkup(item: DiscoveryRecommendation, resolvePlace?: Netw
           <h3>${title}</h3>
           ${whereabouts ? `<p class="network-place-meta">${esc(whereabouts)}</p>` : ''}
         </div>
-        <span class="network-entry-kind">Recommendation</span>
+        <span class="network-entry-kind">${item.is_own ? 'Your recommendation' : 'Recommendation'}</span>
       </header>
       ${item.note ? `<blockquote><p>${esc(item.note)}</p></blockquote>` : '<p class="network-entry-note-empty">No note was included with this recommendation.</p>'}
-      <p class="network-entry-byline">${pseudo(item.recommender_pseudo)}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
+      <p class="network-entry-byline">${item.is_own ? '<strong class="network-pseudo">You</strong>' : pseudo(item.recommender_pseudo)}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
     </div>
     ${thumb}
   </article>`;

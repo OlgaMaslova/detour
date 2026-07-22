@@ -655,9 +655,9 @@ function shortDate(value: string | undefined): string {
 }
 
 /**
- * Notes fellow Detourists attached when recommending this place, drawn from
- * the shared circle discovery feed. Empty for signed-out visitors and for
- * places nobody in the Detour circle has annotated.
+ * Notes Detourists (including the signed-in member) attached when
+ * recommending this place, drawn from the shared circle discovery feed.
+ * Empty for signed-out visitors and for places nobody has annotated.
  */
 function networkNotesBlock(v: Venue): string {
   const name = normalizePlacePart(v.name);
@@ -674,7 +674,7 @@ function networkNotesBlock(v: Venue): string {
     ${notes
       .map((item) => {
         const pseudo = item.recommender_pseudo?.trim().replace(/^@+/, '');
-        const memberLabel = pseudo ? `@${pseudo}` : 'A Detour member';
+        const memberLabel = item.is_own ? 'You' : pseudo ? `@${pseudo}` : 'A Detour member';
         const when = shortDate(item.created);
         return `<blockquote class="detail-network-note">
           <p>${esc(item.note || '')}</p>
