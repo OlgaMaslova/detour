@@ -8,9 +8,10 @@ import { OCCASION_OPTIONS, occasionLabel } from './occasions';
 import { bindCommunity, communityControl, communityPanel } from './community';
 import { pb } from './pocketbase';
 import { bindNetworkDiscovery, ensureNetworkDiscovery, networkDiscoveryMarkup, networkPlaceNotes, resetNetworkDiscovery } from './network';
+import { renderFoundingSurvey } from './survey';
 
 type DataMode = 'loading' | 'live' | 'error';
-type AppView = 'home' | 'destination' | 'account';
+type AppView = 'home' | 'destination' | 'account' | 'survey';
 
 interface UserLocation {
   lat: number;
@@ -41,7 +42,11 @@ interface State {
 
 const state: State = {
   mode: 'loading',
-  view: new URL(window.location.href).searchParams.get('view') === 'members' ? 'account' : 'home',
+  view: window.location.pathname.replace(/\/+$/, '') === '/survey'
+    ? 'survey'
+    : new URL(window.location.href).searchParams.get('view') === 'members'
+      ? 'account'
+      : 'home',
   destination: null,
   pendingDestination: null,
   venues: [],
@@ -208,11 +213,13 @@ function resetDestinationState(): void {
 
 function routeHref(view: AppView, slug: string | null): string {
   const url = new URL(window.location.href);
+  url.pathname = view === 'survey' ? '/survey' : '/';
   url.searchParams.delete('city');
   if (view === 'destination' && slug) url.searchParams.set('d', slug);
   else url.searchParams.delete('d');
   if (view === 'account') url.searchParams.set('view', 'members');
   else url.searchParams.delete('view');
+  if (view === 'survey') url.hash = '';
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
@@ -270,16 +277,23 @@ function returnToDiscovery(root: HTMLElement): void {
 
 function applyRouteFromUrl(root: HTMLElement): void {
   const url = new URL(window.location.href);
-  const nextView: AppView = url.searchParams.get('view') === 'members' ? 'account' : 'home';
+  const surveyPath = url.pathname.replace(/\/+$/, '') === '/survey';
+  const nextView: AppView = surveyPath
+    ? 'survey'
+    : url.searchParams.get('view') === 'members'
+      ? 'account'
+      : 'home';
   // Legacy ?city= links resolve to the same destination.
-  const requested = (url.searchParams.get('d') || url.searchParams.get('city') || '').trim().toLowerCase() || null;
+  const requested = surveyPath
+    ? null
+    : (url.searchParams.get('d') || url.searchParams.get('city') || '').trim().toLowerCase() || null;
 
   if (state.destination !== requested) resetDestinationState();
   state.destination = requested;
   state.pendingDestination = null;
-  state.view = nextView === 'account' ? 'account' : requested ? 'destination' : 'home';
+  state.view = nextView === 'survey' ? 'survey' : nextView === 'account' ? 'account' : requested ? 'destination' : 'home';
 
-  if (url.searchParams.has('city')) updateRoute(state.view, requested, 'replace');
+  if (!surveyPath && url.searchParams.has('city')) updateRoute(state.view, requested, 'replace');
   render(root);
 }
 
@@ -978,6 +992,16 @@ function renderHome(root: HTMLElement): void {
 }
 
 function render(root: HTMLElement) {
+  if (state.view === 'survey') {
+    destroyMap();
+    document.title = 'Founding feedback — Detour';
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    meta?.setAttribute('content', 'Share anonymous founding feedback to help Detour build better place discovery around people whose taste you trust.');
+    renderFoundingSurvey(root, { homeHref: homeHref(), brandMark: brandMark() });
+    bindRouteLinks(root);
+    return;
+  }
+
   if (state.view === 'account') {
     renderAccount(root);
     return;

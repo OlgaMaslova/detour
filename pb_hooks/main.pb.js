@@ -4,6 +4,86 @@ routerAdd("GET", "/api/supernaut/ready", (event) => {
   return event.json(200, { ok: true });
 });
 
+// Anonymous founding-feedback submissions are accepted only through this
+// server-side route. The backing collection has no public CRUD rules.
+routerAdd("POST", "/api/detour/founding-feedback", (e) => {
+  function normalizeText(value, fieldName, maxLength) {
+    if (typeof value !== "string") {
+      throw new BadRequestError(fieldName + " must be a string.");
+    }
+
+    // Bound the raw payload too, so an input made mostly of controls or repeated
+    // whitespace cannot bypass the normalized field limit cheaply.
+    if (value.length > maxLength * 4 + 32) {
+      throw new BadRequestError(fieldName + " is too long.");
+    }
+
+    const normalized = value
+      .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (normalized.length > maxLength) {
+      throw new BadRequestError(fieldName + " is too long.");
+    }
+    return normalized;
+  }
+
+  let body;
+  try {
+    body = e.requestInfo().body;
+  } catch {
+    throw new BadRequestError("A valid JSON object is required.");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new BadRequestError("A valid JSON object is required.");
+  }
+
+  const discoverySource = normalizeText(
+    body.discovery_source,
+    "discovery_source",
+    40
+  );
+  if (
+    ["friends", "food-people", "social", "reviews", "other"].indexOf(
+      discoverySource
+    ) === -1
+  ) {
+    throw new BadRequestError(
+      "discovery_source must be one of friends, food-people, social, reviews, or other."
+    );
+  }
+
+  const circleInterest = normalizeText(body.circle_interest, "circle_interest", 16);
+  if (["yes", "maybe", "no"].indexOf(circleInterest) === -1) {
+    throw new BadRequestError("circle_interest must be one of yes, maybe, or no.");
+  }
+
+  const valueNeeded = normalizeText(body.value_needed, "value_needed", 1200);
+  const meaningfulWords = valueNeeded
+    .split(/\s+/)
+    .map((word) =>
+      word.replace(/[.,!?;:'"()\[\]{}<>/\\|`~@#$%^&*+=_-]+/g, "")
+    )
+    .filter((word) => word.length >= 2);
+  if (valueNeeded.length < 8 || meaningfulWords.length === 0) {
+    throw new BadRequestError(
+      "value_needed must contain a useful answer between 8 and 1200 characters after whitespace normalization."
+    );
+  }
+
+  const collection = e.app.findCollectionByNameOrId(
+    "founding_feedback_responses"
+  );
+  const response = new Record(collection);
+  response.set("discovery_source", discoverySource);
+  response.set("circle_interest", circleInterest);
+  response.set("value_needed", valueNeeded);
+  response.set("source", "public_survey");
+  e.app.save(response);
+
+  return e.json(201, { ok: true });
+});
+
 // These private routes bypass member rules only for explicit safe projections.
 routerAdd(
   "GET",
