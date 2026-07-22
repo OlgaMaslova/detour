@@ -60,9 +60,9 @@ export interface CityEditorialSource {
   bounds?: CityBounds | null;
 }
 
-export const GLOBAL_META_TITLE = 'Detour — Recommendations from an invite-only circle';
+export const GLOBAL_META_TITLE = 'Detour — Food-and-drink recommendations from an invite-only circle';
 export const GLOBAL_META_DESCRIPTION =
-  'Detour is an invite-only circle for discovering memorable places through recommendations shared by members. Direct place shares and replies stay private.';
+  'Detour is an invite-only circle for discovering memorable restaurants, cafés, bars, and other food-and-drink destinations through member recommendations. Direct shares and replies stay private.';
 
 /**
  * Build the full presentation config for one live city record. Blank
@@ -82,17 +82,17 @@ export function cityConfigFromLive(live: CityEditorialSource): CityConfig {
     slug: live.slug,
     name,
     country: live.country,
-    title: live.title?.trim() || `${name}, recommended by Detour members.`,
+    title: live.title?.trim() || `Food-and-drink destinations in ${name}, recommended by Detour members.`,
     tagline:
       live.tagline?.trim() ||
-      '{count} places on the member-recommended Detourist List.',
+      '{count} food-and-drink destinations on the member-recommended Detourist List.',
     footer:
       live.footer?.trim() ||
-      `Detour brings together places in ${name} recommended by its members.`,
-    metaTitle: live.metaTitle?.trim() || `Detour — Member-recommended places in ${name}`,
+      `Detour brings together restaurants, cafés, bars, and other food-and-drink destinations in ${name} recommended by its members.`,
+    metaTitle: live.metaTitle?.trim() || `Detour — Member-recommended food and drink in ${name}`,
     metaDescription:
       live.metaDescription?.trim() ||
-      `Explore member-recommended Detourist List places in ${name}, with practical details and a map for planning your next detour.`,
+      `Explore member-recommended restaurants, cafés, bars, and other food-and-drink destinations in ${name}, with practical details and a map for planning your next detour.`,
     presentation: mapReady ? 'map' : 'list',
   };
   if (mapReady) {

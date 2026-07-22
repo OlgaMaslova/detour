@@ -257,7 +257,7 @@ function signedOutPanel(): string {
           ? `<form class="community-form" data-community-join>
               <label>How should we know you?<input name="display_name" autocomplete="name" maxlength="100" required></label>
               <label>Pick a pseudo<input name="pseudo" autocomplete="off" spellcheck="false" minlength="3" maxlength="30" pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens" required placeholder="e.g. detour-anna"></label>
-              <p class="community-form-note">Your pseudo is your unique handle — it is how other members find you to share places.</p>
+              <p class="community-form-note">Your pseudo is your unique handle — it is how other members find you to share food-and-drink destinations.</p>
               <label>Email address<input name="email" type="email" autocomplete="email" required></label>
               <div class="community-form-grid">
                 <label>Password<input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
@@ -294,14 +294,14 @@ function placeLinksMarkup(entry: WaitlistEntry): string {
     entry.image_url ? `<a href="${esc(entry.image_url)}" target="_blank" rel="noopener noreferrer">Photo</a>` : '',
   ].filter(Boolean);
   const hasLinks = links.length > 0;
-  return `${hasLinks ? `<p class="community-place-links" aria-label="Place links">${links.join('<span aria-hidden="true"> · </span>')}</p>` : ''}
+  return `${hasLinks ? `<p class="community-place-links" aria-label="Destination links">${links.join('<span aria-hidden="true"> · </span>')}</p>` : ''}
     <details class="community-share-disclosure community-links-disclosure">
-      <summary>${hasLinks ? 'Edit place links' : 'Add place links'}</summary>
+      <summary>${hasLinks ? 'Edit destination links' : 'Add destination links'}</summary>
       <form class="community-form community-links-form" data-community-links data-waitlist="${esc(entry.id)}">
-        <label>Website<input name="official_url" value="${esc(entry.official_url || '')}" maxlength="300" inputmode="url" autocomplete="off" spellcheck="false" placeholder="theplace.com"></label>
-        <label>Instagram<input name="instagram_url" value="${esc(entry.instagram_url || '')}" maxlength="300" autocomplete="off" spellcheck="false" placeholder="@theplace or instagram.com/theplace"></label>
-        <label>Photo link<input name="image_url" value="${esc(entry.image_url || '')}" maxlength="2048" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Direct link to a photo of the place"></label>
-        <p class="community-form-note">We try to find these automatically, but a member who knows the place does it better. Your links carry through to the public page${entry.status === 'published' ? ' right away' : ' when it publishes'}.</p>
+        <label>Website<input name="official_url" value="${esc(entry.official_url || '')}" maxlength="300" inputmode="url" autocomplete="off" spellcheck="false" placeholder="restaurant.example"></label>
+        <label>Instagram<input name="instagram_url" value="${esc(entry.instagram_url || '')}" maxlength="300" autocomplete="off" spellcheck="false" placeholder="@restaurant or instagram.com/restaurant"></label>
+        <label>Photo link<input name="image_url" value="${esc(entry.image_url || '')}" maxlength="2048" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Direct link to a photo of the destination"></label>
+        <p class="community-form-note">We try to find these automatically, but a member who knows the destination does it better. Your links carry through to the public page${entry.status === 'published' ? ' right away' : ' when it publishes'}.</p>
         <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Saving…' : 'Save links'}</button>
       </form>
     </details>`;
@@ -315,7 +315,7 @@ function waitlistCard(entry: WaitlistEntry): string {
   const occasions = (entry.occasions || []).map((occasion) => labelForOption(OCCASION_OPTIONS, occasion)).filter(Boolean);
   return `<article class="community-queue-card${highlightedWaitlistId === entry.id ? ' is-highlighted' : ''}" id="waitlist-${esc(entry.id)}" tabindex="-1">
     <div class="community-queue-head">
-      <div><h4>${esc(entry.venue_name || 'Unnamed place')}</h4><p>${esc([entry.address, entry.city, entry.country].filter(Boolean).join(', '))}</p></div>
+      <div><h4>${esc(entry.venue_name || 'Unnamed food-and-drink destination')}</h4><p>${esc([entry.address, entry.city, entry.country].filter(Boolean).join(', '))}</p></div>
       <span class="community-queue-status is-${published ? 'published' : 'pending'}">${published ? 'Published' : 'Pending'}</span>
     </div>
     ${category || occasions.length ? `<dl class="community-place-facts">${category ? `<div><dt>Category</dt><dd>${esc(category)}</dd></div>` : ''}${occasions.length ? `<div><dt>Good for</dt><dd>${esc(occasions.join(' · '))}</dd></div>` : ''}</dl>` : ''}
@@ -330,7 +330,7 @@ function waitlistCard(entry: WaitlistEntry): string {
             <summary>Share with a member</summary>
             <form class="community-form community-share-form" data-community-share data-waitlist="${esc(entry.id)}">
               ${directoryMarkup(directoryKey, 'Share with a member')}
-              <label>Personal note<textarea name="personal_note" rows="3" maxlength="1200" minlength="8" required placeholder="Why you thought of them for this place"></textarea></label>
+              <label>Personal note<textarea name="personal_note" rows="3" maxlength="1200" minlength="8" required placeholder="Why you thought of them for this food-and-drink destination"></textarea></label>
               <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sharing…' : 'Share privately'}</button>
             </form>
           </details>`
@@ -342,12 +342,12 @@ function waitlistCard(entry: WaitlistEntry): string {
 function recommendationPanel(): string {
   return `<section class="community-ledger-section" aria-labelledby="community-waitlist-title">
     <div class="community-section-heading">
-      <div><h3 id="community-waitlist-title">Recommend a place anywhere</h3></div>
-      <p>As a verified member, you can recommend a place anywhere in the world. It is published on the Detourist List only after three independent members recommend it.</p>
+      <div><h3 id="community-waitlist-title">Recommend a food-and-drink destination</h3></div>
+      <p>As a verified member, you can recommend a restaurant, café, bar, or other food-and-drink destination anywhere in the world. It is published on the Detourist List only after three independent members recommend it.</p>
     </div>
     <div class="community-action-grid community-recommend-action">
       <form class="community-form" data-community-recommendation>
-        <label>Place name<input name="venue_name" maxlength="200" required placeholder="The place you would send someone"></label>
+        <label>Food-and-drink destination name<input name="venue_name" maxlength="200" required placeholder="A restaurant, café, bar, or other food-and-drink destination"></label>
         <label>Address <span class="community-optional">Optional — we can look it up</span><input name="address" maxlength="300" placeholder="Street and number"></label>
         <div class="community-form-grid community-place-grid">
           <label>City or locality<input name="city" maxlength="120" required placeholder="City or locality"></label>
@@ -358,7 +358,7 @@ function recommendationPanel(): string {
           <legend>Good for <span class="community-optional">Optional — choose any that fit</span></legend>
           <div class="community-choice-grid">${OCCASION_OPTIONS.map(([value, label]) => `<label><input type="checkbox" name="occasions" value="${value}"><span>${label}</span></label>`).join('')}</div>
         </fieldset>
-        <label>Your recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this place worth a deliberate detour?"></textarea></label>
+        <label>Your recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?"></textarea></label>
         <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend'}</button>
       </form>
     </div>
@@ -384,8 +384,8 @@ function formatDate(value: string | undefined): string {
 
 function incomingShareCard(share: ShareRecord): string {
   return `<article class="community-share-card${share.seen ? '' : ' is-new'}">
-    <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared place')}</h4><p>${esc([share.address, share.city, share.country].filter(Boolean).join(', '))}</p></div><span>${share.seen ? 'Shared with you' : 'New'}</span></div>
-    <p class="community-share-from">${memberIdentityMarkup(share.sender_pseudo)} shared this place with you.</p>
+    <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared food-and-drink destination')}</h4><p>${esc([share.address, share.city, share.country].filter(Boolean).join(', '))}</p></div><span>${share.seen ? 'Shared with you' : 'New'}</span></div>
+    <p class="community-share-from">${memberIdentityMarkup(share.sender_pseudo)} shared this food-and-drink destination with you.</p>
     <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
     ${share.venue ? '<p class="community-share-state is-success">In the Detour selection.</p>' : ''}
   </article>`;
@@ -393,7 +393,7 @@ function incomingShareCard(share: ShareRecord): string {
 
 function outgoingShareCard(share: ShareRecord): string {
   return `<article class="community-share-card community-share-card-sent">
-    <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared place')}</h4><p>${esc([share.address, share.city, share.country].filter(Boolean).join(', '))}</p></div><span>Sent</span></div>
+    <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared food-and-drink destination')}</h4><p>${esc([share.address, share.city, share.country].filter(Boolean).join(', '))}</p></div><span>Sent</span></div>
     <p class="community-share-from">Shared with ${memberIdentityMarkup(share.recipient_pseudo, 'a Detour member')}.</p>
     <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
   </article>`;
@@ -414,17 +414,17 @@ function matchVenue(placeInput: string, city: string): Venue | undefined {
 function sharePlaceForm(): string {
   return `<form class="community-form community-share-place-form" data-community-share-place>
     ${directoryMarkup('share-place', 'Share with a member')}
-    <label>Place<input name="place" list="community-share-place-options" autocomplete="off" maxlength="200" required placeholder="Pick from the list or type your own"></label>
+    <label>Food-and-drink destination<input name="place" list="community-share-place-options" autocomplete="off" maxlength="200" required placeholder="Pick from the list or add a restaurant, café, bar, or other destination"></label>
     <datalist id="community-share-place-options">${knownVenues
       .map((venue) => `<option value="${esc(`${venue.name} — ${venue.city}`)}"></option>`)
       .join('')}</datalist>
-    <label>Address<input name="address" maxlength="300" placeholder="Street and number — needed for a place not in the list"></label>
+    <label>Address<input name="address" maxlength="300" placeholder="Street and number — needed for a destination not in the list"></label>
     <div class="community-form-grid community-place-grid">
       <label>City<input name="city" maxlength="120" placeholder="Madrid"></label>
       <label>Country<input name="country" maxlength="120" placeholder="Spain"></label>
     </div>
-    <label>Personal note<textarea name="personal_note" rows="3" maxlength="1200" minlength="8" required placeholder="Why you thought of them for this place"></textarea></label>
-    <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sharing…' : 'Share place'}</button>
+    <label>Personal note<textarea name="personal_note" rows="3" maxlength="1200" minlength="8" required placeholder="Why you thought of them for this food-and-drink destination"></textarea></label>
+    <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sharing…' : 'Share destination'}</button>
   </form>`;
 }
 
@@ -433,8 +433,8 @@ function sharesPanel(): string {
   const outgoing = outgoingShares();
   return `<section class="community-ledger-section" aria-labelledby="private-shares-title">
     <div class="community-section-heading">
-      <div><h3 id="private-shares-title">Share a place</h3></div>
-      <p>Send any place to a member with a note — from the list, or one of your own.</p>
+      <div><h3 id="private-shares-title">Share a food-and-drink destination</h3></div>
+      <p>Send a restaurant, café, bar, or other food-and-drink destination to a member with a note — from the list, or one of your own.</p>
     </div>
     <div class="community-action-grid community-share-place-action">
       ${sharePlaceForm()}
@@ -523,12 +523,12 @@ function settingsPanel(record: MemberRecord): string {
         <label>Your pseudo<input name="pseudo" value="${esc(record.pseudo || '')}" autocomplete="off" spellcheck="false" minlength="3" maxlength="30" pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens" required></label>
         <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Saving…' : 'Save pseudo'}</button>
       </form>
-      <p class="community-form-note">Your unique handle — other members search for it to share places with you.</p>
+      <p class="community-form-note">Your unique handle — other members search for it to share food-and-drink destinations with you.</p>
     </div>
     <div class="community-visibility-row">
       <div class="community-visibility-copy">
-        <h3>Circle discovery</h3>
-        <p class="community-form-note">Recommendations are discoverable by the full invite-only Detour circle by default. Private shares and replies stay private.</p>
+        <h3>Food-and-drink discovery</h3>
+        <p class="community-form-note">Your food-and-drink recommendations are discoverable by the full invite-only Detour circle by default. Private shares and replies stay private.</p>
       </div>
       <label class="community-switch">
         <input type="checkbox" data-community-visibility ${keepPrivate ? 'checked' : ''} ${visibilitySaving ? 'disabled' : ''}>
@@ -1091,7 +1091,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
       await loadCommunity(render);
       focusWaitlistEntry(highlightedWaitlistId);
     } catch (error) {
-      notice = { kind: 'error', text: readableError(error, 'That recommendation could not be added. Check the place details and note, then try again.') };
+      notice = { kind: 'error', text: readableError(error, 'That recommendation could not be added. Check the food-and-drink destination details and note, then try again.') };
     } finally {
       submitting = false;
       render();
@@ -1114,7 +1114,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
           image_url: String(values.get('image_url') || '').trim(),
         });
         highlightedWaitlistId = entryId;
-        notice = { kind: 'success', text: 'Place links saved.' };
+        notice = { kind: 'success', text: 'Destination links saved.' };
         communityLoaded = false;
         await loadCommunity(render);
         focusWaitlistEntry(entryId);
@@ -1133,7 +1133,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
       const waitlist = form.dataset.waitlist || '';
       const selected = directoryState(`share-${waitlist}`).selected;
       if (!selected) {
-        notice = { kind: 'error', text: 'Search for a member and choose their pseudo before sharing this place.' };
+        notice = { kind: 'error', text: 'Search for a member and choose their pseudo before sharing this food-and-drink destination.' };
         render();
         return;
       }
@@ -1164,7 +1164,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     event.preventDefault();
     const selected = directoryState('share-place').selected;
     if (!selected) {
-      notice = { kind: 'error', text: 'Search for a member and choose their pseudo before sharing.' };
+      notice = { kind: 'error', text: 'Search for a member and choose their pseudo before sharing a food-and-drink destination.' };
       render();
       return;
     }
@@ -1176,7 +1176,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     const note = String(values.get('personal_note') || '').trim();
     const venue = matchVenue(place, city);
     if (!venue && (!city || !country || !address)) {
-      notice = { kind: 'error', text: 'That place is not in the list yet — add its address, city, and country to share it.' };
+      notice = { kind: 'error', text: 'That food-and-drink destination is not in the list yet — add its address, city, and country to share it.' };
       render();
       return;
     }

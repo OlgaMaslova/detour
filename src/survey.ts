@@ -53,7 +53,7 @@ function esc(value: string): string {
 
 function validate(): Partial<Record<SurveyField, string>> {
   const errors: Partial<Record<SurveyField, string>> = {};
-  if (!state.discoverySource) errors.discoverySource = 'Choose where you most often find places worth the detour.';
+  if (!state.discoverySource) errors.discoverySource = 'Choose where you most often find food-and-drink destinations worth the detour.';
   if (!state.circleInterest) errors.circleInterest = 'Choose yes, maybe, or no.';
   const motivation = state.recommendationMotivation.trim();
   if (!motivation) {
@@ -197,7 +197,7 @@ export function renderFoundingSurvey(root: HTMLElement, options: SurveyRenderOpt
         <div class="survey-success-mark" aria-hidden="true">✓</div>
         <p class="survey-kicker">Feedback received</p>
         <h1 id="survey-success-title" tabindex="-1">Thank you for helping shape Detour.</h1>
-        <p>Your answers are in. They’ll help us build discovery around trusted taste, not more noise.</p>
+        <p>Your answers are in. They’ll help us build food-and-drink discovery around trusted taste, not more noise.</p>
         <a class="survey-primary-link" href="${esc(options.homeHref)}" data-home>Return to Detour</a>
       </main>`;
     return;
@@ -217,12 +217,12 @@ export function renderFoundingSurvey(root: HTMLElement, options: SurveyRenderOpt
       <section class="survey-intro">
         <p class="survey-kicker">Founding feedback</p>
         <h1 id="survey-title">Good taste should travel.</h1>
-        <p>Three quick questions about how you discover places and what would make a trusted food circle useful.</p>
+        <p>Three quick questions about how you discover restaurants, cafés, bars, and other food-and-drink destinations, and what would make a trusted circle useful.</p>
         <p class="survey-privacy-note">Anonymous by design. No account, name, or email.</p>
       </section>
       <form class="survey-form" data-founding-survey novalidate>
         <fieldset class="survey-question" ${state.submitting ? 'disabled' : ''} aria-describedby="survey-discoverySource-note survey-discoverySource-error">
-          <legend><span class="survey-question-number" aria-hidden="true">1</span><span>Where do you usually find places worth going out of your way for?</span></legend>
+          <legend><span class="survey-question-number" aria-hidden="true">1</span><span>Where do you usually find restaurants, cafés, bars, and other food-and-drink destinations worth going out of your way for?</span></legend>
           <p class="survey-question-note" id="survey-discoverySource-note">Choose the one that is most true for you.</p>
           <div class="survey-choice-list">
             ${optionMarkup('discoverySource', discoveryOptions, state.discoverySource, 'survey-discoverySource-note survey-discoverySource-error', Boolean(discoveryError))}
@@ -231,7 +231,7 @@ export function renderFoundingSurvey(root: HTMLElement, options: SurveyRenderOpt
         </fieldset>
 
         <fieldset class="survey-question" ${state.submitting ? 'disabled' : ''} aria-describedby="survey-circleInterest-error">
-          <legend><span class="survey-question-number" aria-hidden="true">2</span><span>Would you use a private circle of people whose food taste you trust to discover places?</span></legend>
+          <legend><span class="survey-question-number" aria-hidden="true">2</span><span>Would you use a private circle of people whose taste you trust to discover somewhere to eat or drink?</span></legend>
           <div class="survey-choice-list survey-choice-list-compact">
             ${optionMarkup('circleInterest', circleOptions, state.circleInterest, 'survey-circleInterest-error', Boolean(circleError))}
           </div>
@@ -239,11 +239,11 @@ export function renderFoundingSurvey(root: HTMLElement, options: SurveyRenderOpt
         </fieldset>
 
         <div class="survey-question survey-text-question">
-          <label for="recommendation-motivation"><span class="survey-question-number" aria-hidden="true">3</span><span>What would make you want to add your own recommendations?</span></label>
+          <label for="recommendation-motivation"><span class="survey-question-number" aria-hidden="true">3</span><span>What would make you want to add your own food-and-drink recommendations?</span></label>
           <textarea id="recommendation-motivation" name="recommendationMotivation" rows="6" required maxlength="1200"
             aria-describedby="survey-recommendationMotivation-note survey-recommendationMotivation-error"
             ${motivationError ? 'aria-invalid="true"' : ''} ${state.submitting ? 'disabled' : ''}
-            placeholder="For example: knowing who will see them, keeping a personal list, or helping friends find somewhere special.">${esc(state.recommendationMotivation)}</textarea>
+            placeholder="For example: knowing who will see them, keeping a personal list, or helping friends find somewhere memorable to eat or drink.">${esc(state.recommendationMotivation)}</textarea>
           <p class="survey-question-note" id="survey-recommendationMotivation-note">A sentence or two is plenty.</p>
           ${fieldError('survey-recommendationMotivation-error', motivationError)}
         </div>
