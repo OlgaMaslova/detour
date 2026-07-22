@@ -89,6 +89,7 @@ interface Notice {
 }
 
 const MEMBER_TABS: MemberTab[] = ['invitations', 'detours', 'settings'];
+const INVITATION_LIMIT = 10;
 const CATEGORY_OPTIONS = [
   ['restaurant', 'Restaurant'],
   ['cafe', 'Café'],
@@ -454,7 +455,7 @@ function sharesPanel(): string {
 function invitesPanel(): string {
   const unclaimed = openInvites();
   const claimed = invites.filter((invite) => invite.claimed_by);
-  const available = Math.max(0, 3 - unclaimed.length);
+  const available = Math.max(0, INVITATION_LIMIT - unclaimed.length);
   const allowanceKnown = invitesLoaded && !loadingInvites;
   const atLimit = allowanceKnown && available === 0;
   return `<section class="community-tab-panel community-invitation-panel" id="member-panel-invitations" role="tabpanel" aria-labelledby="member-tab-invitations" tabindex="0">
@@ -1025,7 +1026,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
   });
 
   root.querySelector<HTMLButtonElement>('[data-community-invite]')?.addEventListener('click', async () => {
-    if (!member() || !invitesLoaded || loadingInvites || openInvites().length >= 3) return;
+    if (!member() || !invitesLoaded || loadingInvites || openInvites().length >= INVITATION_LIMIT) return;
     submitting = true;
     notice = null;
     render();
