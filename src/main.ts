@@ -5,7 +5,7 @@ import { citySlug, loadLiveCatalogue } from './data';
 import type { Venue } from './data';
 import { GLOBAL_META_DESCRIPTION, GLOBAL_META_TITLE } from './cities';
 import { OCCASION_OPTIONS, occasionLabel } from './occasions';
-import { bindCommunity, communityControl, communityPanel } from './community';
+import { bindCommunity, communityControl, communityPanel, openRecommendPlace, openSharePlace } from './community';
 import { pb } from './pocketbase';
 import { bindNetworkDiscovery, ensureNetworkDiscovery, networkDiscoveryMarkup, networkPlaceNotes, resetNetworkDiscovery } from './network';
 import { renderFoundingSurvey } from './survey';
@@ -775,7 +775,11 @@ function bindRouteLinks(root: HTMLElement): void {
     link.addEventListener('click', (event) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
+      const target = link.getAttribute('data-community-route');
+      const preset = target === 'share-place' ? openSharePlace : target === 'recommend-place' ? openRecommendPlace : null;
+      preset?.();
       if (state.view !== 'account') showAccount(root);
+      else if (preset) render(root);
     });
   });
   root.querySelectorAll<HTMLAnchorElement>('[data-return-discovery]').forEach((link) => {

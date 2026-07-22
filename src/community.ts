@@ -577,6 +577,18 @@ function signedInPanel(): string {
   </section>`;
 }
 
+/** Point the member area at the Share a place form (My detours → Shares) before it renders. */
+export function openSharePlace(): void {
+  memberTab = 'detours';
+  detourTab = 'shares';
+}
+
+/** Point the member area at the Recommend a place form (My detours → Recommendations) before it renders. */
+export function openRecommendPlace(): void {
+  memberTab = 'detours';
+  detourTab = 'recommendations';
+}
+
 export function communityControl(href: string, current = false): string {
   const record = member();
   const label = record ? `Member: ${memberName(record)}` : 'Members';

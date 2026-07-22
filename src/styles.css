@@ -2707,6 +2707,9 @@ a.brand:focus-visible {
   text-wrap: balance;
 }
 .network-section-heading > div > p { max-width: 56ch; margin: 0.45rem 0 0; color: var(--ink-soft); font-size: 0.88rem; }
+.network-section-actions { display: flex; flex: none; align-items: center; gap: 0.85rem; }
+.network-share-cta,
+.network-recommend-cta { min-height: 40px; }
 .network-section-count {
   flex: none;
   margin: 0;
@@ -3023,6 +3026,7 @@ a.brand:focus-visible {
   .network-section-heading,
   .network-entry-head { align-items: flex-start; flex-direction: column; }
   .network-section-count { align-self: flex-start; }
+  .network-section-actions { flex-direction: row-reverse; align-self: stretch; justify-content: flex-end; }
   .network-entry-kind { order: -1; }
   .network-reply-form-footer { align-items: stretch; flex-direction: column; }
   .network-reply-submit { width: 100%; }
