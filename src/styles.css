@@ -478,15 +478,16 @@ a:hover { color: var(--wine-deep); }
   opacity: 0.5;
 }
 .detail-cover {
-  grid-column: 1 / -1;
+  width: min(100%, 11rem);
   margin: 0;
   overflow: hidden;
-  border-bottom: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
 }
 .detail-cover img {
   display: block;
   width: 100%;
-  height: clamp(6rem, 16vw, 9rem);
+  height: 11rem;
   object-fit: cover;
 }
 .card h3 { margin: 0; font-family: var(--serif); font-size: 1.18rem; font-weight: 700; letter-spacing: 0.005em; }

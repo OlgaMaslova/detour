@@ -714,14 +714,14 @@ function detailPanel(): string {
       <button type="button" class="detail-close" data-close aria-label="Close details"><span aria-hidden="true">×</span></button>
     </div>
     <div class="detail-body">
-      ${(() => {
-        const cover = safeExternalHref(v.imageUrl);
-        return cover && !failedCoverUrls.has(cover)
-          ? `<figure class="detail-cover"><img src="${esc(cover)}" alt="${esc(v.name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-cover-image></figure>`
-          : '';
-      })()}
       <section class="detail-recommendation" aria-labelledby="detail-recommendation-title">
         <h3 id="detail-recommendation-title">Why it’s here</h3>
+        ${(() => {
+          const cover = safeExternalHref(v.imageUrl);
+          return cover && !failedCoverUrls.has(cover)
+            ? `<figure class="detail-cover"><img src="${esc(cover)}" alt="${esc(v.name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-cover-image></figure>`
+            : '';
+        })()}
         <p class="detail-note">${esc(
           signal
             ? `${signal} — a place worth a deliberate detour.`
