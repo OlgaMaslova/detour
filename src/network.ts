@@ -4,7 +4,6 @@ type DiscoveryStatus = 'idle' | 'loading' | 'ready' | 'error';
 type ShareDirection = 'received' | 'sent';
 
 export interface DiscoveryRecommendation {
-  recommender_name?: string;
   recommender_pseudo?: string;
   note?: string;
   venue_name?: string;
@@ -17,7 +16,6 @@ export interface DiscoveryRecommendation {
 interface DiscoveryReply {
   id: string;
   body: string;
-  author_name?: string;
   author_pseudo?: string;
   created?: string;
 }
@@ -30,9 +28,7 @@ interface DiscoveryShare {
   country?: string;
   address?: string;
   personal_note?: string;
-  sender_name?: string;
   sender_pseudo?: string;
-  recipient_name?: string;
   recipient_pseudo?: string;
   seen?: boolean;
   created?: string;
@@ -100,7 +96,6 @@ function cleanRecommendation(value: unknown): DiscoveryRecommendation | null {
   if (!venueName) return null;
   return {
     venue_name: venueName,
-    recommender_name: cleanText(item.recommender_name),
     recommender_pseudo: cleanText(item.recommender_pseudo),
     note: cleanText(item.note),
     city: cleanText(item.city),
@@ -119,7 +114,6 @@ function cleanReply(value: unknown): DiscoveryReply | null {
   return {
     id,
     body,
-    author_name: cleanText(item.author_name),
     author_pseudo: cleanText(item.author_pseudo),
     created: cleanDate(item.created),
   };
@@ -148,9 +142,7 @@ function cleanShare(value: unknown): DiscoveryShare | null {
     country: cleanText(item.country),
     address: cleanText(item.address),
     personal_note: cleanText(item.personal_note),
-    sender_name: cleanText(item.sender_name),
     sender_pseudo: cleanText(item.sender_pseudo),
-    recipient_name: cleanText(item.recipient_name),
     recipient_pseudo: cleanText(item.recipient_pseudo),
     seen: item.seen === true,
     created: cleanDate(item.created),
@@ -188,9 +180,9 @@ function replyCreateError(error: unknown): string {
   return 'That reply could not be sent. Check your connection and the reply text, then try again.';
 }
 
-function memberRecord(): { id: string; display_name?: string; email?: string } | null {
+function memberRecord(): { id: string; pseudo?: string; email?: string } | null {
   if (!pb.authStore.isValid || !pb.authStore.record?.id) return null;
-  return pb.authStore.record as unknown as { id: string; display_name?: string; email?: string };
+  return pb.authStore.record as unknown as { id: string; pseudo?: string; email?: string };
 }
 
 export function isAuthenticatedMember(): boolean {
@@ -198,8 +190,8 @@ export function isAuthenticatedMember(): boolean {
 }
 
 /**
- * Recommendations from the member's private network that carry a note, so the
- * catalogue detail can show what a connection actually said about a place.
+ * Recommendations from the shared Detour circle that carry a note, so the
+ * catalogue detail can show what another member said about a place.
  * Empty until the discovery feed has loaded for the signed-in member.
  */
 export function networkPlaceNotes(): DiscoveryRecommendation[] {
@@ -235,8 +227,9 @@ function placeMeta(item: { address?: string; city?: string; country?: string }):
   return [item.address, item.city, item.country].filter(Boolean).join(', ');
 }
 
-function pseudo(value: string | undefined): string {
-  return value ? `<span class="network-pseudo">@${esc(value.replace(/^@+/, ''))}</span>` : '';
+function pseudo(value: string | undefined, fallback = 'A Detour member'): string {
+  const cleaned = value?.trim().replace(/^@+/, '');
+  return `<strong class="network-pseudo">${cleaned ? `@${esc(cleaned)}` : esc(fallback)}</strong>`;
 }
 
 function replyState(shareId: string): ReplyState {
@@ -263,10 +256,9 @@ function domToken(value: string): string {
 }
 
 function replyMarkup(item: DiscoveryReply): string {
-  const who = item.author_name || 'A member';
   const when = formatDate(item.created);
   return `<li class="network-reply">
-    <p class="network-reply-byline"><strong>${esc(who)}</strong>${pseudo(item.author_pseudo)}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
+    <p class="network-reply-byline">${pseudo(item.author_pseudo)}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
     <p class="network-reply-body">${esc(item.body)}</p>
   </li>`;
 }
@@ -299,7 +291,6 @@ function replyThreadMarkup(item: DiscoveryShare): string {
 }
 
 function recommendationMarkup(item: DiscoveryRecommendation, resolvePlace?: NetworkPlaceResolver): string {
-  const who = item.recommender_name || 'A connection';
   const when = formatDate(item.created);
   const metadata = placeMeta(item);
   const name = item.venue_name || 'Recommended place';
@@ -316,13 +307,12 @@ function recommendationMarkup(item: DiscoveryRecommendation, resolvePlace?: Netw
       <span class="network-entry-kind">Recommendation</span>
     </header>
     ${item.note ? `<blockquote><p>${esc(item.note)}</p></blockquote>` : '<p class="network-entry-note-empty">No note was included with this recommendation.</p>'}
-    <p class="network-entry-byline"><strong>${esc(who)}</strong>${pseudo(item.recommender_pseudo)}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
+    <p class="network-entry-byline">${pseudo(item.recommender_pseudo)}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
   </article>`;
 }
 
 function shareMarkup(item: DiscoveryShare): string {
   const received = item.direction === 'received';
-  const person = received ? item.sender_name || 'A connection' : item.recipient_name || 'a connection';
   const personPseudo = received ? item.sender_pseudo : item.recipient_pseudo;
   const when = formatDate(item.created);
   const metadata = placeMeta(item);
@@ -335,7 +325,7 @@ function shareMarkup(item: DiscoveryShare): string {
       <span class="network-entry-kind">${received ? (item.seen ? 'Received' : 'New share') : 'Sent'}</span>
     </header>
     ${item.personal_note ? `<blockquote><p>${esc(item.personal_note)}</p></blockquote>` : '<p class="network-entry-note-empty">No personal note was included.</p>'}
-    <p class="network-entry-byline">${received ? 'From' : 'To'} <strong>${esc(person)}</strong>${pseudo(personPseudo)}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
+    <p class="network-entry-byline">${received ? 'From' : 'To'} ${pseudo(personPseudo, received ? 'A Detour member' : 'a Detour member')}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
     ${replyThreadMarkup(item)}
   </article>`;
 }
@@ -349,13 +339,13 @@ function memberFeedMarkup(resolvePlace?: NetworkPlaceResolver): string {
   if (status === 'loading' || status === 'idle') {
     return `<div class="network-state network-state-loading" role="status">
       <span class="network-loading-mark" aria-hidden="true"></span>
-      <div><h2>Gathering your private network</h2><p>Loading recommendations and place shares that belong to your account.</p></div>
+      <div><h2>Gathering the Detour circle</h2><p>Loading full-circle recommendations and private place shares.</p></div>
     </div>`;
   }
 
   if (status === 'error') {
     return `<div class="network-state network-state-error" role="alert">
-      <div><h2>Your network could not be loaded</h2><p>${esc(errorMessage || 'Please try again. Your private activity has not been shown.')}</p></div>
+      <div><h2>The Detour circle could not be loaded</h2><p>${esc(errorMessage || 'Please try again. Circle recommendations and your private shares have not been shown.')}</p></div>
       <button type="button" class="network-retry" data-network-retry>Try again</button>
     </div>`;
   }
@@ -363,10 +353,10 @@ function memberFeedMarkup(resolvePlace?: NetworkPlaceResolver): string {
   return `<div class="network-member-content">
     <section class="network-stream" aria-labelledby="network-recommendations-title">
       <div class="network-section-heading">
-        <div><h2 id="network-recommendations-title">Recommended by your network</h2><p>Notes from members directly connected to you.</p></div>
+        <div><h2 id="network-recommendations-title">Recommended by the circle</h2><p>Recommendations shared by members across the invite-only Detour circle.</p></div>
         <p class="network-section-count">${recommendations.length} ${recommendations.length === 1 ? 'recommendation' : 'recommendations'}</p>
       </div>
-      ${recommendations.length ? `<div class="network-entry-list">${recommendations.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div>` : `<div class="network-empty"><h3>No network recommendations yet</h3><p>When a direct connection chooses to share their recommendations, they will appear here.</p></div>`}
+      ${recommendations.length ? `<div class="network-entry-list">${recommendations.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div>` : `<div class="network-empty"><h3>No circle recommendations yet</h3><p>Recommendations will appear here as members add them, unless they choose to keep theirs private.</p></div>`}
     </section>
     <section class="network-stream network-shares" aria-labelledby="network-shares-title">
       <div class="network-section-heading">
@@ -376,7 +366,7 @@ function memberFeedMarkup(resolvePlace?: NetworkPlaceResolver): string {
       ${shareCount ? `<div class="network-share-columns">
         <section aria-labelledby="network-received-title"><h3 id="network-received-title">Shared with you</h3>${received.length ? `<div class="network-entry-list">${received.map(shareMarkup).join('')}</div>` : '<p class="network-column-empty">Nothing received yet.</p>'}</section>
         <section aria-labelledby="network-sent-title"><h3 id="network-sent-title">Sent by you</h3>${sent.length ? `<div class="network-entry-list">${sent.map(shareMarkup).join('')}</div>` : '<p class="network-column-empty">Nothing sent yet.</p>'}</section>
-      </div>` : `<div class="network-empty"><h3>No place shares yet</h3><p>Use the member area to send a place directly to someone in your network.</p></div>`}
+      </div>` : `<div class="network-empty"><h3>No place shares yet</h3><p>Use the member area to send a place privately to another member of the circle.</p></div>`}
     </section>
   </div>`;
 }
@@ -386,13 +376,13 @@ export function networkDiscoveryMarkup(accountHref: string, resolvePlace?: Netwo
   if (!record) {
     return `<section class="network-invitation" aria-labelledby="network-home-title">
       <div class="network-invitation-copy">
-        <p class="network-kicker">Private place discovery, person to person</p>
-        <h1 id="network-home-title">Discover places through people you trust.</h1>
-        <p class="network-invitation-lead">Detour is a private community where members pass memorable places and personal recommendations directly to people they know—not to a public audience.</p>
+        <p class="network-kicker">An invite-only circle for place discovery</p>
+        <h1 id="network-home-title">Discover places through the Detour circle.</h1>
+        <p class="network-invitation-lead">Members share their recommendations across one trusted circle, while direct place shares and replies remain private between the people involved.</p>
         <ol class="network-how" aria-label="How Detour works">
-          <li><span aria-hidden="true">1</span><div><strong>Recommend a place</strong><p>Members recommend places they would genuinely send someone to.</p></div></li>
-          <li><span aria-hidden="true">2</span><div><strong>Pass it directly</strong><p>Places and personal notes move between direct connections.</p></div></li>
-          <li><span aria-hidden="true">3</span><div><strong>Discover privately</strong><p>Those shared recommendations become your private discovery feed.</p></div></li>
+          <li><span aria-hidden="true">1</span><div><strong>Recommend a place</strong><p>Add somewhere you would genuinely send another Detourist.</p></div></li>
+          <li><span aria-hidden="true">2</span><div><strong>Discover together</strong><p>Recommendations are visible across the full circle unless a member keeps theirs private.</p></div></li>
+          <li><span aria-hidden="true">3</span><div><strong>Share privately</strong><p>Send a place and continue the conversation directly with another member.</p></div></li>
         </ol>
       </div>
       <aside class="network-invitation-action" aria-labelledby="network-membership-title">
@@ -405,12 +395,13 @@ export function networkDiscoveryMarkup(accountHref: string, resolvePlace?: Netwo
     </section>`;
   }
 
-  const firstName = (record.display_name || record.email?.split('@')[0] || 'Member').trim();
+  const pseudoName = record.pseudo?.trim().replace(/^@+/, '');
+  const memberLabel = pseudoName ? `@${pseudoName}` : record.email || 'Detourist';
   return `<section class="network-home" aria-labelledby="network-home-title">
     <div class="network-home-heading">
-      <p class="network-kicker">Your private discovery</p>
-      <h1 id="network-home-title">Places passed hand to hand.</h1>
-      <p>Welcome back, ${esc(firstName)}. This is what your connections have recommended and what you have shared with each other.</p>
+      <p class="network-kicker">Your Detour circle</p>
+      <h1 id="network-home-title">Places shared around the circle.</h1>
+      <p>Welcome back, ${esc(memberLabel)}. Discover recommendations from the full circle and keep your direct place shares together here.</p>
     </div>
     ${memberFeedMarkup(resolvePlace)}
   </section>`;
@@ -432,7 +423,7 @@ async function loadNetworkDiscovery(render: () => void): Promise<void> {
     if (memberRecord()?.id !== record.id) return;
     discovery = { recommendations: [], shares: [] };
     status = 'error';
-    errorMessage = readableError(error, 'Your network is unavailable right now. Please try again shortly.');
+    errorMessage = readableError(error, 'The Detour circle is unavailable right now. Please try again shortly.');
   }
   render();
 }

@@ -1313,7 +1313,7 @@ a.brand:focus-visible {
   cursor: pointer;
 }
 .community-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.community-switch > span {
+.community-switch-track {
   position: relative;
   width: 3rem;
   height: 1.75rem;
@@ -1323,7 +1323,7 @@ a.brand:focus-visible {
   border-radius: 999px;
   transition: background-color 180ms cubic-bezier(0.25, 1, 0.5, 1);
 }
-.community-switch > span::after {
+.community-switch-track::after {
   content: '';
   position: absolute;
   top: 0.23rem;
@@ -1334,11 +1334,13 @@ a.brand:focus-visible {
   border-radius: 50%;
   transition: transform 180ms cubic-bezier(0.25, 1, 0.5, 1), background-color 180ms cubic-bezier(0.25, 1, 0.5, 1);
 }
-.community-switch input:checked + span { background: var(--violet); }
-.community-switch input:checked + span::after { background: white; transform: translateX(1.22rem); }
-.community-switch input:focus-visible + span { outline: var(--focus-ring); outline-offset: 3px; }
-.community-switch input:disabled + span { opacity: 0.55; }
-.community-switch strong { max-width: 15ch; font-size: 0.8rem; line-height: 1.35; }
+.community-switch input:checked + .community-switch-track { background: var(--violet); }
+.community-switch input:checked + .community-switch-track::after { background: white; transform: translateX(1.22rem); }
+.community-switch input:focus-visible + .community-switch-track { outline: var(--focus-ring); outline-offset: 3px; }
+.community-switch input:disabled + .community-switch-track { opacity: 0.55; }
+.community-switch-copy { display: grid; gap: 0.12rem; max-width: 19rem; }
+.community-switch-copy strong { font-size: 0.8rem; line-height: 1.35; }
+.community-switch-copy small { color: var(--ink-soft); font-size: 0.72rem; line-height: 1.35; }
 .community-danger-row {
   display: grid;
   gap: 0.9rem;
@@ -1471,7 +1473,7 @@ a.brand:focus-visible {
 .community-place-facts div { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .community-place-facts dt { color: var(--ink-soft); font-size: 0.75rem; font-weight: 700; }
 .community-place-facts dd { margin: 0; color: var(--ink); font-size: 0.78rem; }
-.member-pseudo { margin-left: 0.4rem; color: inherit; font-size: 0.82em; font-weight: 700; opacity: 0.62; }
+.member-identity { color: var(--violet); font-weight: 750; }
 .member-directory { position: relative; display: grid; gap: 0.32rem; }
 .member-directory-output { min-height: 2rem; }
 .member-directory-hint,
@@ -2717,8 +2719,10 @@ a.brand:focus-visible {
 .network-entry-note-empty { margin: 0; }
 .network-entry-note-empty { color: var(--ink-soft); font-size: 0.84rem; font-style: italic; }
 .network-entry-byline { margin: 0; color: var(--ink-soft); font-size: 0.78rem; }
-.network-entry-byline strong { color: var(--ink); }
-.network-pseudo { margin-left: 0.35rem; color: var(--violet); font-weight: 750; }
+.network-pseudo { color: var(--violet); font-weight: 750; }
+.network-entry-byline .network-pseudo,
+.network-reply-byline .network-pseudo,
+.detail-network-note footer .network-pseudo { color: var(--violet); }
 .network-entry time { font-variant-numeric: tabular-nums; }
 .network-replies {
   display: grid;

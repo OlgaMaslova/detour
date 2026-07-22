@@ -637,8 +637,8 @@ function shortDate(value: string | undefined): string {
 
 /**
  * Notes fellow Detourists attached when recommending this place, drawn from
- * the signed-in member's private discovery feed. Empty for signed-out
- * visitors and for places nobody in the member's network has annotated.
+ * the shared circle discovery feed. Empty for signed-out visitors and for
+ * places nobody in the Detour circle has annotated.
  */
 function networkNotesBlock(v: Venue): string {
   const name = normalizePlacePart(v.name);
@@ -650,18 +650,16 @@ function networkNotesBlock(v: Venue): string {
     return !itemCity || !city || itemCity === city;
   });
   if (notes.length === 0) return '';
-  return `<div class="detail-network" role="group" aria-label="Notes from your network">
-    <h4>From your network</h4>
+  return `<div class="detail-network" role="group" aria-label="Notes from the Detour circle">
+    <h4>From the Detour circle</h4>
     ${notes
       .map((item) => {
-        const who = item.recommender_name || 'A connection';
-        const handle = item.recommender_pseudo
-          ? `<span class="network-pseudo">@${esc(item.recommender_pseudo.replace(/^@+/, ''))}</span>`
-          : '';
+        const pseudo = item.recommender_pseudo?.trim().replace(/^@+/, '');
+        const memberLabel = pseudo ? `@${pseudo}` : 'A Detour member';
         const when = shortDate(item.created);
         return `<blockquote class="detail-network-note">
           <p>${esc(item.note || '')}</p>
-          <footer><strong>${esc(who)}</strong>${handle}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created || '')}">${esc(when)}</time>` : ''}</footer>
+          <footer><strong class="network-pseudo">${esc(memberLabel)}</strong>${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created || '')}">${esc(when)}</time>` : ''}</footer>
         </blockquote>`;
       })
       .join('')}
@@ -818,7 +816,7 @@ function renderAccount(root: HTMLElement): void {
     </header>
     ${communityPanel(state.venues)}
     <footer class="footer account-footer">
-      <p>Introductions, personal notes, and participant identities stay private. Three independent recommendations publish a place into the shared selection.</p>
+      <p>Members appear by pseudo. Direct shares and replies stay private, while recommendations are discoverable across the invite-only circle.</p>
     </footer>
   `;
 
@@ -897,7 +895,7 @@ function renderHome(root: HTMLElement): void {
     state.mode === 'loading'
       ? '<p class="network-search-status loading" role="status">Preparing place search…</p>'
       : state.mode === 'error'
-        ? '<p class="network-search-status is-error" role="status">Place search is unavailable right now. Your private network remains available.</p>'
+        ? '<p class="network-search-status is-error" role="status">Place search is unavailable right now. Your Detour circle remains available.</p>'
         : covered.length === 0
           ? '<p class="network-search-status" role="status">There are no published places to search at the moment.</p>'
           : '';
@@ -919,7 +917,7 @@ function renderHome(root: HTMLElement): void {
           .join('');
 
   root.innerHTML = `
-    <a class="skip-link" href="#network-home-title">Skip to private discovery</a>
+    <a class="skip-link" href="#network-home-title">Skip to circle discovery</a>
     <header class="network-masthead">
       <p class="network-brand">${brandMark()}Detour</p>
       ${communityControl(accountHref())}
@@ -942,7 +940,7 @@ function renderHome(root: HTMLElement): void {
       ${state.geoStatus ? `<p class="geo-status" role="status">${esc(state.geoStatus)}</p>` : ''}
     </section>
     <footer class="footer network-footer">
-      <p>Recommendations stay within the relationships that made them useful.</p>
+      <p>Recommendations stay within the invite-only Detour circle. Direct shares and replies remain private.</p>
     </footer>
   `;
 
@@ -1073,8 +1071,8 @@ function render(root: HTMLElement) {
   `;
 
   bindRouteLinks(root);
-  // Notes from the member's network render inside the place detail; load the
-  // private feed here too so a direct destination link still surfaces them.
+  // Notes from the Detour circle render inside the place detail; load the
+  // circle feed here too so a direct destination link still surfaces them.
   ensureNetworkDiscovery(() => render(root));
 
   const keepSelectionValid = () => {

@@ -57,8 +57,6 @@ interface ShareRecord {
   recipient?: string;
   waitlist?: string;
   venue?: string;
-  sender_name?: string;
-  recipient_name?: string;
   sender_pseudo?: string;
   recipient_pseudo?: string;
   seen?: boolean;
@@ -72,7 +70,6 @@ interface ShareRecord {
 
 interface DirectoryMember {
   id: string;
-  display_name: string;
   pseudo?: string;
 }
 
@@ -142,7 +139,8 @@ function member(): MemberRecord | null {
 }
 
 function memberName(record: MemberRecord): string {
-  return record.display_name?.trim() || record.email?.split('@')[0] || 'Member';
+  const pseudo = record.pseudo?.trim().replace(/^@+/, '');
+  return pseudo ? `@${pseudo}` : record.display_name?.trim() || record.email?.split('@')[0] || 'Member';
 }
 
 function readableError(error: unknown, fallback: string): string {
@@ -200,17 +198,22 @@ function directoryListId(key: string): string {
   return `member-directory-${key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 }
 
-function pseudoMarkup(pseudo: string | undefined): string {
-  return pseudo ? `<span class="member-pseudo">@${esc(pseudo)}</span>` : '';
+function pseudoLabel(pseudo: string | undefined, fallback = 'A Detour member'): string {
+  const cleaned = pseudo?.trim().replace(/^@+/, '');
+  return cleaned ? `@${cleaned}` : fallback;
+}
+
+function memberIdentityMarkup(pseudo: string | undefined, fallback?: string): string {
+  return `<strong class="member-identity">${esc(pseudoLabel(pseudo, fallback))}</strong>`;
 }
 
 function directoryResultsMarkup(key: string): string {
   const state = directoryState(key);
   if (state.selected) {
-    return `<p class="member-directory-selected"><span>Selected</span><strong>${esc(state.selected.display_name)}</strong>${pseudoMarkup(state.selected.pseudo)}</p>`;
+    return `<p class="member-directory-selected"><span>Selected</span><strong>${esc(pseudoLabel(state.selected.pseudo))}</strong></p>`;
   }
   if (state.query.trim().length < 2) {
-    return '<p class="member-directory-hint">Type a name or @pseudo — at least two characters.</p>';
+    return '<p class="member-directory-hint">Type a pseudo, such as @detour-anna — at least two characters.</p>';
   }
   if (state.loading) return '<p class="member-directory-hint" role="status">Searching members…</p>';
   if (state.error) return `<p class="member-directory-error" role="alert">${esc(state.error)}</p>`;
@@ -218,7 +221,7 @@ function directoryResultsMarkup(key: string): string {
   return `<ul class="member-directory-results" role="listbox">${state.items
     .map(
       (item, index) =>
-        `<li><button type="button" role="option" id="${directoryListId(key)}-option-${index}" aria-selected="${state.activeIndex === index}" data-member-choice="${index}">${esc(item.display_name)}${pseudoMarkup(item.pseudo)}</button></li>`
+        `<li><button type="button" role="option" id="${directoryListId(key)}-option-${index}" aria-selected="${state.activeIndex === index}" data-member-choice="${index}">${esc(pseudoLabel(item.pseudo))}</button></li>`
     )
     .join('')}</ul>`;
 }
@@ -228,7 +231,7 @@ function directoryMarkup(key: string, label: string): string {
   const listId = directoryListId(key);
   return `<div class="member-directory" data-member-directory="${esc(key)}">
     <label>${esc(label)}
-      <input type="search" value="${esc(state.query)}" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="${state.items.length > 0}" aria-controls="${listId}" ${state.activeIndex >= 0 ? `aria-activedescendant="${listId}-option-${state.activeIndex}"` : ''} data-member-search>
+      <input type="search" value="${esc(state.query)}" autocomplete="off" spellcheck="false" placeholder="@detour-anna" role="combobox" aria-autocomplete="list" aria-expanded="${state.items.length > 0}" aria-controls="${listId}" ${state.activeIndex >= 0 ? `aria-activedescendant="${listId}-option-${state.activeIndex}"` : ''} data-member-search>
     </label>
     <div id="${listId}" class="member-directory-output" data-member-results>${directoryResultsMarkup(key)}</div>
   </div>`;
@@ -381,7 +384,7 @@ function formatDate(value: string | undefined): string {
 function incomingShareCard(share: ShareRecord): string {
   return `<article class="community-share-card${share.seen ? '' : ' is-new'}">
     <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared place')}</h4><p>${esc([share.address, share.city, share.country].filter(Boolean).join(', '))}</p></div><span>${share.seen ? 'Shared with you' : 'New'}</span></div>
-    <p class="community-share-from"><strong>${esc(share.sender_name || 'A Detour member')}</strong>${pseudoMarkup(share.sender_pseudo)} shared this place with you.</p>
+    <p class="community-share-from">${memberIdentityMarkup(share.sender_pseudo)} shared this place with you.</p>
     <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
     ${share.venue ? '<p class="community-share-state is-success">In the Detour selection.</p>' : ''}
   </article>`;
@@ -390,7 +393,7 @@ function incomingShareCard(share: ShareRecord): string {
 function outgoingShareCard(share: ShareRecord): string {
   return `<article class="community-share-card community-share-card-sent">
     <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared place')}</h4><p>${esc([share.address, share.city, share.country].filter(Boolean).join(', '))}</p></div><span>Sent</span></div>
-    <p class="community-share-from">Shared with <strong>${esc(share.recipient_name || 'a member')}</strong>${pseudoMarkup(share.recipient_pseudo)}.</p>
+    <p class="community-share-from">Shared with ${memberIdentityMarkup(share.recipient_pseudo, 'a Detour member')}.</p>
     <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
   </article>`;
 }
@@ -511,7 +514,7 @@ function detoursPanel(): string {
 }
 
 function settingsPanel(record: MemberRecord): string {
-  const visible = visibilityPending ?? record.discovery_visible === true;
+  const keepPrivate = visibilityPending ?? record.discovery_visible === false;
   return `<section class="community-tab-panel community-settings-panel" id="member-panel-settings" role="tabpanel" aria-labelledby="member-tab-settings" tabindex="0">
     <div class="community-session-row">
       <p>Signed in as <strong>${esc(record.email || memberName(record))}</strong></p>
@@ -526,13 +529,13 @@ function settingsPanel(record: MemberRecord): string {
     </div>
     <div class="community-visibility-row">
       <div class="community-visibility-copy">
-        <h3>Let your recommendations travel</h3>
-        <p class="community-form-note">Turn this on to let your direct network connections see your recommendations in their private discovery feed. It does not make them public.</p>
+        <h3>Circle discovery</h3>
+        <p class="community-form-note">Recommendations are discoverable by the full invite-only Detour circle by default. Private shares and replies stay private.</p>
       </div>
       <label class="community-switch">
-        <input type="checkbox" data-community-visibility ${visible ? 'checked' : ''} ${visibilitySaving ? 'disabled' : ''}>
-        <span aria-hidden="true"></span>
-        <strong>${visibilitySaving ? 'Saving…' : visible ? 'Visible to connections' : 'Only visible to you'}</strong>
+        <input type="checkbox" data-community-visibility ${keepPrivate ? 'checked' : ''} ${visibilitySaving ? 'disabled' : ''}>
+        <span class="community-switch-track" aria-hidden="true"></span>
+        <span class="community-switch-copy"><strong>Keep recommendations private</strong><small>${visibilitySaving ? 'Saving…' : keepPrivate ? 'Hidden from the circle' : 'Discoverable by the circle'}</small></span>
       </label>
     </div>
     <div class="community-danger-row">
@@ -663,14 +666,14 @@ function selectDirectoryMember(root: HTMLElement, key: string, index: number): v
   const selected = state.items[index];
   if (!selected) return;
   state.selected = selected;
-  state.query = selected.display_name;
+  state.query = pseudoLabel(selected.pseudo);
   state.items = [];
   state.activeIndex = -1;
   const container = Array.from(root.querySelectorAll<HTMLElement>('[data-member-directory]')).find(
     (item) => item.dataset.memberDirectory === key
   );
   const input = container?.querySelector<HTMLInputElement>('[data-member-search]');
-  if (input) input.value = selected.display_name;
+  if (input) input.value = pseudoLabel(selected.pseudo);
   updateDirectoryResults(root, key);
 }
 
@@ -705,7 +708,7 @@ function bindDirectories(root: HTMLElement): void {
           );
           if (directoryState(key).query.trim() !== requestedQuery) return;
           const ownId = member()?.id;
-          state.items = (response.items || []).filter((item) => item.id !== ownId && item.display_name?.trim());
+          state.items = (response.items || []).filter((item) => item.id !== ownId && item.pseudo?.trim());
           state.error = '';
         } catch (error) {
           if (directoryState(key).query.trim() !== requestedQuery) return;
@@ -951,23 +954,25 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     const record = member();
     const input = event.currentTarget as HTMLInputElement;
     if (!record || visibilitySaving) return;
-    const next = input.checked;
+    const keepPrivate = input.checked;
+    const discoveryVisible = !keepPrivate;
     visibilitySaving = true;
-    visibilityPending = next;
+    visibilityPending = keepPrivate;
     notice = null;
     render();
     try {
-      await pb.collection('members').update(record.id, { discovery_visible: next }, { requestKey: null });
+      const updated = await pb.collection('members').update<MemberRecord>(record.id, { discovery_visible: discoveryVisible }, { requestKey: null });
       if (member()?.id !== record.id) return;
+      Object.assign(record, updated);
       notice = {
         kind: 'success',
-        text: next
-          ? 'Your direct connections can now see your recommendations.'
-          : 'Your recommendations are now hidden from your connections.',
+        text: keepPrivate
+          ? 'Your recommendations are now private and hidden from the Detour circle.'
+          : 'Your recommendations are now discoverable by the full Detour circle.',
       };
     } catch (error) {
       if (member()?.id !== record.id) return;
-      notice = { kind: 'error', text: readableError(error, 'That visibility setting could not be saved. Please try again.') };
+      notice = { kind: 'error', text: readableError(error, 'That recommendation privacy setting could not be saved. Please try again.') };
     } finally {
       if (member()?.id === record.id) {
         visibilitySaving = false;
@@ -1113,7 +1118,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
       const waitlist = form.dataset.waitlist || '';
       const selected = directoryState(`share-${waitlist}`).selected;
       if (!selected) {
-        notice = { kind: 'error', text: 'Search for a member and choose their name before sharing this place.' };
+        notice = { kind: 'error', text: 'Search for a member and choose their pseudo before sharing this place.' };
         render();
         return;
       }
@@ -1128,7 +1133,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
           personal_note: String(values.get('personal_note') || '').trim(),
         });
         directories.delete(`share-${waitlist}`);
-        notice = { kind: 'success', text: `Shared with ${selected.display_name}.` };
+        notice = { kind: 'success', text: `Shared with ${pseudoLabel(selected.pseudo)}.` };
         communityLoaded = false;
         await loadCommunity(render);
       } catch (error) {
@@ -1144,7 +1149,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     event.preventDefault();
     const selected = directoryState('share-place').selected;
     if (!selected) {
-      notice = { kind: 'error', text: 'Search for a member and choose their name before sharing.' };
+      notice = { kind: 'error', text: 'Search for a member and choose their pseudo before sharing.' };
       render();
       return;
     }
@@ -1170,7 +1175,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
           : { venue_name: place, address, city, country, recipient: selected.id, personal_note: note }
       );
       directories.delete('share-place');
-      notice = { kind: 'success', text: `Shared with ${selected.display_name}.` };
+      notice = { kind: 'success', text: `Shared with ${pseudoLabel(selected.pseudo)}.` };
       communityLoaded = false;
       await loadCommunity(render);
     } catch (error) {

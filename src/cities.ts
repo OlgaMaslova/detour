@@ -60,9 +60,9 @@ export interface CityEditorialSource {
   bounds?: CityBounds | null;
 }
 
-export const GLOBAL_META_TITLE = 'Detour — Private recommendations from people you trust';
+export const GLOBAL_META_TITLE = 'Detour — Recommendations from an invite-only circle';
 export const GLOBAL_META_DESCRIPTION =
-  'Detour is a private community for discovering memorable places through recommendations shared by people you trust. Membership begins with a personal invitation.';
+  'Detour is an invite-only circle for discovering memorable places through recommendations shared by members. Direct place shares and replies stay private.';
 
 /**
  * Build the full presentation config for one live city record. Blank

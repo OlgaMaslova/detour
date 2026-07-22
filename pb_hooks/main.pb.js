@@ -31,7 +31,6 @@ routerAdd(
       return {
         id: row.id,
         body: row.body,
-        author_name: row.author_name,
         author_pseudo: row.author_pseudo,
         created: row.created,
       };
@@ -46,9 +45,7 @@ routerAdd(
         country: row.country,
         address: row.address,
         personal_note: row.personal_note,
-        sender_name: row.sender_name,
         sender_pseudo: row.sender_pseudo,
-        recipient_name: row.recipient_name,
         recipient_pseudo: row.recipient_pseudo,
         seen: row.seen,
         created: row.created,
@@ -59,7 +56,6 @@ routerAdd(
     function projectRecommendation(row) {
       return {
         venue_name: row.venue_name,
-        recommender_name: row.recommender_name,
         recommender_pseudo: row.recommender_pseudo,
         note: row.note,
         city: row.city,
@@ -71,12 +67,13 @@ routerAdd(
 
     const callerId = e.auth.id;
     const caller = e.app.findRecordById("members", callerId);
-    const invitedBy = caller.getString("invited_by");
 
     // The endpoint deliberately uses bounded, explicit SQL projections. It
     // bypasses collection rules only for caller-participant shares/replies and
-    // opted-in direct-peer recommendations. No email, relation, moderation, or
-    // unrelated member fields are selected or returned.
+    // recommendations from verified members who remain visible to the shared
+    // invite-only circle. Only pseudos are projected for member attribution;
+    // no email, display name, relation, moderation, or unrelated member field
+    // is selected or returned.
     const shareRows = arrayOf(
       new DynamicModel({
         id: "",
@@ -86,9 +83,7 @@ routerAdd(
         country: "",
         address: "",
         personal_note: "",
-        sender_name: "",
         sender_pseudo: "",
-        recipient_name: "",
         recipient_pseudo: "",
         seen: false,
         created: "",
@@ -100,7 +95,7 @@ routerAdd(
         "SELECT id, " +
           "CASE WHEN recipient = {:caller} THEN 'received' ELSE 'sent' END AS direction, " +
           "venue_name, city, country, address, personal_note, " +
-          "sender_name, sender_pseudo, recipient_name, recipient_pseudo, seen, created " +
+          "sender_pseudo, recipient_pseudo, seen, created " +
           "FROM community_shares " +
           "WHERE sender = {:caller} OR recipient = {:caller} " +
           "ORDER BY created DESC, id DESC LIMIT 100"
@@ -116,7 +111,6 @@ routerAdd(
         id: "",
         share_id: "",
         body: "",
-        author_name: "",
         author_pseudo: "",
         created: "",
       })
@@ -129,12 +123,12 @@ routerAdd(
           "WHERE sender = {:caller} OR recipient = {:caller} " +
           "ORDER BY created DESC, id DESC LIMIT 100" +
           "), ranked_replies AS (" +
-          "SELECT r.id, r.share AS share_id, r.body, r.author_name, r.author_pseudo, r.created, " +
+          "SELECT r.id, r.share AS share_id, r.body, r.author_pseudo, r.created, " +
           "ROW_NUMBER() OVER (PARTITION BY r.share ORDER BY r.created ASC, r.id ASC) AS reply_rank " +
           "FROM community_share_replies r " +
           "JOIN selected_shares selected ON selected.id = r.share" +
           ") " +
-          "SELECT id, share_id, body, author_name, author_pseudo, created " +
+          "SELECT id, share_id, body, author_pseudo, created " +
           "FROM ranked_replies WHERE reply_rank <= 50 " +
           "ORDER BY share_id ASC, created ASC, id ASC LIMIT 5000"
       )
@@ -149,7 +143,6 @@ routerAdd(
 
     const recommendationRows = arrayOf(
       new DynamicModel({
-        recommender_name: "",
         recommender_pseudo: "",
         note: "",
         venue_name: "",
@@ -162,21 +155,16 @@ routerAdd(
     e.app
       .db()
       .newQuery(
-        "SELECT m.display_name AS recommender_name, m.pseudo AS recommender_pseudo, " +
+        "SELECT m.pseudo AS recommender_pseudo, " +
           "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
           "FROM community_recommendations r " +
           "JOIN members m ON m.id = r.member " +
-          "WHERE m.id != {:caller} AND m.discovery_visible = TRUE AND (" +
-          "m.invited_by = {:caller} OR " +
-          "({:invitedBy} != '' AND m.id = {:invitedBy}) OR " +
-          "EXISTS (" +
-          "SELECT 1 FROM community_shares peer_share " +
-          "WHERE (peer_share.sender = {:caller} AND peer_share.recipient = m.id) " +
-          "OR (peer_share.recipient = {:caller} AND peer_share.sender = m.id)" +
-          ")" +
-          ") ORDER BY r.created DESC, r.id DESC LIMIT 100"
+          "WHERE m.id != {:caller} " +
+          "AND m.community_status = 'verified' " +
+          "AND m.discovery_visible = TRUE " +
+          "ORDER BY r.created DESC, r.id DESC LIMIT 100"
       )
-      .bind({ caller: callerId, invitedBy: invitedBy })
+      .bind({ caller: callerId })
       .all(recommendationRows);
 
     const shares = [];
@@ -360,10 +348,10 @@ routerAdd(
 // generated invitation. `redeemed_invite` has a partial unique index, so a
 // simultaneous second redemption cannot create another member account.
 onRecordCreateRequest((e) => {
-  // Visibility is always an explicit post-signup opt-in by the member. Ignore
-  // any create payload (including privileged fixture creation) that attempts
-  // to make a new account discoverable immediately.
-  e.record.set("discovery_visible", false);
+  // Every verified invited member joins the shared discovery circle by
+  // default. Ignore create payloads so the server owns the signup default;
+  // members may opt out later through their existing profile preference.
+  e.record.set("discovery_visible", true);
   if (e.hasSuperuserAuth()) {
     return e.next();
   }
