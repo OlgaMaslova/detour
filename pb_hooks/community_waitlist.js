@@ -799,6 +799,285 @@ function enrichVenueFromOsm(app, venueId) {
   if (changed) app.save(venue);
 }
 
+// ---------------------------------------------------------------------------
+// LLM web discovery.
+//
+// OpenStreetMap contact tags cover only a fraction of member-added places, so
+// venues published with nothing but a name and city often stay without a
+// website, Instagram profile, cover image, or map pin. This tier asks a small
+// OpenAI model with the hosted web_search tool to *find* the missing public
+// facts. Nothing it reports is trusted directly: a website must resolve and
+// visibly mention the venue, an Instagram value must normalize to a canonical
+// profile URL, and a discovered address is stored (and turned into
+// coordinates) only after the same Nominatim claimed-city validation the
+// address geocoder applies — coordinates never come from the model. Best
+// effort and never throws; the sweep in main.pb.js bounds retries and cost
+// through venues.web_discovery_at.
+
+function openAiBaseUrl() {
+  return $os.getenv("DETOUR_OPENAI_BASE_URL") || "https://api.openai.com";
+}
+
+function openAiModel() {
+  return $os.getenv("DETOUR_OPENAI_MODEL") || "gpt-5.4-mini";
+}
+
+// A still-incomplete venue is retried at most weekly; some places genuinely
+// have no website, and weekly keeps the standing cost of those near zero.
+const WEB_DISCOVERY_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Extracts the assistant's final text from an OpenAI Responses API payload.
+function openAiOutputText(payload) {
+  const items = (payload && payload.output) || [];
+  let text = "";
+  for (const item of items) {
+    if (!item || item.type !== "message" || !Array.isArray(item.content)) continue;
+    for (const part of item.content) {
+      if (part && part.type === "output_text" && part.text) text += part.text;
+    }
+  }
+  return text;
+}
+
+// Parses the model's JSON answer, tolerating stray prose or code fences.
+function parseDiscoveryAnswer(text) {
+  const start = String(text).indexOf("{");
+  const end = String(text).lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(String(text).slice(start, end + 1));
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+// True when the page at url loads and visibly mentions the venue name — the
+// guard against the model returning a real but wrong-venue website.
+function pageMentionsVenue(url, name) {
+  let response;
+  try {
+    response = $http.send({
+      url,
+      method: "GET",
+      headers: {
+        "User-Agent": COVER_USER_AGENT,
+        Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
+        "Accept-Language": "en",
+      },
+      timeout: 10,
+    });
+  } catch {
+    return false;
+  }
+  if (!response || response.statusCode < 200 || response.statusCode >= 300) return false;
+  const haystack = normalizePlacePart(String(response.raw || "").slice(0, 200000));
+  const normalizedName = normalizePlacePart(name);
+  if (normalizedName && haystack.indexOf(normalizedName) !== -1) return true;
+  let longest = "";
+  for (const word of normalizedName.split(" ")) {
+    if (word.length > longest.length) longest = word;
+  }
+  return longest.length >= 4 && haystack.indexOf(longest) !== -1;
+}
+
+// Validates a model-discovered street address with the same Nominatim lookup
+// and claimed-city guard the address geocoder uses. Returns
+// { address, lat, lng, displayName } when confirmed, or null.
+function confirmDiscoveredAddress(address, city, country) {
+  let response;
+  try {
+    response = $http.send({
+      url:
+        nominatimBaseUrl() +
+        "/search?format=jsonv2&limit=1&addressdetails=1&accept-language=en&q=" +
+        encodeURIComponent(address + ", " + city + ", " + country),
+      method: "GET",
+      headers: { "User-Agent": "Detour community place verification (contact: olga@supernaut.dev)" },
+      timeout: 10,
+    });
+  } catch {
+    return null;
+  }
+  if (!response || response.statusCode !== 200) return null;
+  let results;
+  try {
+    results = response.json;
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(results) || results.length === 0) return null;
+  const hit = results[0];
+  const lat = parseFloat(hit.lat);
+  const lng = parseFloat(hit.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
+  const parts = hit.address || {};
+  const hitCity = String(parts.city || parts.town || parts.village || parts.municipality || "");
+  if (hitCity && normalizePlacePart(hitCity) !== normalizePlacePart(city)) return null;
+  return { address, lat, lng, displayName: String(hit.display_name || "") };
+}
+
+// Asks the model (with hosted web search) for the venue's still-missing public
+// facts and stores only what survives mechanical verification. Fill-if-missing
+// only, like the OSM tier. Returns true when a paid model call was actually
+// made so the sweep can cap per-run spend. No-ops without OPENAI_API_KEY —
+// the deterministic pipeline keeps working unchanged.
+function enrichVenueFromWebSearch(app, venueId) {
+  const apiKey = $os.getenv("OPENAI_API_KEY");
+  if (!apiKey) return false;
+
+  let venue;
+  try {
+    venue = app.findRecordById("venues", venueId);
+  } catch {
+    return false;
+  }
+
+  const name = cleanText(venue.getString("name"), 200);
+  const city = cleanText(venue.getString("city"), 120);
+  const country = cleanText(venue.getString("country"), 120);
+  if (!name || !city) return false;
+
+  const knownWebsite = venue.getString("official_url");
+  const knownInstagram = venue.getString("instagram_url");
+  const knownAddress = cleanText(venue.getString("address"), 300);
+  const needsWebsite = !knownWebsite;
+  const needsInstagram = !knownInstagram;
+  const needsAddress = !knownAddress;
+  if (!needsWebsite && !needsInstagram && !needsAddress) return false;
+
+  const stampRaw = venue.getString("web_discovery_at");
+  const lastAttempt = stampRaw ? new Date(stampRaw.replace(" ", "T")).getTime() : 0;
+  if (lastAttempt > 0 && Date.now() - lastAttempt < WEB_DISCOVERY_RETRY_MS) return false;
+
+  const wanted = [];
+  if (needsWebsite) wanted.push("official_url");
+  if (needsInstagram) wanted.push("instagram_url");
+  if (needsAddress) wanted.push("address");
+
+  const instructions =
+    "You verify public facts about food and drink venues. Use web search to " +
+    "confirm the venue's official website, official Instagram profile, and " +
+    "street address. Report only facts you confirmed on pages you actually " +
+    "found; use the provided city, category, and known links to disambiguate " +
+    "venues sharing a name, and when still unsure return null for that field " +
+    "and set confidence to \"low\". Never guess. official_url must be the " +
+    "venue's own site — never Google Maps, TripAdvisor, Yelp, delivery " +
+    "platforms, booking portals, directories, or articles; the operating " +
+    "group's page or a link-in-bio page is acceptable only when the venue " +
+    "has no site of its own. instagram_url must be the venue's own profile, " +
+    "as an instagram.com URL or @handle. address is street and number only, " +
+    "without city or postcode. Respond with only this JSON object and " +
+    "nothing else: {\"official_url\": string|null, \"instagram_url\": " +
+    "string|null, \"address\": string|null, \"confidence\": \"high\"|\"low\"}";
+
+  const inputLines = [
+    "Find: " + wanted.join(", "),
+    "Venue: " + name,
+    "City: " + city,
+  ];
+  if (country) inputLines.push("Country: " + country);
+  const categoryLabel = cleanText(venue.getString("category"), 120);
+  if (categoryLabel) inputLines.push("Category: " + categoryLabel);
+  if (knownAddress) inputLines.push("Known address: " + knownAddress);
+  if (knownWebsite) inputLines.push("Known website: " + knownWebsite);
+  if (knownInstagram) inputLines.push("Known Instagram: " + knownInstagram);
+
+  let response;
+  try {
+    response = $http.send({
+      url: openAiBaseUrl() + "/v1/responses",
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: openAiModel(),
+        // web_search is unsupported at minimal/none reasoning effort; low is
+        // the cheapest level that still searches reliably.
+        reasoning: { effort: "low" },
+        tools: [{ type: "web_search" }],
+        instructions,
+        input: inputLines.join("\n"),
+      }),
+      timeout: 120,
+    });
+  } catch {
+    return false; // transport failure: leave unstamped so the next sweep retries
+  }
+
+  // From here on the attempt is stamped whatever the outcome, so a venue
+  // whose facts genuinely cannot be found is retried weekly, not per sweep.
+  venue.set("web_discovery_at", new Date().toISOString());
+
+  function finish(noteParts) {
+    venue.set("web_discovery_note", cleanText(openAiModel() + ": " + noteParts.join(", "), 300));
+    app.save(venue);
+    return true;
+  }
+
+  if (!response || response.statusCode < 200 || response.statusCode >= 300) {
+    return finish(["HTTP " + (response ? response.statusCode : "?")]);
+  }
+  let payload;
+  try {
+    payload = response.json;
+  } catch {
+    payload = null;
+  }
+  const answer = payload ? parseDiscoveryAnswer(openAiOutputText(payload)) : null;
+  if (!answer) return finish(["unparseable answer"]);
+  if (String(answer.confidence || "").toLowerCase() !== "high") {
+    return finish(["low confidence, discarded"]);
+  }
+
+  const notes = [];
+  if (needsWebsite) {
+    const website = publicHttpUrl(cleanText(answer.official_url, 300));
+    if (!website) notes.push("website: none");
+    else if (pageMentionsVenue(website, name)) {
+      venue.set("official_url", website);
+      notes.push("website: set");
+    } else notes.push("website: rejected");
+  }
+  if (needsInstagram) {
+    const instagram = instagramProfileUrl(answer.instagram_url);
+    if (instagram) {
+      venue.set("instagram_url", instagram);
+      notes.push("instagram: set");
+    } else notes.push("instagram: none");
+  }
+  if (needsAddress) {
+    const candidate = cleanText(answer.address, 300);
+    const confirmed = candidate ? confirmDiscoveredAddress(candidate, city, country) : null;
+    if (confirmed) {
+      venue.set("address", confirmed.address);
+      notes.push("address: confirmed");
+      const existingLat = Number(venue.get("lat"));
+      const existingLng = Number(venue.get("lng"));
+      const hasCoords =
+        (existingLat !== 0 || existingLng !== 0) &&
+        Number.isFinite(existingLat) &&
+        Number.isFinite(existingLng);
+      if (!hasCoords) {
+        venue.set("lat", confirmed.lat);
+        venue.set("lng", confirmed.lng);
+        venue.set(
+          "coord_verification_note",
+          cleanText(
+            "Geocoded via OpenStreetMap Nominatim from web-discovered address: " + confirmed.displayName,
+            300
+          )
+        );
+      }
+    } else {
+      notes.push(candidate ? "address: unconfirmed" : "address: none");
+    }
+  }
+  return finish(notes);
+}
+
 // Member-supplied place links: official website, Instagram profile (handle or
 // URL), and a direct cover image link. Normalizes each value into its stored
 // canonical form and throws a BadRequestError naming the first problem.
@@ -1018,6 +1297,7 @@ module.exports = {
   createOrResolveEntry,
   ensureEntryPending,
   enrichVenueFromOsm,
+  enrichVenueFromWebSearch,
   findMemberRecommendation,
   geocodeVenue,
   isParticipant,

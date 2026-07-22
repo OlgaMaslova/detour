@@ -556,13 +556,16 @@ function memberTabsMarkup(): string {
     settings: 'Settings',
   };
   const unseen = unseenShareCount();
-  return `<div class="community-member-tabs" role="tablist" aria-label="Member areas">
-    ${MEMBER_TABS.map(
-      (tab) =>
-        `<button class="community-member-tab${memberTab === tab ? ' is-active' : ''}" type="button" role="tab" id="member-tab-${tab}" aria-selected="${memberTab === tab}" aria-controls="member-panel-${tab}" tabindex="${memberTab === tab ? '0' : '-1'}" data-member-tab="${tab}">${labels[tab]}${
-          tab === 'detours' && unseen ? `<span class="community-tab-badge" aria-label="${unseen} new shares">${unseen}</span>` : ''
-        }</button>`
-    ).join('')}
+  return `<div class="community-member-bar">
+    <div class="community-member-tabs" role="tablist" aria-label="Member areas">
+      ${MEMBER_TABS.map(
+        (tab) =>
+          `<button class="community-member-tab${memberTab === tab ? ' is-active' : ''}" type="button" role="tab" id="member-tab-${tab}" aria-selected="${memberTab === tab}" aria-controls="member-panel-${tab}" tabindex="${memberTab === tab ? '0' : '-1'}" data-member-tab="${tab}">${labels[tab]}${
+            tab === 'detours' && unseen ? `<span class="community-tab-badge" aria-label="${unseen} new shares">${unseen}</span>` : ''
+          }</button>`
+      ).join('')}
+    </div>
+    <button class="community-tab-signout" type="button" data-community-sign-out>Sign out</button>
   </div>`;
 }
 
@@ -982,12 +985,14 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     }
   });
 
-  root.querySelector<HTMLButtonElement>('[data-community-sign-out]')?.addEventListener('click', () => {
-    pb.authStore.clear();
-    resetCommunityState();
-    notice = { kind: 'info', text: 'You have signed out of Detour.' };
-    render();
-  });
+  root.querySelectorAll<HTMLButtonElement>('[data-community-sign-out]').forEach((button) =>
+    button.addEventListener('click', () => {
+      pb.authStore.clear();
+      resetCommunityState();
+      notice = { kind: 'info', text: 'You have signed out of Detour.' };
+      render();
+    })
+  );
 
   root.querySelector<HTMLButtonElement>('[data-community-remove-account]')?.addEventListener('click', async () => {
     const record = member();

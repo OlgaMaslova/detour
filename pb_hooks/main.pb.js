@@ -732,6 +732,41 @@ cronAdd("community_cover_sweep", "30 4 * * *", () => {
   }
 });
 
+// Frequent, cost-bounded LLM web-discovery pass for Detourist-list venues the
+// OSM tier left without a website, Instagram profile, or address (and thus
+// usually without a cover image or map pin). enrichVenueFromWebSearch no-ops
+// without OPENAI_API_KEY, skips venues with nothing missing, and re-attempts
+// a still-incomplete venue at most weekly; the per-run cap below bounds
+// worst-case spend regardless. Nominatim-confirmed coordinates are written by
+// the discovery itself, and the cover resolver immediately turns any newly
+// found link into a place image — so a member-added place gains its links,
+// pin, and photo within the hour after publishing, with no manual step.
+cronAdd("community_web_discovery_sweep", "0 * * * *", () => {
+  const community = require(__hooks + "/community_waitlist.js");
+  let awards = [];
+  try {
+    awards = $app.findRecordsByFilter(
+      "venue_awards",
+      "level = 'Detour community selection' && current = true",
+      "-created",
+      50,
+      0
+    );
+  } catch {
+    return;
+  }
+  let attempts = 0;
+  for (const award of awards) {
+    if (attempts >= 2) break;
+    const venueId = award.getString("venue");
+    if (!venueId) continue;
+    if (community.enrichVenueFromWebSearch($app, venueId)) {
+      attempts += 1;
+      community.resolveCoverImage($app, venueId);
+    }
+  }
+});
+
 // Deleting a pending signal updates the server-maintained count. A place that
 // has already auto-published remains a public selection and is never
 // automatically withdrawn merely because a later recommendation is removed.
