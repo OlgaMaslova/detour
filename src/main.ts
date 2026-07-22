@@ -5,7 +5,7 @@ import { citySlug, loadLiveCatalogue } from './data';
 import type { Venue } from './data';
 import { GLOBAL_META_DESCRIPTION, GLOBAL_META_TITLE } from './cities';
 import { OCCASION_OPTIONS, occasionLabel } from './occasions';
-import { bindCommunity, communityControl, communityPanel, openRecommendPlace, openSharePlace } from './community';
+import { applyInvitationRoute, bindCommunity, communityControl, communityPanel, openRecommendPlace, openSharePlace } from './community';
 import { pb } from './pocketbase';
 import { bindNetworkDiscovery, ensureNetworkDiscovery, networkDiscoveryMarkup, networkPlaceNotes, resetNetworkDiscovery } from './network';
 import { renderFoundingSurvey } from './survey';
@@ -218,7 +218,10 @@ function routeHref(view: AppView, slug: string | null): string {
   if (view === 'destination' && slug) url.searchParams.set('d', slug);
   else url.searchParams.delete('d');
   if (view === 'account') url.searchParams.set('view', 'members');
-  else url.searchParams.delete('view');
+  else {
+    url.searchParams.delete('view');
+    url.searchParams.delete('invite');
+  }
   if (view === 'survey') url.hash = '';
   return `${url.pathname}${url.search}${url.hash}`;
 }
@@ -278,9 +281,10 @@ function returnToDiscovery(root: HTMLElement): void {
 function applyRouteFromUrl(root: HTMLElement): void {
   const url = new URL(window.location.href);
   const surveyPath = url.pathname.replace(/\/+$/, '') === '/survey';
+  const invitationCode = surveyPath ? null : url.searchParams.get('invite');
   const nextView: AppView = surveyPath
     ? 'survey'
-    : url.searchParams.get('view') === 'members'
+    : url.searchParams.get('view') === 'members' || invitationCode?.trim()
       ? 'account'
       : 'home';
   // Legacy ?city= links resolve to the same destination.
@@ -288,6 +292,7 @@ function applyRouteFromUrl(root: HTMLElement): void {
     ? null
     : (url.searchParams.get('d') || url.searchParams.get('city') || '').trim().toLowerCase() || null;
 
+  applyInvitationRoute(invitationCode);
   if (state.destination !== requested) resetDestinationState();
   state.destination = requested;
   state.pendingDestination = null;

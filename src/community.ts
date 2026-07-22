@@ -107,6 +107,8 @@ const CATEGORY_OPTIONS = [
 ] as const;
 
 let mode: CommunityMode = 'sign-in';
+let invitationCodePrefill = '';
+let routedInvitationCode: string | null = null;
 let memberTab: MemberTab = 'invitations';
 let detourTab: DetourTab = 'recommendations';
 let notice: Notice | null = null;
@@ -186,6 +188,23 @@ function openInvites(): InviteRecord[] {
   return invites.filter((invite) => !invite.claimed_by);
 }
 
+function invitationLink(code: string): string {
+  const url = new URL(window.location.origin);
+  url.pathname = '/';
+  url.searchParams.set('view', 'members');
+  url.searchParams.set('invite', code);
+  return url.href;
+}
+
+function clearInvitationRoute(): void {
+  invitationCodePrefill = '';
+  routedInvitationCode = null;
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has('invite')) return;
+  url.searchParams.delete('invite');
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 function directoryState(key: string): DirectoryState {
   let state = directories.get(key);
   if (!state) {
@@ -263,7 +282,7 @@ function signedOutPanel(): string {
                 <label>Password<input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
                 <label>Confirm password<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" required></label>
               </div>
-              <label>Invitation code<input name="invite_code" autocomplete="off" spellcheck="false" maxlength="80" placeholder="DTR-…" required></label>
+              <label>Invitation code<input name="invite_code" value="${esc(invitationCodePrefill)}" autocomplete="off" spellcheck="false" maxlength="80" placeholder="DTR-…" required></label>
               <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Joining…' : 'Join Detour'}</button>
             </form>`
           : `<form class="community-form" data-community-sign-in>
@@ -460,7 +479,7 @@ function invitesPanel(): string {
   const atLimit = allowanceKnown && available === 0;
   return `<section class="community-tab-panel community-invitation-panel" id="member-panel-invitations" role="tabpanel" aria-labelledby="member-tab-invitations" tabindex="0">
     <div class="community-invite-actions">
-      <p class="community-invite-explainer">Detour grows by personal invitation only — create a code and pass it to someone you trust so they can join as a member.</p>
+      <p class="community-invite-explainer">Detour grows by personal invitation only — create a personal invitation link and send it to someone you trust so they can join as a member.</p>
       <div class="community-invite-bar">
         <button class="community-secondary" type="button" data-community-invite ${submitting || !allowanceKnown || atLimit ? 'disabled' : ''}>${submitting ? 'Preparing…' : atLimit ? 'Invitation limit reached' : 'New invitation'}</button>
         <p class="community-invite-allowance" aria-live="polite"><strong>${allowanceKnown ? available : '—'}</strong> ${allowanceKnown ? (available === 1 ? 'invitation left' : 'invitations left') : 'checking…'}</p>
@@ -469,13 +488,13 @@ function invitesPanel(): string {
         loadingInvites || !invitesLoaded
           ? '<p class="community-loading" role="status">Loading…</p>'
           : unclaimed.length
-            ? `<div class="community-invite-list"><h4>Unclaimed codes</h4><ul class="community-invite-codes" aria-label="Your unclaimed invitation codes">${unclaimed
+            ? `<div class="community-invite-list"><h4>Unclaimed invitations</h4><ul class="community-invite-codes" aria-label="Your unclaimed invitation links">${unclaimed
                 .map(
                   (invite) =>
-                    `<li><code>${esc(invite.code || '')}</code><button class="community-invite-copy" type="button" data-copy-invite="${esc(invite.code || '')}" aria-live="polite" aria-label="Copy invitation code ${esc(invite.code || '')}">Copy</button></li>`
+                    `<li><code>${esc(invite.code || '')}</code><button class="community-invite-copy" type="button" data-copy-invite="${esc(invite.code || '')}" aria-live="polite" aria-label="Copy invitation link for ${esc(invite.code || '')}">Copy link</button></li>`
                 )
                 .join('')}</ul></div>`
-            : '<p class="community-empty">No unclaimed codes. Create one to invite someone.</p>'
+            : '<p class="community-empty">No unclaimed invitations. Create one to invite someone.</p>'
       }
       ${
         allowanceKnown && claimed.length
@@ -576,6 +595,17 @@ function signedInPanel(): string {
     ${noticeMarkup()}
     ${panel}
   </section>`;
+}
+
+/** Apply invitation-link route state before the member area renders. */
+export function applyInvitationRoute(code: string | null): void {
+  const nextCode = code?.trim() || null;
+  if (nextCode === routedInvitationCode) return;
+  const leavingInvitationRoute = routedInvitationCode !== null && nextCode === null;
+  routedInvitationCode = nextCode;
+  invitationCodePrefill = nextCode || '';
+  if (nextCode) mode = 'join';
+  else if (leavingInvitationRoute) mode = 'sign-in';
 }
 
 /** Point the member area at the Share a place form (My detours → Shares) before it renders. */
@@ -810,6 +840,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
   root.querySelectorAll<HTMLButtonElement>('[data-community-mode]').forEach((button) => {
     button.addEventListener('click', () => {
       mode = button.dataset.communityMode === 'join' ? 'join' : 'sign-in';
+      if (mode === 'sign-in') clearInvitationRoute();
       notice = null;
       render();
     });
@@ -918,6 +949,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     } catch {
       submitting = false;
       mode = 'sign-in';
+      clearInvitationRoute();
       notice = { kind: 'success', text: 'Your membership is ready. Sign in to continue.' };
       render();
     }
@@ -1033,7 +1065,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     try {
       await pb.collection('invites').create({});
       invitesLoaded = false;
-      notice = { kind: 'success', text: 'Your invitation code is ready.' };
+      notice = { kind: 'success', text: 'Your invitation link is ready.' };
       await loadInvites(render);
     } catch (error) {
       notice = { kind: 'error', text: readableError(error, 'That invitation could not be prepared. Please try again.') };
@@ -1048,13 +1080,13 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
       const code = button.dataset.copyInvite || '';
       if (!code) return;
       try {
-        await navigator.clipboard.writeText(code);
-        button.textContent = 'Copied';
+        await navigator.clipboard.writeText(invitationLink(code));
+        button.textContent = 'Link copied';
         window.setTimeout(() => {
-          button.textContent = 'Copy';
+          button.textContent = 'Copy link';
         }, 1800);
       } catch {
-        notice = { kind: 'error', text: 'The code could not be copied automatically. Select it and copy it manually.' };
+        notice = { kind: 'error', text: 'The invitation link could not be copied automatically. Please try again.' };
         render();
       }
     });
