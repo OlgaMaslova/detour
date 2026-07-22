@@ -1,6 +1,7 @@
 import { pb } from './pocketbase';
 import type { Venue } from './data';
 import { OCCASION_OPTIONS } from './occasions';
+import { countryOptions } from './countries';
 
 type CommunityMode = 'sign-in' | 'join';
 type MemberTab = 'invitations' | 'detours' | 'settings';
@@ -14,6 +15,8 @@ interface MemberRecord {
   pseudo?: string;
   community_status?: string;
   discovery_visible?: boolean;
+  home_city?: string;
+  home_country?: string;
 }
 
 interface InviteRecord {
@@ -285,6 +288,11 @@ function signedOutPanel(): string {
                 <label>Password<input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
                 <label>Confirm password<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" required></label>
               </div>
+              <div class="community-form-grid">
+                <label>Where do you live?<input name="home_city" autocomplete="address-level2" maxlength="120" placeholder="City — e.g. San Francisco"></label>
+                <label>Country<select name="home_country" autocomplete="country-name">${countryOptions()}</select></label>
+              </div>
+              <p class="community-form-note">Optional — it helps us understand where the Detour circle is growing.</p>
               <label>Invitation code<input name="invite_code" value="${esc(invitationCodePrefill)}" autocomplete="off" spellcheck="false" maxlength="80" placeholder="DTR-…" required></label>
               <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Joining…' : 'Join Detour'}</button>
             </form>`
@@ -957,6 +965,8 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
         email,
         password,
         passwordConfirm,
+        home_city: String(values.get('home_city') || '').trim(),
+        home_country: String(values.get('home_country') || '').trim(),
         invite_code: String(values.get('invite_code') || '').trim().toUpperCase(),
       });
     } catch (error) {
