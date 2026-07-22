@@ -55,6 +55,26 @@ no underline, keep their per-city colors across visited/hover, and show an
 inset `currentColor` focus outline so keyboard focus is visible on both light
 and dark cards. Cities without a bespoke per-city rule render ink-on-card.
 
+## Signed-in network home
+
+- The signed-in welcome is the network home's single emphatic color plane: a
+  violet field, eucalyptus identity label, white copy, and oxblood base seam.
+  The invitation landing keeps its separate existing treatment.
+- Recommendations and private shares are distinct ledger planes rather than one
+  white stack. Recommendations use an oxblood-tinted surface and provenance
+  cues; shares use an eucalyptus-tinted surface, with violet received and
+  oxblood sent column labels.
+- Feed entries remain compact 8px-radius cards with a top provenance rule and a
+  hard palette-colored offset shadow. Recommendation, received, sent, and new
+  states are differentiated by both words and form/color; broad soft shadows
+  and decorative side stripes are not used.
+- Place-name controls retain underlines, gain a 44px target, and use eucalyptus
+  hover/active feedback plus the shared violet focus ring. Section counts use
+  tabular numerals and visible palette blocks rather than floating text.
+- These treatments are scoped to `.network-home` and its feed components so the
+  account, invitation, and contextual destination-search areas retain their
+  established visual hierarchy and behavior.
+
 ## Buttons: the sticker system
 
 All standalone action controls use the same sticker language: minimum 44px
