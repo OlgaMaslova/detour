@@ -32,6 +32,9 @@ interface WaitlistEntry {
   address?: string;
   category?: string;
   occasions?: string[];
+  official_url?: string;
+  instagram_url?: string;
+  image_url?: string;
   status?: 'pending' | 'published';
   signal_count?: number;
   created?: string;
@@ -280,6 +283,26 @@ function outgoingShares(): ShareRecord[] {
   return shares.filter((share) => Boolean(id && share.sender === id));
 }
 
+function placeLinksMarkup(entry: WaitlistEntry): string {
+  const links = [
+    entry.official_url ? `<a href="${esc(entry.official_url)}" target="_blank" rel="noopener noreferrer">Website</a>` : '',
+    entry.instagram_url ? `<a href="${esc(entry.instagram_url)}" target="_blank" rel="noopener noreferrer">Instagram</a>` : '',
+    entry.image_url ? `<a href="${esc(entry.image_url)}" target="_blank" rel="noopener noreferrer">Photo</a>` : '',
+  ].filter(Boolean);
+  const hasLinks = links.length > 0;
+  return `${hasLinks ? `<p class="community-place-links" aria-label="Place links">${links.join('<span aria-hidden="true"> · </span>')}</p>` : ''}
+    <details class="community-share-disclosure community-links-disclosure">
+      <summary>${hasLinks ? 'Edit place links' : 'Add place links'}</summary>
+      <form class="community-form community-links-form" data-community-links data-waitlist="${esc(entry.id)}">
+        <label>Website<input name="official_url" value="${esc(entry.official_url || '')}" maxlength="300" inputmode="url" autocomplete="off" spellcheck="false" placeholder="theplace.com"></label>
+        <label>Instagram<input name="instagram_url" value="${esc(entry.instagram_url || '')}" maxlength="300" autocomplete="off" spellcheck="false" placeholder="@theplace or instagram.com/theplace"></label>
+        <label>Photo link<input name="image_url" value="${esc(entry.image_url || '')}" maxlength="2048" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Direct link to a photo of the place"></label>
+        <p class="community-form-note">We try to find these automatically, but a member who knows the place does it better. Your links carry through to the public page${entry.status === 'published' ? ' right away' : ' when it publishes'}.</p>
+        <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Saving…' : 'Save links'}</button>
+      </form>
+    </details>`;
+}
+
 function waitlistCard(entry: WaitlistEntry): string {
   const progress = cleanCount(entry.signal_count, 3);
   const published = entry.status === 'published';
@@ -296,6 +319,7 @@ function waitlistCard(entry: WaitlistEntry): string {
       <div class="community-signal-label"><span>Recommendations</span><strong>${progress}/3</strong></div>
       <div class="community-signal-track" aria-hidden="true"><span style="width: ${(progress / 3) * 100}%"></span></div>
     </div>
+    ${placeLinksMarkup(entry)}
     ${
       !published
         ? `<details class="community-share-disclosure">
@@ -1052,6 +1076,35 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
       submitting = false;
       render();
     }
+  });
+
+  root.querySelectorAll<HTMLFormElement>('[data-community-links]').forEach((form) => {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const entryId = form.dataset.waitlist || '';
+      if (!entryId || submitting) return;
+      const values = new FormData(form);
+      submitting = true;
+      notice = null;
+      render();
+      try {
+        await pb.collection('community_waitlist_entries').update(entryId, {
+          official_url: String(values.get('official_url') || '').trim(),
+          instagram_url: String(values.get('instagram_url') || '').trim(),
+          image_url: String(values.get('image_url') || '').trim(),
+        });
+        highlightedWaitlistId = entryId;
+        notice = { kind: 'success', text: 'Place links saved.' };
+        communityLoaded = false;
+        await loadCommunity(render);
+        focusWaitlistEntry(entryId);
+      } catch (error) {
+        notice = { kind: 'error', text: readableError(error, 'Those links could not be saved. Check them and try again.') };
+      } finally {
+        submitting = false;
+        render();
+      }
+    });
   });
 
   root.querySelectorAll<HTMLFormElement>('[data-community-share]').forEach((form) => {

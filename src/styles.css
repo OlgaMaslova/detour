@@ -1516,6 +1516,10 @@ a.brand:focus-visible {
 .community-share-disclosure[open] summary::after { content: '−'; }
 .community-share-disclosure summary:focus-visible { outline: var(--focus-ring); outline-offset: 2px; border-radius: 4px; }
 .community-share-form { padding-top: 0.75rem; }
+.community-place-links { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0; color: var(--ink-soft); font-size: 0.78rem; }
+.community-place-links a { color: var(--oxblood); font-weight: 700; text-decoration-color: var(--line-strong); text-underline-offset: 2px; }
+.community-place-links a:hover { color: var(--violet); }
+.community-links-form { padding-top: 0.75rem; }
 .community-shares-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(1rem, 3vw, 2rem); }
 .community-share-column { align-content: start; gap: 0.75rem; }
 .community-share-card { display: grid; gap: 0.75rem; padding: 1rem; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); }
@@ -2027,6 +2031,28 @@ a.brand:focus-visible {
 .detail-source-badge { color: var(--ink); background: var(--mint); }
 .detail-description { margin-top: 1rem; }
 .detail-note { margin: 0.8rem 0 0; max-width: 48ch; color: var(--ink-soft); font-family: var(--sans); font-style: normal; }
+.detail-network { display: grid; gap: 0.7rem; margin-top: 1.4rem; }
+.detail-network h4 {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.detail-network-note {
+  display: grid;
+  gap: 0.55rem;
+  max-width: 48ch;
+  margin: 0;
+  padding: 0.85rem 1rem;
+  background: var(--violet-soft);
+  border-left: 3px solid var(--violet);
+}
+.detail-network-note p { margin: 0; color: var(--ink); font-family: var(--serif); font-style: italic; }
+.detail-network-note footer { color: var(--ink-soft); font-size: 0.78rem; }
+.detail-network-note footer strong { color: var(--ink); }
 .detail-facts { gap: 0; }
 .detail-facts div { grid-template-columns: 7rem 1fr; gap: 0.75rem; padding: 0.7rem 0; border-top: 1px solid color-mix(in oklch, var(--mint) 50%, var(--ink)); }
 .detail-facts div:first-child { border-top: 0; padding-top: 0; }

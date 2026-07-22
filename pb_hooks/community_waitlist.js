@@ -455,6 +455,10 @@ function publishEntry(app, entry) {
     app.save(venue);
   }
 
+  // Member-supplied place links ride along with publication; the automatic
+  // OSM/metadata discovery afterwards only fills whatever is still missing.
+  mergeEntryLinksIntoVenue(app, entry, venue);
+
   let source;
   try {
     source = app.findFirstRecordByFilter(
@@ -795,6 +799,102 @@ function enrichVenueFromOsm(app, venueId) {
   if (changed) app.save(venue);
 }
 
+// Member-supplied place links: official website, Instagram profile (handle or
+// URL), and a direct cover image link. Normalizes each value into its stored
+// canonical form and throws a BadRequestError naming the first problem.
+// options.verifiedImageUrl carries the entry's already-stored image link so an
+// unchanged value is not re-fetched on every edit; a new image link is checked
+// to actually serve an image, so the public catalogue never renders a broken
+// cover.
+function validateMemberPlaceLinks(input, options) {
+  const links = { official_url: "", instagram_url: "", image_url: "" };
+
+  const website = cleanText(input.officialUrl, 300);
+  if (website) {
+    links.official_url = publicHttpUrl(website);
+    if (!links.official_url) {
+      throw new BadRequestError("The website link must be a public http(s) address.");
+    }
+  }
+
+  const instagram = cleanText(input.instagram, 300);
+  if (instagram) {
+    links.instagram_url = instagramProfileUrl(instagram);
+    if (!links.instagram_url) {
+      throw new BadRequestError(
+        "Add Instagram as a handle like @placename or an instagram.com profile link."
+      );
+    }
+  }
+
+  const image = cleanText(input.imageUrl, 2048);
+  if (image) {
+    const withScheme = /^https?:\/\//i.test(image) ? image : "https://" + image;
+    const origin = (withScheme.match(/^(https?:\/\/[^/?#]+)/i) || [])[1] || "";
+    if (!origin || !publicHttpUrl(origin)) {
+      throw new BadRequestError("The image link must be a public http(s) address.");
+    }
+    const alreadyVerified =
+      options && options.verifiedImageUrl && options.verifiedImageUrl === withScheme;
+    if (!alreadyVerified && !coverUrlServesImage(withScheme)) {
+      throw new BadRequestError(
+        "That link does not serve an image. Use a direct link to a photo file."
+      );
+    }
+    links.image_url = withScheme;
+  }
+
+  return links;
+}
+
+// True when the venue carries recognition from any source other than the
+// Detour community lane — editorial catalogue data that member-supplied links
+// must never overwrite. Fails closed: unknown provenance counts as editorial.
+function venueHasEditorialRecognition(app, venueId) {
+  let awards = [];
+  try {
+    awards = app.findRecordsByFilter("venue_awards", "venue = {:venue}", "", 200, 0, {
+      venue: venueId,
+    });
+  } catch {
+    return true;
+  }
+  for (const award of awards) {
+    try {
+      const source = app.findRecordById("guide_sources", award.getString("source"));
+      if (source.getString("slug") !== "detour-community") return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Applies a waiting-list entry's member-supplied place links to a public
+// venue. Missing venue links are always filled; a differing existing value is
+// replaced only on venues whose recognition is community-only, so members can
+// correct poor automatic discovery on their own published places while a
+// catalogue venue's editorial links stay authoritative. Cleared entry links
+// never clear venue links.
+function mergeEntryLinksIntoVenue(app, entry, venue) {
+  let editorial = null;
+  let changed = false;
+  for (const field of ["official_url", "instagram_url", "image_url"]) {
+    const supplied = cleanText(entry.getString(field), 2048);
+    if (!supplied) continue;
+    const current = cleanText(venue.getString(field), 2048);
+    if (current === supplied) continue;
+    if (current) {
+      if (editorial === null) editorial = venueHasEditorialRecognition(app, venue.id);
+      if (editorial) continue;
+    }
+    venue.set(field, supplied);
+    changed = true;
+  }
+  if (changed) app.save(venue);
+  return changed;
+}
+
 // A realistic browser UA: many restaurant sites (and all of Instagram) serve
 // bot-detected requests an empty shell without og tags.
 const COVER_USER_AGENT =
@@ -921,10 +1021,12 @@ module.exports = {
   findMemberRecommendation,
   geocodeVenue,
   isParticipant,
+  mergeEntryLinksIntoVenue,
   mergePlaceFacts,
   normalizePlacePart,
   recalculateAndPublish,
   resolveCoverImage,
+  validateMemberPlaceLinks,
   validateCategory,
   validateOccasions,
   requireVerifiedMember,

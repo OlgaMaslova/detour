@@ -7,7 +7,7 @@ import { GLOBAL_META_DESCRIPTION, GLOBAL_META_TITLE } from './cities';
 import { OCCASION_OPTIONS, occasionLabel } from './occasions';
 import { bindCommunity, communityControl, communityPanel } from './community';
 import { pb } from './pocketbase';
-import { bindNetworkDiscovery, networkDiscoveryMarkup, resetNetworkDiscovery } from './network';
+import { bindNetworkDiscovery, ensureNetworkDiscovery, networkDiscoveryMarkup, networkPlaceNotes, resetNetworkDiscovery } from './network';
 
 type DataMode = 'loading' | 'live' | 'error';
 type AppView = 'home' | 'destination' | 'account';
@@ -628,6 +628,46 @@ function venueCard(v: Venue): string {
   </li>`;
 }
 
+function shortDate(value: string | undefined): string {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).format(parsed);
+}
+
+/**
+ * Notes fellow Detourists attached when recommending this place, drawn from
+ * the signed-in member's private discovery feed. Empty for signed-out
+ * visitors and for places nobody in the member's network has annotated.
+ */
+function networkNotesBlock(v: Venue): string {
+  const name = normalizePlacePart(v.name);
+  if (!name) return '';
+  const city = normalizePlacePart(v.city);
+  const notes = networkPlaceNotes().filter((item) => {
+    if (normalizePlacePart(item.venue_name || '') !== name) return false;
+    const itemCity = normalizePlacePart(item.city || '');
+    return !itemCity || !city || itemCity === city;
+  });
+  if (notes.length === 0) return '';
+  return `<div class="detail-network" role="group" aria-label="Notes from your network">
+    <h4>From your network</h4>
+    ${notes
+      .map((item) => {
+        const who = item.recommender_name || 'A connection';
+        const handle = item.recommender_pseudo
+          ? `<span class="network-pseudo">@${esc(item.recommender_pseudo.replace(/^@+/, ''))}</span>`
+          : '';
+        const when = shortDate(item.created);
+        return `<blockquote class="detail-network-note">
+          <p>${esc(item.note || '')}</p>
+          <footer><strong>${esc(who)}</strong>${handle}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created || '')}">${esc(when)}</time>` : ''}</footer>
+        </blockquote>`;
+      })
+      .join('')}
+  </div>`;
+}
+
 function detailPanel(): string {
   const v = destinationVenues().find((x) => x.id === state.selectedId);
   if (!v) {
@@ -675,6 +715,7 @@ function detailPanel(): string {
             ? `${signal} — a place worth a deliberate detour.`
             : 'Recommended by Detour members as a place worth a deliberate detour.'
         )}</p>
+        ${networkNotesBlock(v)}
       </section>
       <section class="detail-practical" aria-labelledby="detail-practical-title">
         <h3 id="detail-practical-title">Place details</h3>
@@ -1032,6 +1073,9 @@ function render(root: HTMLElement) {
   `;
 
   bindRouteLinks(root);
+  // Notes from the member's network render inside the place detail; load the
+  // private feed here too so a direct destination link still surfaces them.
+  ensureNetworkDiscovery(() => render(root));
 
   const keepSelectionValid = () => {
     const visible = filteredVenues();

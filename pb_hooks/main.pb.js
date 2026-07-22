@@ -673,6 +673,76 @@ onRecordAfterDeleteSuccess((e) => {
   e.next();
 }, "community_recommendations");
 
+// Participants may edit exactly one thing on a shared waiting-list entry: the
+// place's public links (website, Instagram, cover image). Every other entry
+// field is server-owned and frozen here. Published entries stay editable —
+// that is when a poor automatically-discovered link becomes visible — and the
+// after-update hook below carries the correction to the public venue.
+onRecordUpdateRequest((e) => {
+  if (e.hasSuperuserAuth()) {
+    return e.next();
+  }
+
+  const community = require(__hooks + "/community_waitlist.js");
+  community.requireVerifiedMember(e.auth, "editing a place's links");
+  const original = e.record.original();
+  if (!community.isParticipant(original, e.auth.id)) {
+    throw new BadRequestError(
+      "Only members who recommended or shared this place can edit its links."
+    );
+  }
+
+  const frozen = ["venue_name", "city", "country", "address", "status", "category"];
+  for (const field of frozen) {
+    if (e.record.getString(field) !== original.getString(field)) {
+      throw new BadRequestError(
+        "Only the place's website, Instagram, and image links can be edited."
+      );
+    }
+  }
+  if (
+    e.record.getInt("signal_count") !== original.getInt("signal_count") ||
+    e.record.getStringSlice("occasions").join(" ") !==
+      original.getStringSlice("occasions").join(" ")
+  ) {
+    throw new BadRequestError(
+      "Only the place's website, Instagram, and image links can be edited."
+    );
+  }
+
+  const links = community.validateMemberPlaceLinks(
+    {
+      officialUrl: e.record.getString("official_url"),
+      instagram: e.record.getString("instagram_url"),
+      imageUrl: e.record.getString("image_url"),
+    },
+    { verifiedImageUrl: original.getString("image_url") }
+  );
+  e.record.set("official_url", links.official_url);
+  e.record.set("instagram_url", links.instagram_url);
+  e.record.set("image_url", links.image_url);
+  e.next();
+}, "community_waitlist_entries");
+
+// Carries member-supplied place links on an already-published entry to its
+// public venue, then lets the cover resolver use any new website/Instagram
+// link when the venue still lacks an image. Best-effort by design: venue
+// enrichment must never fail an entry update, and the nightly sweeps retry.
+onRecordAfterUpdateSuccess((e) => {
+  const community = require(__hooks + "/community_waitlist.js");
+  try {
+    const publishedVenue = e.record.getString("published_venue");
+    if (e.record.getString("status") === "published" && publishedVenue) {
+      const venue = e.app.findRecordById("venues", publishedVenue);
+      community.mergeEntryLinksIntoVenue(e.app, e.record, venue);
+      community.resolveCoverImage(e.app, publishedVenue);
+    }
+  } catch {
+    // The nightly sweeps cover anything missed here.
+  }
+  e.next();
+}, "community_waitlist_entries");
+
 // A share sends a place to another member with a personal note. The place is
 // either an existing catalogue venue (referenced directly) or the sender's own
 // place, which enters the shared waiting list. A share never counts as a

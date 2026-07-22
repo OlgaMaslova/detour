@@ -3,7 +3,7 @@ import { pb } from './pocketbase';
 type DiscoveryStatus = 'idle' | 'loading' | 'ready' | 'error';
 type ShareDirection = 'received' | 'sent';
 
-interface DiscoveryRecommendation {
+export interface DiscoveryRecommendation {
   recommender_name?: string;
   recommender_pseudo?: string;
   note?: string;
@@ -195,6 +195,25 @@ function memberRecord(): { id: string; display_name?: string; email?: string } |
 
 export function isAuthenticatedMember(): boolean {
   return memberRecord() !== null;
+}
+
+/**
+ * Recommendations from the member's private network that carry a note, so the
+ * catalogue detail can show what a connection actually said about a place.
+ * Empty until the discovery feed has loaded for the signed-in member.
+ */
+export function networkPlaceNotes(): DiscoveryRecommendation[] {
+  if (!memberRecord() || status !== 'ready') return [];
+  return discovery.recommendations.filter((item) => Boolean(item.note));
+}
+
+/** Loads the signed-in member's discovery data when it isn't loaded yet. */
+export function ensureNetworkDiscovery(render: () => void): void {
+  const record = memberRecord();
+  if (record && loadedFor !== record.id && status !== 'loading') {
+    status = 'idle';
+    void loadNetworkDiscovery(render);
+  }
 }
 
 export function resetNetworkDiscovery(): void {
@@ -438,11 +457,7 @@ function showReplyFeedback(form: HTMLFormElement, state: ReplyState, message: st
 }
 
 export function bindNetworkDiscovery(root: HTMLElement, render: () => void): void {
-  const record = memberRecord();
-  if (record && loadedFor !== record.id && status !== 'loading') {
-    status = 'idle';
-    void loadNetworkDiscovery(render);
-  }
+  ensureNetworkDiscovery(render);
 
   root.querySelector<HTMLButtonElement>('[data-network-retry]')?.addEventListener('click', () => {
     status = 'idle';
