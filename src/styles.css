@@ -430,7 +430,7 @@ a:hover { color: var(--wine-deep); }
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.85rem;
 }
 .card {
@@ -463,7 +463,7 @@ a:hover { color: var(--wine-deep); }
    no image yet. */
 .card-cover {
   margin: -1rem -1.1rem 0.8rem;
-  aspect-ratio: 16 / 7;
+  aspect-ratio: 16 / 6;
   overflow: hidden;
   background: var(--canvas);
   border-bottom: 1px solid var(--line);
@@ -923,7 +923,7 @@ a:hover { color: var(--wine-deep); }
   .city-choice-content { min-height: 15.5rem; }
 }
 @media (max-width: 860px) {
-  .card-list { grid-template-columns: 1fr; }
+  .card-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .community-panel-auth, .community-invites, .community-member-grid, .community-submission-grid { grid-template-columns: 1fr; }
   .community-form-wrap { padding: 1.2rem 0 0; border-top: 1px solid var(--line); border-left: 0; }
   .community-section-heading { align-items: start; flex-direction: column; }
@@ -931,6 +931,9 @@ a:hover { color: var(--wine-deep); }
 
   .venue-map, .map-empty { min-height: clamp(300px, 48vh, 480px); }
   .count { margin-left: 0; width: 100%; }
+}
+@media (max-width: 620px) {
+  .card-list { grid-template-columns: 1fr; }
 }
 @media (max-width: 480px) {
   #app { padding: 0 0.85rem 2.5rem; }
