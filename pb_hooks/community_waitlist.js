@@ -1174,6 +1174,37 @@ function mergeEntryLinksIntoVenue(app, entry, venue) {
   return changed;
 }
 
+// Carries a member's corrected place details (name, city, country, address,
+// category) from a waiting-list entry to its published venue. Mirrors
+// mergeEntryLinksIntoVenue's guard: nothing is written to a venue that carries
+// editorial (non-community) recognition, so members can fix their own
+// community places while a catalogue venue's authoritative data is left alone.
+// Empty entry values never clear venue values.
+function mergeEntryPlaceIntoVenue(app, entry, venue) {
+  if (venueHasEditorialRecognition(app, venue.id)) return false;
+  let changed = false;
+  const pairs = [
+    ["venue_name", "name", 200],
+    ["city", "city", 120],
+    ["country", "country", 120],
+    ["address", "address", 300],
+  ];
+  for (const [entryField, venueField, max] of pairs) {
+    const supplied = cleanText(entry.getString(entryField), max);
+    if (!supplied) continue;
+    if (cleanText(venue.getString(venueField), max) === supplied) continue;
+    venue.set(venueField, supplied);
+    changed = true;
+  }
+  const categoryLabel = PLACE_CATEGORY_LABELS[entry.getString("category")] || "";
+  if (categoryLabel && cleanText(venue.getString("category"), 120) !== categoryLabel) {
+    venue.set("category", categoryLabel);
+    changed = true;
+  }
+  if (changed) app.save(venue);
+  return changed;
+}
+
 // A realistic browser UA: many restaurant sites (and all of Instagram) serve
 // bot-detected requests an empty shell without og tags.
 const COVER_USER_AGENT =
@@ -1302,6 +1333,7 @@ module.exports = {
   geocodeVenue,
   isParticipant,
   mergeEntryLinksIntoVenue,
+  mergeEntryPlaceIntoVenue,
   mergePlaceFacts,
   normalizePlacePart,
   recalculateAndPublish,

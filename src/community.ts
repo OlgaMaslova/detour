@@ -48,6 +48,8 @@ interface RecommendationRecord {
   venue_name?: string;
   city?: string;
   country?: string;
+  category?: string;
+  occasions?: string[];
   created?: string;
 }
 
@@ -114,6 +116,7 @@ let detourTab: DetourTab = 'recommendations';
 let notice: Notice | null = null;
 let knownVenues: Venue[] = [];
 let waitlistEntries: WaitlistEntry[] = [];
+let recommendations: RecommendationRecord[] = [];
 let shares: ShareRecord[] = [];
 let communityLoaded = false;
 let loadingCommunity = false;
@@ -306,22 +309,41 @@ function outgoingShares(): ShareRecord[] {
   return shares.filter((share) => Boolean(id && share.sender === id));
 }
 
-function placeLinksMarkup(entry: WaitlistEntry): string {
+function recommendationForEntry(entryId: string): RecommendationRecord | undefined {
+  return recommendations.find((rec) => rec.waitlist === entryId);
+}
+
+function entryEditMarkup(entry: WaitlistEntry): string {
   const links = [
     entry.official_url ? `<a href="${esc(entry.official_url)}" target="_blank" rel="noopener noreferrer">Website</a>` : '',
     entry.instagram_url ? `<a href="${esc(entry.instagram_url)}" target="_blank" rel="noopener noreferrer">Instagram</a>` : '',
     entry.image_url ? `<a href="${esc(entry.image_url)}" target="_blank" rel="noopener noreferrer">Photo</a>` : '',
   ].filter(Boolean);
   const hasLinks = links.length > 0;
+  const rec = recommendationForEntry(entry.id);
+  const selectedCategory = entry.category || '';
+  const selectedOccasions = entry.occasions || [];
   return `${hasLinks ? `<p class="community-place-links" aria-label="Destination links">${links.join('<span aria-hidden="true"> · </span>')}</p>` : ''}
     <details class="community-share-disclosure community-links-disclosure">
-      <summary>${hasLinks ? 'Edit destination links' : 'Add destination links'}</summary>
-      <form class="community-form community-links-form" data-community-links data-waitlist="${esc(entry.id)}">
+      <summary>Edit this recommendation</summary>
+      <form class="community-form community-links-form" data-community-edit data-waitlist="${esc(entry.id)}"${rec ? ` data-recommendation="${esc(rec.id)}"` : ''}>
+        <label>Food-and-drink destination name<input name="venue_name" value="${esc(entry.venue_name || '')}" maxlength="200" required placeholder="A restaurant, café, bar, or other food-and-drink destination"></label>
+        <label>Address <span class="community-optional">Optional</span><input name="address" value="${esc(entry.address || '')}" maxlength="300" placeholder="Street and number"></label>
+        <div class="community-form-grid community-place-grid">
+          <label>City or locality<input name="city" value="${esc(entry.city || '')}" maxlength="120" required placeholder="City or locality"></label>
+          <label>Country<input name="country" value="${esc(entry.country || '')}" maxlength="120" required placeholder="Country"></label>
+        </div>
+        <label>Category <span class="community-optional">Optional</span><select name="category"><option value=""${selectedCategory ? '' : ' selected'}>Choose one</option>${CATEGORY_OPTIONS.map(([value, label]) => `<option value="${value}"${value === selectedCategory ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
+        <fieldset class="community-choice-fieldset">
+          <legend>Good for <span class="community-optional">Optional — choose any that fit</span></legend>
+          <div class="community-choice-grid">${OCCASION_OPTIONS.map(([value, label]) => `<label><input type="checkbox" name="occasions" value="${value}"${selectedOccasions.indexOf(value) !== -1 ? ' checked' : ''}><span>${label}</span></label>`).join('')}</div>
+        </fieldset>
+        ${rec ? `<label>Your recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?">${esc(rec.note || '')}</textarea></label>` : ''}
         <label>Website<input name="official_url" value="${esc(entry.official_url || '')}" maxlength="300" inputmode="url" autocomplete="off" spellcheck="false" placeholder="restaurant.example"></label>
         <label>Instagram<input name="instagram_url" value="${esc(entry.instagram_url || '')}" maxlength="300" autocomplete="off" spellcheck="false" placeholder="@restaurant or instagram.com/restaurant"></label>
         <label>Photo link<input name="image_url" value="${esc(entry.image_url || '')}" maxlength="2048" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Direct link to a photo of the destination"></label>
-        <p class="community-form-note">We try to find these automatically, but a member who knows the destination does it better. Your links carry through to the public page${entry.status === 'published' ? ' right away' : ' when it publishes'}.</p>
-        <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Saving…' : 'Save links'}</button>
+        <p class="community-form-note">Your edits carry through to the public page${entry.status === 'published' ? ' right away' : ' when it publishes'}.</p>
+        <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Saving…' : 'Save changes'}</button>
       </form>
     </details>`;
 }
@@ -342,7 +364,7 @@ function waitlistCard(entry: WaitlistEntry): string {
       <div class="community-signal-label"><span>Recommendations</span><strong>${progress}/3</strong></div>
       <div class="community-signal-track" aria-hidden="true"><span style="width: ${(progress / 3) * 100}%"></span></div>
     </div>
-    ${placeLinksMarkup(entry)}
+    ${entryEditMarkup(entry)}
     ${
       !published
         ? `<details class="community-share-disclosure">
@@ -635,6 +657,7 @@ function resetCommunityState(): void {
   memberTab = 'invitations';
   detourTab = 'recommendations';
   waitlistEntries = [];
+  recommendations = [];
   shares = [];
   communityLoaded = false;
   loadingCommunity = false;
@@ -659,10 +682,12 @@ async function loadCommunity(render: () => void): Promise<void> {
   const results = await Promise.allSettled([
     pb.collection('community_waitlist_entries').getFullList<WaitlistEntry>({ sort: '-updated', requestKey: null }),
     pb.collection('community_shares').getFullList<ShareRecord>({ sort: '-created', requestKey: null }),
+    pb.collection('community_recommendations').getFullList<RecommendationRecord>({ sort: '-created', requestKey: null }),
   ]);
 
   if (results[0].status === 'fulfilled') waitlistEntries = results[0].value;
   if (results[1].status === 'fulfilled') shares = results[1].value;
+  if (results[2].status === 'fulfilled') recommendations = results[2].value;
 
   const failure = results.find((result) => result.status === 'rejected');
   if (failure?.status === 'rejected') {
@@ -1130,28 +1155,46 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
     }
   });
 
-  root.querySelectorAll<HTMLFormElement>('[data-community-links]').forEach((form) => {
+  root.querySelectorAll<HTMLFormElement>('[data-community-edit]').forEach((form) => {
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const entryId = form.dataset.waitlist || '';
       if (!entryId || submitting) return;
       const values = new FormData(form);
+      const recommendationId = form.dataset.recommendation || '';
+      const category = String(values.get('category') || '').trim();
+      const occasions = values.getAll('occasions').map((value) => String(value));
       submitting = true;
       notice = null;
       render();
       try {
+        // The shared place first, so the recommendation hook re-syncs its
+        // display mirrors from the freshly corrected entry.
         await pb.collection('community_waitlist_entries').update(entryId, {
+          venue_name: String(values.get('venue_name') || '').trim(),
+          address: String(values.get('address') || '').trim(),
+          city: String(values.get('city') || '').trim(),
+          country: String(values.get('country') || '').trim(),
+          category,
+          occasions,
           official_url: String(values.get('official_url') || '').trim(),
           instagram_url: String(values.get('instagram_url') || '').trim(),
           image_url: String(values.get('image_url') || '').trim(),
         });
+        if (recommendationId) {
+          await pb.collection('community_recommendations').update(recommendationId, {
+            note: String(values.get('note') || '').trim(),
+            category,
+            occasions,
+          });
+        }
         highlightedWaitlistId = entryId;
-        notice = { kind: 'success', text: 'Destination links saved.' };
+        notice = { kind: 'success', text: 'Recommendation updated.' };
         communityLoaded = false;
         await loadCommunity(render);
         focusWaitlistEntry(entryId);
       } catch (error) {
-        notice = { kind: 'error', text: readableError(error, 'Those links could not be saved. Check them and try again.') };
+        notice = { kind: 'error', text: readableError(error, 'Those changes could not be saved. Check the details and try again.') };
       } finally {
         submitting = false;
         render();

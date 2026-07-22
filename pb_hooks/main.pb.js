@@ -769,6 +769,62 @@ cronAdd("community_web_discovery_sweep", "0 * * * *", () => {
   }
 });
 
+// A member may correct their own recommendation: the personal note and its
+// category/occasions classification. The identity fields (member, waitlist)
+// are server-owned and frozen. The place-detail mirrors (venue_name, city,
+// country) are re-synced from the shared entry rather than trusted from the
+// request, so a note edit can never silently rewrite them and they never drift
+// from an accompanying entry edit.
+onRecordUpdateRequest((e) => {
+  if (e.hasSuperuserAuth()) {
+    return e.next();
+  }
+
+  const community = require(__hooks + "/community_waitlist.js");
+  community.requireVerifiedMember(e.auth, "editing a recommendation");
+  const original = e.record.original();
+  if (original.getString("member") !== e.auth.id) {
+    throw new BadRequestError("You can only edit your own recommendations.");
+  }
+  if (
+    e.record.getString("member") !== original.getString("member") ||
+    e.record.getString("waitlist") !== original.getString("waitlist")
+  ) {
+    throw new BadRequestError(
+      "A recommendation cannot be moved to another place or member."
+    );
+  }
+
+  e.record.set(
+    "note",
+    community.validateRecommendationNote(e.record.getString("note"))
+  );
+  e.record.set(
+    "category",
+    community.validateCategory(e.record.getString("category"))
+  );
+  e.record.set(
+    "occasions",
+    community.validateOccasions(e.record.getStringSlice("occasions"))
+  );
+
+  // The display mirrors stay authoritative to the shared entry, whatever the
+  // request sent. Entry edits arrive first from the client, so this reads the
+  // corrected place details.
+  try {
+    const entry = e.app.findRecordById(
+      "community_waitlist_entries",
+      original.getString("waitlist")
+    );
+    e.record.set("venue_name", entry.getString("venue_name"));
+    e.record.set("city", entry.getString("city"));
+    e.record.set("country", entry.getString("country"));
+  } catch {
+    // A missing entry is unexpected; leave the existing mirrors untouched.
+  }
+  e.next();
+}, "community_recommendations");
+
 // Deleting a pending signal updates the server-maintained count. A place that
 // has already auto-published remains a public selection and is never
 // automatically withdrawn merely because a later recommendation is removed.
@@ -778,42 +834,88 @@ onRecordAfterDeleteSuccess((e) => {
   e.next();
 }, "community_recommendations");
 
-// Participants may edit exactly one thing on a shared waiting-list entry: the
-// place's public links (website, Instagram, cover image). Every other entry
-// field is server-owned and frozen here. Published entries stay editable —
-// that is when a poor automatically-discovered link becomes visible — and the
-// after-update hook below carries the correction to the public venue.
+// Participants may correct a shared waiting-list entry's place details (name,
+// address, city, country, category, occasions) and its public links (website,
+// Instagram, cover image). Publication and bookkeeping state — status,
+// signal_count, participants, the normalized dedup keys, and every venue/audit
+// relation — stays server-owned and frozen. Published entries stay editable:
+// that is when a wrong name or a poor auto-discovered link becomes visible, and
+// the after-update hook below carries the correction to the public venue.
 onRecordUpdateRequest((e) => {
   if (e.hasSuperuserAuth()) {
     return e.next();
   }
 
   const community = require(__hooks + "/community_waitlist.js");
-  community.requireVerifiedMember(e.auth, "editing a place's links");
+  community.requireVerifiedMember(e.auth, "editing a place");
   const original = e.record.original();
   if (!community.isParticipant(original, e.auth.id)) {
     throw new BadRequestError(
-      "Only members who recommended or shared this place can edit its links."
+      "Only members who recommended or shared this place can edit it."
     );
   }
 
-  const frozen = ["venue_name", "city", "country", "address", "status", "category"];
-  for (const field of frozen) {
-    if (e.record.getString(field) !== original.getString(field)) {
+  if (e.record.getString("status") !== original.getString("status")) {
+    throw new BadRequestError("A place's publication status is set automatically.");
+  }
+  if (e.record.getInt("signal_count") !== original.getInt("signal_count")) {
+    throw new BadRequestError(
+      "A place's recommendation count is maintained automatically."
+    );
+  }
+
+  // Place details are member-correctable. Re-validate them the same way the
+  // recommendation create path does and recompute the normalized dedup keys, so
+  // a rename keeps the entry findable and de-duplicated.
+  const venueName = community.cleanText(e.record.getString("venue_name"), 200);
+  const city = community.cleanText(e.record.getString("city"), 120);
+  const country = community.cleanText(e.record.getString("country"), 120);
+  const address = community.cleanText(e.record.getString("address"), 300);
+  const normalizedName = community.normalizePlacePart(venueName);
+  const normalizedCity = community.normalizePlacePart(city);
+  if (venueName.length < 2 || !normalizedName) {
+    throw new BadRequestError("A valid place name is required.");
+  }
+  if (city.length < 2 || !normalizedCity) {
+    throw new BadRequestError("A valid city is required.");
+  }
+  if (country.length < 2) {
+    throw new BadRequestError("A valid country is required.");
+  }
+  if (
+    normalizedName !== original.getString("normalized_name") ||
+    normalizedCity !== original.getString("normalized_city")
+  ) {
+    let clash = null;
+    try {
+      clash = e.app.findFirstRecordByFilter(
+        "community_waitlist_entries",
+        "normalized_name = {:name} && normalized_city = {:city} && id != {:id}",
+        { name: normalizedName, city: normalizedCity, id: original.id }
+      );
+    } catch {
+      clash = null;
+    }
+    if (clash) {
       throw new BadRequestError(
-        "Only the place's website, Instagram, and image links can be edited."
+        "Another place with this name and city is already on the list."
       );
     }
   }
-  if (
-    e.record.getInt("signal_count") !== original.getInt("signal_count") ||
-    e.record.getStringSlice("occasions").join(" ") !==
-      original.getStringSlice("occasions").join(" ")
-  ) {
-    throw new BadRequestError(
-      "Only the place's website, Instagram, and image links can be edited."
-    );
-  }
+  e.record.set("venue_name", venueName);
+  e.record.set("city", city);
+  e.record.set("country", country);
+  e.record.set("address", address);
+  e.record.set("normalized_name", normalizedName);
+  e.record.set("normalized_city", normalizedCity);
+  e.record.set(
+    "category",
+    community.validateCategory(e.record.getString("category"))
+  );
+  e.record.set(
+    "occasions",
+    community.validateOccasions(e.record.getStringSlice("occasions"))
+  );
 
   const links = community.validateMemberPlaceLinks(
     {
@@ -829,16 +931,20 @@ onRecordUpdateRequest((e) => {
   e.next();
 }, "community_waitlist_entries");
 
-// Carries member-supplied place links on an already-published entry to its
+// Carries a member's corrections on an already-published entry — the place
+// details (name, address, city, country, category) and its links — to the
 // public venue, then lets the cover resolver use any new website/Instagram
-// link when the venue still lacks an image. Best-effort by design: venue
-// enrichment must never fail an entry update, and the nightly sweeps retry.
+// link when the venue still lacks an image. Detail carry-through is guarded to
+// community-only venues, so a catalogue venue's editorial data stays
+// authoritative. Best-effort by design: venue enrichment must never fail an
+// entry update, and the nightly sweeps retry.
 onRecordAfterUpdateSuccess((e) => {
   const community = require(__hooks + "/community_waitlist.js");
   try {
     const publishedVenue = e.record.getString("published_venue");
     if (e.record.getString("status") === "published" && publishedVenue) {
       const venue = e.app.findRecordById("venues", publishedVenue);
+      community.mergeEntryPlaceIntoVenue(e.app, e.record, venue);
       community.mergeEntryLinksIntoVenue(e.app, e.record, venue);
       community.resolveCoverImage(e.app, publishedVenue);
     }
