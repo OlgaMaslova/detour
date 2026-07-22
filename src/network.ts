@@ -359,26 +359,26 @@ function memberFeedMarkup(accountHref: string, resolvePlace?: NetworkPlaceResolv
   return `<div class="network-member-content">
     <section class="network-stream" aria-labelledby="network-recommendations-title">
       <div class="network-section-heading">
-        <div><h2 id="network-recommendations-title">Food-and-drink destinations recommended by the community</h2><p>Restaurants, cafés, bars, and other food-and-drink destinations shared across the invite-only Detour circle.</p></div>
+        <div><h2 id="network-recommendations-title">Destinations recommended by the community</h2><p>Restaurants, cafés, bars, and other food-and-drink destinations shared across the invite-only Detour circle.</p></div>
         <div class="network-section-actions">
           <p class="network-section-count">${recommendations.length} ${recommendations.length === 1 ? 'recommendation' : 'recommendations'}</p>
-          <a class="network-primary-link network-recommend-cta" href="${esc(accountHref)}" data-community-route="recommend-place">Recommend a food-and-drink destination <span aria-hidden="true">↗</span></a>
+          <a class="network-primary-link network-recommend-cta" href="${esc(accountHref)}" data-community-route="recommend-place">Recommend<span aria-hidden="true">↗</span></a>
         </div>
       </div>
       ${recommendations.length ? `<div class="network-entry-list">${recommendations.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div>` : `<div class="network-empty"><h3>No circle recommendations yet</h3><p>Recommendations will appear here as members add them, unless they choose to keep theirs private.</p></div>`}
     </section>
     <section class="network-stream network-shares" aria-labelledby="network-shares-title">
       <div class="network-section-heading">
-        <div><h2 id="network-shares-title">Shared food-and-drink destinations</h2><p>Private incoming and outgoing destination shares, kept together.</p></div>
+        <div><h2 id="network-shares-title">Shared destinations</h2><p>Private incoming and outgoing destination shares, kept together.</p></div>
         <div class="network-section-actions">
           <p class="network-section-count">${shareCount} ${shareCount === 1 ? 'share' : 'shares'}</p>
-          <a class="network-primary-link network-share-cta" href="${esc(accountHref)}" data-community-route="share-place">Share a food-and-drink destination <span aria-hidden="true">↗</span></a>
+          <a class="network-primary-link network-share-cta" href="${esc(accountHref)}" data-community-route="share-place">Share<span aria-hidden="true">↗</span></a>
         </div>
       </div>
       ${shareCount ? `<div class="network-share-columns">
         <section aria-labelledby="network-received-title"><h3 id="network-received-title">Shared with you</h3>${received.length ? `<div class="network-entry-list">${received.map(shareMarkup).join('')}</div>` : '<p class="network-column-empty">Nothing received yet.</p>'}</section>
         <section aria-labelledby="network-sent-title"><h3 id="network-sent-title">Sent by you</h3>${sent.length ? `<div class="network-entry-list">${sent.map(shareMarkup).join('')}</div>` : '<p class="network-column-empty">Nothing sent yet.</p>'}</section>
-      </div>` : `<div class="network-empty"><h3>No food-and-drink shares yet</h3><p>Use the member area to send a restaurant, café, bar, or other food-and-drink destination privately to another member of the circle.</p></div>`}
+      </div>` : `<div class="network-empty"><h3>No shares yet</h3><p>Use the member area to send a restaurant, café, bar, or other food-and-drink destination privately to another member of the circle.</p></div>`}
     </section>
   </div>`;
 }

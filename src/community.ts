@@ -342,8 +342,8 @@ function waitlistCard(entry: WaitlistEntry): string {
 function recommendationPanel(): string {
   return `<section class="community-ledger-section" aria-labelledby="community-waitlist-title">
     <div class="community-section-heading">
-      <div><h3 id="community-waitlist-title">Recommend a food-and-drink destination</h3></div>
-      <p>As a verified member, you can recommend a restaurant, café, bar, or other food-and-drink destination anywhere in the world. It is published on the Detourist List only after three independent members recommend it.</p>
+      <div><h3 id="community-waitlist-title">Recommend a destination</h3></div>
+      <p>As a verified member, you can recommend a restaurant, café, bar, or other food-and-drink destination anywhere in the world. It will be published on the Detourist List.</p>
     </div>
     <div class="community-action-grid community-recommend-action">
       <form class="community-form" data-community-recommendation>
