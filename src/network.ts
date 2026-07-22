@@ -46,6 +46,9 @@ interface ReplyState {
 
 const REPLY_MIN_LENGTH = 8;
 const REPLY_MAX_LENGTH = 1200;
+// The landing feed shows only the most recent recommendations to keep the page
+// short; the country filter lets members reach the rest.
+const RECOMMENDATION_PREVIEW_LIMIT = 4;
 
 /**
  * Resolves a recommended place to a published catalogue venue so the feed can
@@ -62,6 +65,7 @@ interface NetworkDiscovery {
 let status: DiscoveryStatus = 'idle';
 let loadedFor = '';
 let errorMessage = '';
+let recommendationCountry = '';
 const replyStates = new Map<string, ReplyState>();
 let discovery: NetworkDiscovery = {
   recommendations: [],
@@ -214,6 +218,7 @@ export function resetNetworkDiscovery(): void {
   status = 'idle';
   loadedFor = '';
   errorMessage = '';
+  recommendationCountry = '';
   replyStates.clear();
   discovery = { recommendations: [], shares: [] };
 }
@@ -227,6 +232,10 @@ function formatDate(value: string | undefined): string {
 
 function placeMeta(item: { address?: string; city?: string; country?: string }): string {
   return [item.address, item.city, item.country].filter(Boolean).join(', ');
+}
+
+function recencyValue(item: { created?: string }): number {
+  return item.created ? new Date(item.created).getTime() : 0;
 }
 
 function pseudo(value: string | undefined, fallback = 'A Detour member'): string {
@@ -358,16 +367,45 @@ function memberFeedMarkup(accountHref: string, resolvePlace?: NetworkPlaceResolv
     </div>`;
   }
 
+  // Country facets are derived from the recommendations themselves, so the
+  // filter only ever offers countries that actually have something to show.
+  const countries = [...new Set(recommendations.map((item) => item.country?.trim()).filter((country): country is string => Boolean(country)))].sort(
+    (a, b) => a.localeCompare(b)
+  );
+  const activeCountry = countries.includes(recommendationCountry) ? recommendationCountry : '';
+  const matching = activeCountry ? recommendations.filter((item) => item.country?.trim() === activeCountry) : recommendations;
+  const latest = [...matching].sort((a, b) => recencyValue(b) - recencyValue(a)).slice(0, RECOMMENDATION_PREVIEW_LIMIT);
+  const hiddenCount = matching.length - latest.length;
+
   return `<div class="network-member-content">
     <section class="network-stream" aria-labelledby="network-recommendations-title">
       <div class="network-section-heading">
         <div><h2 id="network-recommendations-title">Destinations recommended by the community</h2><p>Restaurants, cafés, bars, and other food-and-drink destinations shared across the invite-only Detour circle.</p></div>
         <div class="network-section-actions">
-          <p class="network-section-count">${recommendations.length} ${recommendations.length === 1 ? 'recommendation' : 'recommendations'}</p>
+          <p class="network-section-count">${matching.length} ${matching.length === 1 ? 'recommendation' : 'recommendations'}</p>
           <a class="network-primary-link network-recommend-cta" href="${esc(accountHref)}" data-community-route="recommend-place">Recommend<span aria-hidden="true">↗</span></a>
         </div>
       </div>
-      ${recommendations.length ? `<div class="network-entry-list">${recommendations.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div>` : `<div class="network-empty"><h3>No circle recommendations yet</h3><p>Recommendations will appear here as members add them, unless they choose to keep theirs private.</p></div>`}
+      ${
+        countries.length > 1
+          ? `<div class="network-filter">
+              <label for="network-country-filter">Country</label>
+              <select id="network-country-filter" data-network-country>
+                <option value="">All countries</option>
+                ${countries.map((country) => `<option value="${esc(country)}"${country === activeCountry ? ' selected' : ''}>${esc(country)}</option>`).join('')}
+              </select>
+            </div>`
+          : ''
+      }
+      ${
+        latest.length
+          ? `<div class="network-entry-list network-recommendation-grid">${latest.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div>${
+              hiddenCount > 0
+                ? `<p class="network-entry-more">Showing the ${RECOMMENDATION_PREVIEW_LIMIT} most recent${activeCountry ? ` in ${esc(activeCountry)}` : ''}. ${hiddenCount} more ${hiddenCount === 1 ? 'recommendation is' : 'recommendations are'} in the circle${!activeCountry && countries.length > 1 ? ' — filter by country to see others' : ''}.</p>`
+                : ''
+            }`
+          : `<div class="network-empty"><h3>No circle recommendations yet</h3><p>Recommendations will appear here as members add them, unless they choose to keep theirs private.</p></div>`
+      }
     </section>
     <section class="network-stream network-shares" aria-labelledby="network-shares-title">
       <div class="network-section-heading">
@@ -467,6 +505,11 @@ export function bindNetworkDiscovery(root: HTMLElement, render: () => void): voi
   root.querySelector<HTMLButtonElement>('[data-network-retry]')?.addEventListener('click', () => {
     status = 'idle';
     void loadNetworkDiscovery(render);
+  });
+
+  root.querySelector<HTMLSelectElement>('[data-network-country]')?.addEventListener('change', (event) => {
+    recommendationCountry = (event.currentTarget as HTMLSelectElement).value;
+    render();
   });
 
   root.querySelectorAll<HTMLFormElement>('[data-network-reply-form]').forEach((form) => {
