@@ -1028,11 +1028,15 @@ function enrichVenueFromWebSearch(app, venueId) {
   }
   const answer = payload ? parseDiscoveryAnswer(openAiOutputText(payload)) : null;
   if (!answer) return finish(["unparseable answer"]);
-  if (String(answer.confidence || "").toLowerCase() !== "high") {
-    return finish(["low confidence, discarded"]);
-  }
 
-  const notes = [];
+  // No global confidence gate. Each field below is independently verified —
+  // the website must load and mention the venue, the address must geocode to
+  // the claimed city, the Instagram must be a valid profile — so a fact the
+  // model found and that survives its own check is kept even when the model
+  // hedged about a different field. Previously a single "high" flag discarded
+  // the whole answer, throwing away verified facts alongside the uncertain
+  // one. The reported confidence is recorded in the note for audit only.
+  const notes = ["confidence " + String(answer.confidence || "unknown").toLowerCase()];
   if (needsWebsite) {
     const website = publicHttpUrl(cleanText(answer.official_url, 300));
     if (!website) notes.push("website: none");
