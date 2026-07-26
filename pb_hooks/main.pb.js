@@ -483,7 +483,9 @@ onRecordCreateRequest((e) => {
 }, "members");
 
 // Record the winning member only after the account has been committed. This
-// keeps a failed account validation from consuming an invitation.
+// keeps a failed account validation from consuming an invitation. The same
+// after-create event sends one quiet transactional welcome; delivery failures
+// are logged but never allowed to surface to or block the completed signup.
 onRecordAfterCreateSuccess((e) => {
   const inviteId = e.record.getString("redeemed_invite");
   if (inviteId) {
@@ -492,6 +494,85 @@ onRecordAfterCreateSuccess((e) => {
     invite.set("claimed_at", new Date().toISOString());
     e.app.save(invite);
   }
+
+  try {
+    function escapeHtml(value) {
+      return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    const apiKey = $os.getenv("AGENTMAIL_API_KEY");
+    const inboxId = $os.getenv("AGENTMAIL_INBOX_ID");
+    if (!apiKey || !inboxId) {
+      throw new Error("AgentMail runtime configuration is missing.");
+    }
+
+    const recipient = e.record.getString("email").trim();
+    if (!recipient) {
+      throw new Error("The new member record has no email address.");
+    }
+    const displayName = e.record.getString("display_name").trim() || "there";
+    const firstPlaceUrl = "https://takedetour.app";
+    const response = $http.send({
+      url:
+        "https://api.agentmail.to/v0/inboxes/" +
+        encodeURIComponent(inboxId) +
+        "/messages/send",
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        to: recipient,
+        subject: "Welcome to Detour",
+        text:
+          "Hello " +
+          displayName +
+          ",\n\nWelcome to Detour — a private circle sharing exceptional food-and-drink places.\n\nAdd your first place: " +
+          firstPlaceUrl +
+          "\n\nYou received this email because you joined Detour.",
+        html:
+          "<p>Hello " +
+          escapeHtml(displayName) +
+          ",</p>" +
+          "<p>Welcome to Detour — a private circle sharing exceptional food-and-drink places.</p>" +
+          '<p><a href="' +
+          firstPlaceUrl +
+          '">Add your first place</a></p>' +
+          "<p>You received this email because you joined Detour.</p>",
+        labels: ["app"],
+      }),
+      timeout: 10,
+    });
+
+    if (!response || response.statusCode < 200 || response.statusCode >= 300) {
+      throw new Error(
+        "AgentMail returned HTTP " +
+          (response && response.statusCode ? response.statusCode : "unknown") +
+          "."
+      );
+    }
+  } catch (error) {
+    try {
+      e.app.logger().error(
+        "Detour welcome email delivery failed.",
+        "memberId",
+        e.record.id,
+        "recipient",
+        e.record.getString("email"),
+        "error",
+        String(error)
+      );
+    } catch {
+      // Logging must not turn a best-effort email failure into a signup failure.
+    }
+  }
+
   e.next();
 }, "members");
 
