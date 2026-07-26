@@ -9,7 +9,7 @@ migrate((app) => {
     return null;
   }
 
-  return app
+  app
     .db()
     .newQuery(
       "DELETE FROM founding_feedback_responses " +
@@ -26,6 +26,8 @@ migrate((app) => {
         "I would share a personal recommendation when it helps people I trust find a thoughtful place for a memorable meal.",
     })
     .execute();
+
+  return null;
 }, () => {
   // Forward-only: deleted verification feedback must never be recreated.
   return null;
