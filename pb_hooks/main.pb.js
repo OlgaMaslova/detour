@@ -542,7 +542,7 @@ onRecordUpdateRequest((e) => {
 
 // Invitation codes are generated server-side and are always assigned to the
 // authenticated member who created the invite. Each member may keep up to
-// three invitations open at once; redeeming one frees a slot.
+// ten invitations open at once; redeeming one frees a slot.
 onRecordCreateRequest((e) => {
   if (!e.auth || e.hasSuperuserAuth()) {
     if (e.hasSuperuserAuth()) {
@@ -555,9 +555,9 @@ onRecordCreateRequest((e) => {
     "invites",
     $dbx.hashExp({ issued_by: e.auth.id, claimed_by: "" })
   );
-  if (openInviteCount >= 3) {
+  if (openInviteCount >= 10) {
     throw new BadRequestError(
-      "You already have three unclaimed invitations. An invitation slot becomes available once someone redeems a code."
+      "You already have ten unclaimed invitations. An invitation slot becomes available once someone redeems a code."
     );
   }
 
