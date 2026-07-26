@@ -84,6 +84,56 @@ routerAdd("POST", "/api/detour/founding-feedback", (e) => {
   return e.json(201, { ok: true });
 });
 
+// The public route above persists through the normal record lifecycle, so this
+// one after-create hook delivers exactly one dashboard event per saved answer.
+onRecordAfterCreateSuccess((e) => {
+  try {
+    const eventsUrl = $os.getenv("SUPERNAUT_EVENTS_URL");
+    if (!eventsUrl) {
+      throw new Error("SUPERNAUT_EVENTS_URL is not configured.");
+    }
+
+    const response = $http.send({
+      url: eventsUrl,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "detour.founding_feedback.created",
+        subject: "New Detour founding feedback",
+        text:
+          "Discovery source: " +
+          e.record.getString("discovery_source") +
+          "\nCircle interest: " +
+          e.record.getString("circle_interest") +
+          "\nValue needed: " +
+          e.record.getString("value_needed"),
+      }),
+      timeout: 5,
+    });
+    if (!response || response.statusCode < 200 || response.statusCode >= 300) {
+      throw new Error(
+        "Dashboard events endpoint returned HTTP " +
+          (response && response.statusCode ? response.statusCode : "unknown") +
+          "."
+      );
+    }
+  } catch (error) {
+    try {
+      e.app.logger().error(
+        "Detour founding-feedback event delivery failed.",
+        "responseId",
+        e.record.id,
+        "error",
+        String(error)
+      );
+    } catch {
+      // Logging must not turn best-effort dashboard delivery into a failed save.
+    }
+  }
+
+  e.next();
+}, "founding_feedback_responses");
+
 // These private routes bypass member rules only for explicit safe projections.
 routerAdd(
   "GET",
@@ -242,7 +292,8 @@ routerAdd(
           "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
           "FROM community_recommendations r " +
           "JOIN members m ON m.id = r.member " +
-          "WHERE (m.id = {:caller} " +
+          "WHERE COALESCE(m.internal_member, FALSE) = FALSE " +
+          "AND (m.id = {:caller} " +
           "OR (m.community_status = 'verified' AND m.discovery_visible = TRUE)) " +
           "ORDER BY r.created DESC, r.id DESC LIMIT 100"
       )
@@ -406,7 +457,7 @@ routerAdd(
 
     const matches = e.app.findRecordsByFilter(
       "members",
-      "id != {:member} && (pseudo ~ {:query} || display_name ~ {:query})",
+      "id != {:member} && internal_member = false && (pseudo ~ {:query} || display_name ~ {:query})",
       "pseudo",
       12,
       0,
@@ -438,10 +489,12 @@ onRecordCreateRequest((e) => {
     return e.next();
   }
 
-  // Founder policy is server-owned. Public signup can neither authorize a new
-  // issuer nor self-assert the direct-invite fast track.
+  // Founder policy and fixture classification are server-owned. Public signup
+  // can neither authorize a new issuer, self-assert the direct-invite fast
+  // track, nor enter the reserved internal-member lane.
   e.record.set("founder_invitation_issuer", false);
   e.record.set("direct_founder_invited", false);
+  e.record.set("internal_member", false);
 
   const inviteCode = e.record.getString("invite_code").trim().toUpperCase();
   if (!inviteCode) {
@@ -573,6 +626,52 @@ onRecordAfterCreateSuccess((e) => {
     }
   }
 
+  // Only invitation-backed public signups reach the dashboard. Reserved
+  // internal fixtures and superuser-created records remain quiet.
+  if (inviteId && !e.record.getBool("internal_member")) {
+    try {
+      const eventsUrl = $os.getenv("SUPERNAUT_EVENTS_URL");
+      if (!eventsUrl) {
+        throw new Error("SUPERNAUT_EVENTS_URL is not configured.");
+      }
+
+      const displayName = e.record.getString("display_name").trim();
+      const pseudo = e.record.getString("pseudo").trim();
+      const memberLabel =
+        (displayName || "A new member") + (pseudo ? " (@" + pseudo + ")" : "");
+      const response = $http.send({
+        url: eventsUrl,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "detour.member.created",
+          subject: "New Detour member",
+          text: memberLabel + " joined Detour.",
+        }),
+        timeout: 5,
+      });
+      if (!response || response.statusCode < 200 || response.statusCode >= 300) {
+        throw new Error(
+          "Dashboard events endpoint returned HTTP " +
+            (response && response.statusCode ? response.statusCode : "unknown") +
+            "."
+        );
+      }
+    } catch (error) {
+      try {
+        e.app.logger().error(
+          "Detour member event delivery failed.",
+          "memberId",
+          e.record.id,
+          "error",
+          String(error)
+        );
+      } catch {
+        // Logging must not turn best-effort dashboard delivery into a signup failure.
+      }
+    }
+  }
+
   e.next();
 }, "members");
 
@@ -603,7 +702,8 @@ onRecordUpdateRequest((e) => {
     e.record.getBool("founder_invitation_issuer") !==
       original.getBool("founder_invitation_issuer") ||
     e.record.getBool("direct_founder_invited") !==
-      original.getBool("direct_founder_invited")
+      original.getBool("direct_founder_invited") ||
+    e.record.getBool("internal_member") !== original.getBool("internal_member")
   ) {
     // Keep both Founder markers inside the existing protected membership
     // provenance boundary; profile requests may never change publication trust.
@@ -762,6 +862,61 @@ onRecordAfterCreateSuccess((e) => {
   } catch {
     // Entry lookup is best-effort; the sweeps cover anything missed.
   }
+
+  try {
+    const memberId = e.record.getString("member");
+    const author = e.app.findRecordById("members", memberId);
+    if (!author.getBool("internal_member")) {
+      const eventsUrl = $os.getenv("SUPERNAUT_EVENTS_URL");
+      if (!eventsUrl) {
+        throw new Error("SUPERNAUT_EVENTS_URL is not configured.");
+      }
+
+      const displayName = author.getString("display_name").trim();
+      const pseudo = author.getString("pseudo").trim();
+      const memberLabel =
+        (displayName || "A Detour member") +
+        (pseudo ? " (@" + pseudo + ")" : "");
+      const placeName = e.record.getString("venue_name").trim() || "a place";
+      const city = e.record.getString("city").trim();
+      const response = $http.send({
+        url: eventsUrl,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "detour.community_recommendation.created",
+          subject: "New Detour recommendation",
+          text:
+            memberLabel +
+            " recommended " +
+            placeName +
+            (city ? " in " + city : "") +
+            ".",
+        }),
+        timeout: 5,
+      });
+      if (!response || response.statusCode < 200 || response.statusCode >= 300) {
+        throw new Error(
+          "Dashboard events endpoint returned HTTP " +
+            (response && response.statusCode ? response.statusCode : "unknown") +
+            "."
+        );
+      }
+    }
+  } catch (error) {
+    try {
+      e.app.logger().error(
+        "Detour recommendation event delivery failed.",
+        "recommendationId",
+        e.record.id,
+        "error",
+        String(error)
+      );
+    } catch {
+      // Logging must not affect publication, enrichment, or the completed save.
+    }
+  }
+
   e.next();
 }, "community_recommendations");
 
