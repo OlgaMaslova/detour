@@ -544,42 +544,29 @@ function recalculateAndPublish(app, entryId) {
       return;
     }
 
-    // Count and Founder eligibility in one indexed aggregate instead of loading
-    // every recommendation (and then every member) into the hook VM. COUNT
-    // DISTINCT remains the source of truth for the persisted signal total.
-    const summary = new DynamicModel({
-      signal_count: 0,
-      founder_signal_count: 0,
-    });
+    // COUNT DISTINCT remains the source of truth for the persisted social-proof
+    // total. Founder and Founder-invited recommendations remain compatible by
+    // counting exactly like every other verified member recommendation.
+    const summary = new DynamicModel({ signal_count: 0 });
     txApp
       .db()
       .newQuery(
-        "SELECT COUNT(DISTINCT r.member) AS signal_count, " +
-          "COUNT(DISTINCT CASE " +
-          "WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
-          "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE THEN r.member " +
-          "END) AS founder_signal_count " +
-          "FROM community_recommendations r " +
-          "LEFT JOIN members m ON m.id = r.member " +
-          "WHERE r.waitlist = {:waitlist}"
+        "SELECT COUNT(DISTINCT member) AS signal_count " +
+          "FROM community_recommendations WHERE waitlist = {:waitlist}"
       )
       .bind({ waitlist: entry.id })
       .one(summary);
 
     const signalCount = Number(summary.signal_count || 0);
-    const hasFounderSignal = Number(summary.founder_signal_count || 0) > 0;
     if (entry.getInt("signal_count") !== signalCount) {
       entry.set("signal_count", signalCount);
       txApp.save(entry);
     }
 
-    // A recommendation by the Founder (issuer) or a directly Founder-invited
-    // member bypasses the standard three-distinct-member threshold. Descendant
-    // markers are intentionally not consulted here.
-    if (
-      entry.getString("status") === "pending" &&
-      (hasFounderSignal || signalCount >= 3)
-    ) {
+    // Recommendation creation already requires verified membership and a
+    // meaningful note. The first distinct member recommendation publishes a
+    // pending entry; additional persisted signals are social proof, not a gate.
+    if (entry.getString("status") === "pending" && signalCount >= 1) {
       publishEntry(txApp, entry);
     }
   });

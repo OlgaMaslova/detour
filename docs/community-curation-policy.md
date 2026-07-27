@@ -10,16 +10,16 @@ Detour's active community workflow is a shared private waiting list, not an edit
 1. A member proposes a place with a display venue name, city, country, and a meaningful personal recommendation note.
 2. The backend normalizes the venue name and city and creates or reuses one `community_waitlist_entries` record for that normalized pair. Differences in case, spacing, punctuation, or common diacritics must not create parallel queues.
 3. Each member may add at most one `community_recommendations` record to an entry. A qualifying record is one independent signal; repeated attempts by the same member are rejected and do not increase the count.
-4. At the third independent member signal, the backend automatically publishes the place. No curator or editorial approval is required for this community-loop publication.
+4. The first qualifying recommendation from a verified, invitation-based member automatically publishes the place. No curator, editorial approval, founder signal, or multi-member threshold is required for this community-loop publication.
 5. Publication creates or reuses one canonical `venues` record, the `guide_sources` record named **“Detour community”** with slug `detour-community`, and one current `venue_awards` event labelled **“Detour community selection.”** The waiting-list entry is marked `published` only after those public records exist.
 
-The signal count is computed from distinct recommendation rows, not from a client-supplied counter. Deleting a recommendation updates the count while an entry is pending. Deleting a recommendation after publication does not automatically remove the public selection; corrections and rights requests are handled deliberately rather than by silently reversing an already completed publication.
+The signal count is computed from distinct recommendation rows, not from a client-supplied counter, and is retained as distinct-member social proof rather than a publication threshold. Deleting a recommendation updates the count while an entry is pending. Deleting a recommendation after publication does not automatically remove the public selection; corrections and rights requests are handled deliberately rather than by silently reversing an already completed publication.
 
-A published entry does not accept new community recommendations. The automatic threshold is a publication rule, not permission to copy member text or unsupported place facts.
+A published entry does not accept new community recommendations. The automatic first-recommendation rule is a publication rule, not permission to copy member text or unsupported place facts.
 
 ## 2. Distinct review-gated contribution lane
 
-`member_place_contributions` is a separate curator-review lane. It is not a replacement for, extension of, or input to either legacy `detour_submissions`/visit-evidence records or the automatic three-signal waiting-list.
+`member_place_contributions` is a separate curator-review lane. It is not a replacement for, extension of, or input to either legacy `detour_submissions`/visit-evidence records or the automatic verified-member recommendation workflow.
 
 - Intake is limited to verified, invitation-based members. The backend attributes each record to the authenticated member, sets `source` to `member_recommended`, and starts it `in_review`.
 - Contributor linkage, the recommendation note, normalization keys, and curator notes remain private. Only contribution records with `status = 'approved'` may be listed or viewed publicly.
@@ -30,7 +30,7 @@ For San Francisco, discovery acceptance is inspectable: high-recognition guide-b
 
 `editorial_local_pick` is a separate catalogue lane for factual, source-attributed local selections made outside member workflows. It is neither a member contribution/community signal nor a backfill of guide-backed awards. It may publish only independently verified place facts plus public source attribution; editorial descriptions or other page prose are not copied.
 
-The San Francisco starter layer in this lane is inspectable on `venue_awards`: `provenance = 'editorial_local_pick'` distinguishes it from `guide_backed` and `community_selection`, while `occasions` uses the same controlled taxonomy as `member_place_contributions`. This addition does not change any existing guide-backed, contribution-review, community-threshold, privacy, or publication rule.
+The San Francisco starter layer in this lane is inspectable on `venue_awards`: `provenance = 'editorial_local_pick'` distinguishes it from `guide_backed` and `community_selection`, while `occasions` uses the same controlled taxonomy as `member_place_contributions`. This addition does not change any existing guide-backed, contribution-review, community-recommendation, privacy, or publication rule.
 
 ## 3. Private shares
 
@@ -40,7 +40,7 @@ The San Francisco starter layer in this lane is inspectable on `venue_awards`: `
 - A sender may instead supply safe place fields. The backend creates or matches the normalized waiting-list entry and links the share to it; if those fields match an existing entry, the sender must already participate.
 - The sender and recipient become private participants so each can view the shared entry under the collection rules.
 - A share is **not** a recommendation signal and never increments `signal_count`.
-- If the recipient is a member, or later activates membership, and submits their own meaningful recommendation against that entry, that recommendation is their independent signal.
+- If the recipient is a member, or later activates membership, and submits their own meaningful recommendation against that entry, that recommendation is their independent signal and immediately publishes the entry if it is still pending.
 - Self-targeted shares, nonexistent recipients, non-member senders, published-entry shares, and invalid or missing place/note data are rejected.
 
 Share notes remain private. They are not catalogue descriptions, public attribution, evidence of a recommendation, or permission to publish third-party material.
@@ -57,7 +57,7 @@ The active loop uses intentionally private collections:
 
 Anonymous users cannot list or view the private waiting-list, recommendation, share, or legacy collections. Members may read only their own recommendations, shares they sent or received, waiting-list entries in which they are participants, and their own contribution records at any status; anonymous and other public readers can see only approved contributions. Hidden participant, member, canonical venue, publication relation, normalization, recommendation-note, and audit fields are server-maintained and are not part of member-controlled writes.
 
-The automatic three-signal workflow publishes only through these catalogue collections:
+The automatic verified-member recommendation workflow publishes only through these catalogue collections:
 
 - `venues`;
 - `guide_sources`; and
@@ -69,7 +69,7 @@ No public client should query a community waiting-list, recommendation, share, e
 
 The normalized venue-name and city pair is the queue identity. Normalization is used for deduplication and canonical matching; it does not authorize a fuzzy merge between different branches, hotels, similarly named venues, or ambiguous places.
 
-When the third signal arrives, the backend first tries to reuse an existing `venues` record whose name and city match after normalization. If it reuses a venue, the waiting-list country must agree with the canonical venue country. If no canonical venue exists, the entry must already contain a member-supplied country before a new venue can be created. `venues.country` remains required.
+When the first qualifying recommendation arrives, the backend first tries to reuse an existing `venues` record whose name and city match after normalization. If it reuses a venue, the waiting-list country must agree with the canonical venue country. If no canonical venue exists, the entry must already contain a member-supplied country before a new venue can be created. `venues.country` remains required.
 
 The automatic workflow publishes only these minimum facts:
 
@@ -84,7 +84,7 @@ Publication must be idempotent. A retry reuses the same normalized waiting-list 
 
 ## 6. Rights, provenance, and no-copy rule
 
-A community recommendation is a private member signal, not public prose or third-party provenance. The public attribution is collective and anonymous: **“Detour community selection.”** It identifies the threshold outcome, not a named member, external guide, venue endorsement, sponsorship, or partnership.
+A community recommendation is a private member signal, not public prose or third-party provenance. The public attribution is collective and anonymous: **“Detour community selection.”** It identifies the community publication outcome, not a named member, external guide, venue endorsement, sponsorship, or partnership.
 
 Never copy to `venues`, `guide_sources`, `venue_awards`, frontend catalogue data, or other public fields:
 
@@ -122,7 +122,7 @@ They are no longer the governing intake/publication path for new community-loop 
 - legacy `detour_submissions` publication/unpublication endpoints remain available only for their historical records and must not be repurposed for the new waiting list; and
 - the reserved `.invalid` proof fixtures remain private historical verification data, never community-loop signals or named public attribution.
 
-Historic approval language applies only to the legacy records it describes. It must not be presented as a requirement for the active three-signal automatic workflow.
+Historic approval or threshold language applies only to the legacy records it describes. It must not be presented as a requirement for the active first-recommendation automatic workflow.
 
 ## 9. Corrections, privacy requests, and release acceptance
 
@@ -142,7 +142,8 @@ A backend release satisfies this policy only when all of the following are true:
 - only members can create recommendations or send shares;
 - one member can contribute only one signal per entry;
 - a meaningful recommendation note is required;
-- three distinct recommendation rows publish without curator approval;
+- the first meaningful recommendation from a verified, invitation-based member publishes a pending entry without curator approval or a founder/multi-member threshold;
+- `signal_count` remains the server-computed count of distinct recommending members and serves as social proof rather than a publication gate;
 - a share links or creates a queue entry but never increases its signal count;
 - a shared recipient's own recommendation after membership activation counts independently;
 - existing normalized catalogue venues are reused and new venues require country;
