@@ -3,6 +3,8 @@ import { pb } from './pocketbase';
 type DiscoveryStatus = 'idle' | 'loading' | 'ready' | 'error';
 type FirstPlaceStatus = 'idle' | 'loading' | 'ready' | 'error';
 type ShareDirection = 'received' | 'sent';
+type InviteRequestStatus = 'idle' | 'submitting' | 'success';
+type InviteRequestField = 'name' | 'email' | 'city' | 'why';
 
 export interface DiscoveryRecommendation {
   recommender_pseudo?: string;
@@ -45,6 +47,16 @@ interface ReplyState {
   validationError: boolean;
 }
 
+interface InviteRequestState {
+  status: InviteRequestStatus;
+  name: string;
+  email: string;
+  city: string;
+  why: string;
+  message: string;
+  fieldErrors: Record<InviteRequestField, string>;
+}
+
 const REPLY_MIN_LENGTH = 8;
 const REPLY_MAX_LENGTH = 1200;
 // The landing feed shows only the most recent recommendations to keep the page
@@ -72,6 +84,15 @@ let firstPlaceLoadedFor = '';
 let firstPlaceCount = 0;
 let firstPlaceRequest = 0;
 const replyStates = new Map<string, ReplyState>();
+const inviteRequestState: InviteRequestState = {
+  status: 'idle',
+  name: '',
+  email: '',
+  city: '',
+  why: '',
+  message: '',
+  fieldErrors: { name: '', email: '', city: '', why: '' },
+};
 let discovery: NetworkDiscovery = {
   recommendations: [],
   shares: [],
@@ -189,6 +210,103 @@ function replyCreateError(error: unknown): string {
     if (response.response?.message) return response.response.message;
   }
   return 'That reply could not be sent. Check your connection and the reply text, then try again.';
+}
+
+function safeInlineMessage(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const message = value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return message.length <= 500 ? message : '';
+}
+
+function inviteRequestCreateError(error: unknown): string {
+  if (error && typeof error === 'object') {
+    const response = (error as { response?: { message?: unknown; data?: Record<string, { message?: unknown }> } }).response;
+    const responseMessage = safeInlineMessage(response?.message);
+    if (responseMessage && !/^failed to create record\.?$/i.test(responseMessage)) return responseMessage;
+    if (response?.data && typeof response.data === 'object') {
+      for (const detail of Object.values(response.data)) {
+        const fieldMessage = safeInlineMessage(detail?.message);
+        if (fieldMessage) return fieldMessage;
+      }
+    }
+  }
+  return "We couldn't send your request. Check your connection and try again; your answers are still here.";
+}
+
+function inviteRequestSource(): string {
+  const ref = new URLSearchParams(window.location.search).get('ref')?.trim() || '';
+  return /^[a-zA-Z0-9][a-zA-Z0-9._:/?&=+\-]{0,119}$/.test(ref) ? ref : 'public-site';
+}
+
+function inviteRequestFieldError(field: InviteRequestField, element: HTMLInputElement | HTMLTextAreaElement): string {
+  const value = element.value.trim();
+  if (field === 'email') {
+    if (!value) return 'Enter your email address.';
+    if (element.validity.typeMismatch) return 'Enter an email address in the usual name@example.com format.';
+  }
+  const limits: Record<InviteRequestField, number> = { name: 120, email: 0, city: 120, why: 500 };
+  const limit = limits[field];
+  if (limit && value.length > limit) return `${field === 'why' ? 'This answer' : field === 'name' ? 'Name' : 'City'} must be ${limit} characters or fewer.`;
+  return '';
+}
+
+function inviteRequestFormMarkup(accountHref: string): string {
+  if (inviteRequestState.status === 'success') {
+    return `<div class="network-invite-success" data-invite-request-success role="status" aria-live="polite" tabindex="-1">
+      <p class="network-membership-label">Request received</p>
+      <h2>Thank you for raising your hand.</h2>
+      <p>The Detour team received your founding-member request and will reply personally. This is a request, not immediate membership or access.</p>
+    </div>
+    <div class="network-member-return">
+      <p class="network-membership-label">Already invited?</p>
+      <a class="network-primary-link" href="${esc(accountHref)}" data-community-route>Sign in or join with a code <span aria-hidden="true">↗</span></a>
+      <p class="network-invitation-note">Invitations and replies are shared personally by the Detour team and current members.</p>
+    </div>`;
+  }
+
+  const pending = inviteRequestState.status === 'submitting';
+  const statusRole = inviteRequestState.message ? (pending ? 'status' : 'alert') : '';
+  const statusClass = inviteRequestState.message && !pending ? ' is-error' : '';
+  return `<div class="network-invite-intro">
+      <p class="network-membership-label">Founding membership</p>
+      <h2 id="network-membership-title">Ask to join the Detour circle.</h2>
+      <p>Tell us a little about yourself. The Detour team reads every request and replies personally; submitting does not grant immediate access.</p>
+    </div>
+    <form class="network-invite-form" data-invite-request-form novalidate aria-labelledby="network-membership-title">
+      <fieldset${pending ? ' disabled' : ''}>
+        <legend class="visually-hidden">Founding-member invite request</legend>
+        <div class="network-invite-fields">
+          <div class="network-invite-field">
+            <label for="invite-request-name">Name <span>(optional)</span></label>
+            <input id="invite-request-name" name="name" type="text" autocomplete="name" maxlength="120" value="${esc(inviteRequestState.name)}" aria-describedby="invite-request-name-error"${inviteRequestState.fieldErrors.name ? ' aria-invalid="true"' : ''}>
+            <p class="network-invite-field-error" id="invite-request-name-error">${esc(inviteRequestState.fieldErrors.name)}</p>
+          </div>
+          <div class="network-invite-field">
+            <label for="invite-request-email">Email</label>
+            <input id="invite-request-email" name="email" type="email" autocomplete="email" inputmode="email" required value="${esc(inviteRequestState.email)}" aria-describedby="invite-request-email-error"${inviteRequestState.fieldErrors.email ? ' aria-invalid="true"' : ''}>
+            <p class="network-invite-field-error" id="invite-request-email-error">${esc(inviteRequestState.fieldErrors.email)}</p>
+          </div>
+          <div class="network-invite-field">
+            <label for="invite-request-city">City <span>(optional)</span></label>
+            <input id="invite-request-city" name="city" type="text" autocomplete="address-level2" maxlength="120" value="${esc(inviteRequestState.city)}" aria-describedby="invite-request-city-error"${inviteRequestState.fieldErrors.city ? ' aria-invalid="true"' : ''}>
+            <p class="network-invite-field-error" id="invite-request-city-error">${esc(inviteRequestState.fieldErrors.city)}</p>
+          </div>
+          <div class="network-invite-field network-invite-field-wide">
+            <label for="invite-request-why">What would you bring to Detour? <span>(optional)</span></label>
+            <textarea id="invite-request-why" name="why" rows="3" maxlength="500" aria-describedby="invite-request-why-hint invite-request-why-error"${inviteRequestState.fieldErrors.why ? ' aria-invalid="true"' : ''}>${esc(inviteRequestState.why)}</textarea>
+            <p class="network-invite-field-hint" id="invite-request-why-hint">A short line about the places, perspective, or local knowledge you would share.</p>
+            <p class="network-invite-field-error" id="invite-request-why-error">${esc(inviteRequestState.fieldErrors.why)}</p>
+          </div>
+        </div>
+        <button class="network-primary-link network-invite-submit" type="submit"${pending ? ' disabled' : ''}>${pending ? 'Sending request…' : 'Request a founding-member invite'}</button>
+      </fieldset>
+      <p class="network-invite-status${statusClass}" data-invite-request-status${statusRole ? ` role="${statusRole}" aria-live="${pending ? 'polite' : 'assertive'}"` : ''} tabindex="-1">${esc(inviteRequestState.message)}</p>
+    </form>
+    <div class="network-member-return">
+      <p class="network-membership-label">Already invited?</p>
+      <a class="network-primary-link" href="${esc(accountHref)}" data-community-route>Sign in or join with a code <span aria-hidden="true">↗</span></a>
+      <p class="network-invitation-note">Invitations are shared personally by current Detour members.</p>
+    </div>`;
 }
 
 function memberRecord(): { id: string; pseudo?: string; email?: string } | null {
@@ -465,19 +583,15 @@ export function networkDiscoveryMarkup(accountHref: string, resolvePlace?: Netwo
       <div class="network-invitation-copy">
         <p class="network-kicker">An invite-only circle for food-and-drink discovery</p>
         <h1 id="network-home-title">Discover memorable places to eat and drink through the Detour circle.</h1>
-        <p class="network-invitation-lead">Members recommend restaurants, cafés, bars, and other food-and-drink destinations across one trusted circle, while direct shares and replies remain private between the people involved.</p>
+        <p class="network-invitation-lead">Detour is an invitation-only, community-curated food-and-drink list built from recommendations by people you can trust. Direct shares and replies remain private between the people involved.</p>
         <ol class="network-how" aria-label="How Detour works">
           <li><span aria-hidden="true">1</span><div><strong>Recommend somewhere to eat or drink</strong><p>Add a restaurant, café, bar, or other food-and-drink destination you would genuinely send another Detourist.</p></div></li>
           <li><span aria-hidden="true">2</span><div><strong>Discover together</strong><p>Recommendations are visible across the full circle unless a member keeps theirs private.</p></div></li>
           <li><span aria-hidden="true">3</span><div><strong>Share privately</strong><p>Send a food-and-drink destination and continue the conversation directly with another member.</p></div></li>
         </ol>
       </div>
-      <aside class="network-invitation-action" aria-labelledby="network-membership-title">
-        <p class="network-membership-label">Membership</p>
-        <h2 id="network-membership-title">Start with a personal invitation.</h2>
-        <p>Already a member, or holding an invitation code? Continue to the member area.</p>
-        <a class="network-primary-link" href="${esc(accountHref)}" data-community-route>Sign in or join with a code <span aria-hidden="true">↗</span></a>
-        <p class="network-invitation-note">Invitations are shared personally by current Detour members.</p>
+      <aside class="network-invitation-action" aria-label="Founding membership and member sign-in">
+        ${inviteRequestFormMarkup(accountHref)}
       </aside>
     </section>`;
   }
@@ -559,6 +673,106 @@ function showReplyFeedback(form: HTMLFormElement, state: ReplyState, message: st
 
 export function bindNetworkDiscovery(root: HTMLElement, render: () => void): void {
   ensureNetworkDiscovery(render);
+
+  const inviteForm = root.querySelector<HTMLFormElement>('[data-invite-request-form]');
+  if (inviteForm) {
+    const fields: InviteRequestField[] = ['name', 'email', 'city', 'why'];
+    const fieldElement = (field: InviteRequestField): HTMLInputElement | HTMLTextAreaElement | null =>
+      inviteForm.elements.namedItem(field) as HTMLInputElement | HTMLTextAreaElement | null;
+    const showFieldError = (field: InviteRequestField, message: string): void => {
+      inviteRequestState.fieldErrors[field] = message;
+      const element = fieldElement(field);
+      const error = inviteForm.querySelector<HTMLElement>(`#invite-request-${field}-error`);
+      if (element) {
+        if (message) element.setAttribute('aria-invalid', 'true');
+        else element.removeAttribute('aria-invalid');
+      }
+      if (error) error.textContent = message;
+    };
+    const showFormStatus = (message: string, error: boolean): void => {
+      inviteRequestState.message = message;
+      const statusElement = inviteForm.querySelector<HTMLElement>('[data-invite-request-status]');
+      if (!statusElement) return;
+      statusElement.textContent = message;
+      statusElement.classList.toggle('is-error', error);
+      statusElement.setAttribute('role', error ? 'alert' : 'status');
+      statusElement.setAttribute('aria-live', error ? 'assertive' : 'polite');
+    };
+
+    fields.forEach((field) => {
+      const element = fieldElement(field);
+      element?.addEventListener('input', () => {
+        inviteRequestState[field] = element.value;
+        if (inviteRequestState.fieldErrors[field]) showFieldError(field, '');
+      });
+      element?.addEventListener('blur', () => {
+        const message = inviteRequestFieldError(field, element);
+        showFieldError(field, message);
+      });
+    });
+
+    inviteForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (inviteRequestState.status === 'submitting') return;
+
+      let firstInvalid: HTMLInputElement | HTMLTextAreaElement | null = null;
+      for (const field of fields) {
+        const element = fieldElement(field);
+        if (!element) continue;
+        inviteRequestState[field] = element.value;
+        const message = inviteRequestFieldError(field, element);
+        showFieldError(field, message);
+        if (message && !firstInvalid) firstInvalid = element;
+      }
+      if (firstInvalid) {
+        showFormStatus('Check the highlighted field and try again.', true);
+        firstInvalid.focus();
+        return;
+      }
+
+      const payload = {
+        name: inviteRequestState.name.trim(),
+        email: inviteRequestState.email.trim(),
+        city: inviteRequestState.city.trim(),
+        why: inviteRequestState.why.trim(),
+        source: inviteRequestSource(),
+      };
+      inviteRequestState.status = 'submitting';
+      inviteRequestState.message = 'Sending your request…';
+      const fieldset = inviteForm.querySelector<HTMLFieldSetElement>('fieldset');
+      const submit = inviteForm.querySelector<HTMLButtonElement>('.network-invite-submit');
+      if (fieldset) fieldset.disabled = true;
+      if (submit) {
+        submit.disabled = true;
+        submit.textContent = 'Sending request…';
+      }
+      showFormStatus(inviteRequestState.message, false);
+
+      try {
+        await pb.collection('invite_requests').create(payload, { requestKey: null });
+        inviteRequestState.status = 'success';
+        inviteRequestState.message = '';
+        render();
+        root.querySelector<HTMLElement>('[data-invite-request-success]')?.focus();
+      } catch (error) {
+        inviteRequestState.status = 'idle';
+        const message = inviteRequestCreateError(error);
+        inviteRequestState.message = message;
+        if (!inviteForm.isConnected) {
+          render();
+          root.querySelector<HTMLElement>('[data-invite-request-status]')?.focus();
+          return;
+        }
+        if (fieldset) fieldset.disabled = false;
+        if (submit) {
+          submit.disabled = false;
+          submit.textContent = 'Request a founding-member invite';
+        }
+        showFormStatus(message, true);
+        inviteForm.querySelector<HTMLElement>('[data-invite-request-status]')?.focus();
+      }
+    });
+  }
 
   root.querySelector<HTMLButtonElement>('[data-network-retry]')?.addEventListener('click', () => {
     status = 'idle';

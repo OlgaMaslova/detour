@@ -2484,7 +2484,7 @@ a.brand:focus-visible {
 .network-home { padding-top: clamp(1.5rem, 4vw, 3rem); }
 .network-invitation {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(15rem, 0.55fr);
+  grid-template-columns: minmax(0, 1.05fr) minmax(21rem, 0.95fr);
   align-items: end;
   gap: clamp(1.5rem, 5vw, 4.5rem);
 }
@@ -2615,9 +2615,9 @@ a.brand:focus-visible {
 .network-invitation-action {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: center;
-  gap: 0.9rem;
+  gap: 1.25rem;
   padding: clamp(1.25rem, 3.5vw, 2rem);
   color: white;
   background: var(--violet);
@@ -2632,15 +2632,101 @@ a.brand:focus-visible {
   letter-spacing: -0.025em;
   text-wrap: balance;
 }
-.network-invitation-action p { max-width: 38ch; margin: 0; color: white; line-height: 1.55; }
+.network-invitation-action p { max-width: 42ch; margin: 0; color: white; line-height: 1.55; }
 .network-membership-label {
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+.network-invite-intro { display: grid; gap: 0.65rem; }
+.network-invite-form,
+.network-invite-form fieldset { display: grid; gap: 1rem; min-width: 0; }
+.network-invite-form fieldset { margin: 0; padding: 0; border: 0; }
+.network-invite-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem 0.75rem; }
+.network-invite-field { display: grid; min-width: 0; align-content: start; gap: 0.35rem; }
+.network-invite-field-wide { grid-column: 1 / -1; }
+.network-invite-field label {
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+.network-invite-field label span { font-weight: 600; }
+.network-invite-field input,
+.network-invite-field textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.68rem 0.72rem;
+  color: var(--ink);
+  background: white;
+  border: 1px solid white;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+.network-invite-field textarea { min-height: 6.4rem; resize: vertical; }
+.network-invite-field input:hover,
+.network-invite-field textarea:hover { border-color: var(--mint); }
+.network-invite-field input:focus-visible,
+.network-invite-field textarea:focus-visible { outline: 3px solid white; outline-offset: 2px; }
+.network-invite-field input[aria-invalid='true'],
+.network-invite-field textarea[aria-invalid='true'] { border-color: var(--critical); box-shadow: 0 0 0 2px white; }
+.network-invite-field input:disabled,
+.network-invite-field textarea:disabled { color: var(--ink-soft); background: var(--canvas); border-color: var(--line); cursor: wait; }
+.network-invite-field-hint { font-size: 0.72rem; opacity: 0.92; }
+.network-invite-field-error {
+  min-height: 1.15rem;
+  color: white;
+  font-size: 0.74rem;
+  font-weight: 750;
+  line-height: 1.45;
+}
+.network-invite-submit { width: 100%; }
+.network-invite-status {
+  min-height: 1.4rem;
+  padding: 0;
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 750;
+  line-height: 1.5;
+}
+.network-invite-status.is-error {
+  max-width: none;
+  padding: 0.7rem 0.8rem;
+  color: var(--critical);
+  background: white;
+}
+.network-member-return {
+  display: grid;
+  gap: 0.7rem;
+  width: 100%;
+  padding-top: 1.15rem;
+  border-top: 1px solid color-mix(in oklch, white 42%, var(--violet));
+}
 .network-invitation-action .network-primary-link { width: 100%; background: var(--ink); border-color: white; }
+.network-invitation-action .network-primary-link:focus-visible { outline-color: white; }
+.network-invitation-action .network-invite-submit:disabled {
+  color: var(--ink-faint);
+  background: var(--canvas);
+  border-color: var(--line-strong);
+  box-shadow: 3px 3px 0 var(--line);
+  cursor: wait;
+  transform: none;
+}
 .network-invitation-note { font-size: 0.82rem; opacity: 0.9; }
+.network-invite-success {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.15rem;
+  color: var(--ink);
+  background: white;
+  border-top: 0.35rem solid var(--mint);
+}
+.network-invite-success .network-membership-label { color: var(--violet); }
+.network-invite-success h2 { color: var(--ink); }
+.network-invite-success p { color: var(--ink); }
 
 .network-state {
   display: flex;
@@ -3081,6 +3167,8 @@ a.brand:focus-visible {
   .network-invitation h1 { font-size: clamp(2.2rem, 11vw, 2.85rem); }
   .network-how { grid-template-columns: 1fr; gap: 0.75rem; }
   .network-how li { grid-template-columns: 1.35rem minmax(0, 1fr); padding: 0.7rem 0.85rem 0.85rem; }
+  .network-invite-fields { grid-template-columns: 1fr; }
+  .network-invite-field-wide { grid-column: auto; }
   .network-section-heading,
   .network-entry-head,
   .network-first-place { align-items: flex-start; flex-direction: column; }

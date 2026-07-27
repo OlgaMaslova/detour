@@ -100,6 +100,25 @@ no offset shadow, and never translates. Tabs, filter choices, removable chips,
 and map controls are contextual controls rather than standalone sticker
 buttons.
 
+## Public founding-member requests
+
+- The signed-out network homepage keeps its public discovery explanation, city
+  search, and existing member sign-in/join-with-code route. Its membership plane
+  now gives equal, clearly separated paths to request a founding-member invite
+  or continue with an invitation already received; the request form is not a
+  replacement for the dedicated account route.
+- The public request asks for name, email, city, and a short note about what the
+  visitor would bring to Detour. Only email is required. The form retains typed
+  values through ordinary homepage rerenders and failed submissions, disables
+  while pending, and reports validation, duplicate, and connection errors
+  inline with focus moved to the field or message that needs attention.
+- A successful request is described only as received for personal follow-up by
+  the Detour team. It never promises immediate access or membership. The member
+  sign-in/join-with-code action remains available beside the confirmation.
+- Public request styling stays within the existing violet membership plane:
+  white labeled fields, the shared ink-and-mint sticker action, square editorial
+  structure, and semantic error/success treatment distinct from brand accents.
+
 ## Membership/account page
 
 - The account masthead uses ink with a slim violet rule and a small eucalyptus
