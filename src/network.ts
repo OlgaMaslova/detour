@@ -12,6 +12,7 @@ export interface DiscoveryRecommendation {
   is_own?: boolean;
   note?: string;
   venue_name?: string;
+  venue_id?: string;
   city?: string;
   country?: string;
   address?: string;
@@ -91,10 +92,15 @@ let status: DiscoveryStatus = 'idle';
 let loadedFor = '';
 let errorMessage = '';
 let recommendationCountry = '';
-let publicRecommendationStatus: PublicRecommendationStatus = 'idle';
-let publicRecommendationError = '';
+interface PublicRecommendationFeed {
+  status: PublicRecommendationStatus;
+  error: string;
+  request: number;
+  recommendations: PublicRecommendation[];
+}
+
+const publicRecommendationFeeds = new Map<string, PublicRecommendationFeed>();
 let publicRecommendationRequest = 0;
-let publicRecommendations: PublicRecommendation[] = [];
 let firstPlaceStatus: FirstPlaceStatus = 'idle';
 let firstPlaceLoadedFor = '';
 let firstPlaceCount = 0;
@@ -143,6 +149,7 @@ function cleanRecommendation(value: unknown): DiscoveryRecommendation | null {
   if (!venueName) return null;
   return {
     venue_name: venueName,
+    venue_id: cleanText(item.venue_id),
     recommender_pseudo: cleanText(item.recommender_pseudo),
     is_own: item.is_own === true,
     note: cleanText(item.note),
@@ -362,21 +369,56 @@ export function isAuthenticatedMember(): boolean {
   return memberRecord() !== null;
 }
 
+function publicRecommendationKey(city = ''): string {
+  return city.trim().toLowerCase();
+}
+
+function publicRecommendationFeed(city = ''): PublicRecommendationFeed {
+  const key = publicRecommendationKey(city);
+  const existing = publicRecommendationFeeds.get(key);
+  if (existing) return existing;
+  const feed: PublicRecommendationFeed = {
+    status: 'idle',
+    error: '',
+    request: 0,
+    recommendations: [],
+  };
+  publicRecommendationFeeds.set(key, feed);
+  return feed;
+}
+
+export interface NetworkPlaceNotesState {
+  status: PublicRecommendationStatus | DiscoveryStatus;
+  error: string;
+}
+
 /**
- * Recommendations from the shared Detour circle that carry a note, so the
- * catalogue detail can show what members (including the signed-in member)
- * said about a place. Empty until the discovery feed has loaded.
+ * Real recommendation notes that can be attributed to a member. Signed-in
+ * members receive the existing full-circle feed; signed-out visitors receive
+ * the safely scoped public feed for the requested city.
  */
-export function networkPlaceNotes(): DiscoveryRecommendation[] {
-  if (!memberRecord() || status !== 'ready') return [];
-  return discovery.recommendations.filter((item) => Boolean(item.note));
+export function networkPlaceNotes(city = ''): DiscoveryRecommendation[] {
+  if (memberRecord()) {
+    if (status !== 'ready') return [];
+    return discovery.recommendations.filter((item) => Boolean(item.note));
+  }
+  const feed = publicRecommendationFeed(city);
+  if (feed.status !== 'ready') return [];
+  return feed.recommendations.map((item) => ({ ...item }));
+}
+
+export function networkPlaceNotesState(city = ''): NetworkPlaceNotesState {
+  if (memberRecord()) return { status, error: errorMessage };
+  const feed = publicRecommendationFeed(city);
+  return { status: feed.status, error: feed.error };
 }
 
 /** Loads the appropriate circle data for the current authentication state. */
-export function ensureNetworkDiscovery(render: () => void): void {
+export function ensureNetworkDiscovery(render: () => void, city = ''): void {
   const record = memberRecord();
   if (!record) {
-    if (publicRecommendationStatus === 'idle') void loadPublicRecommendations(render);
+    const feed = publicRecommendationFeed(city);
+    if (feed.status === 'idle') void loadPublicRecommendations(render, city);
     return;
   }
   if (loadedFor !== record.id && status !== 'loading') {
@@ -387,6 +429,18 @@ export function ensureNetworkDiscovery(render: () => void): void {
     firstPlaceStatus = 'idle';
     void loadFirstPlaceEligibility(render);
   }
+}
+
+export function retryNetworkPlaceNotes(render: () => void, city = ''): void {
+  if (memberRecord()) {
+    status = 'idle';
+    void loadNetworkDiscovery(render);
+    return;
+  }
+  const feed = publicRecommendationFeed(city);
+  feed.status = 'idle';
+  feed.error = '';
+  void loadPublicRecommendations(render, city);
 }
 
 /** Hides the invitation immediately after the existing add-a-place flow succeeds. */
@@ -405,9 +459,7 @@ export function resetNetworkDiscovery(): void {
   errorMessage = '';
   recommendationCountry = '';
   publicRecommendationRequest += 1;
-  publicRecommendationStatus = 'idle';
-  publicRecommendationError = '';
-  publicRecommendations = [];
+  publicRecommendationFeeds.clear();
   firstPlaceRequest += 1;
   firstPlaceStatus = 'idle';
   firstPlaceLoadedFor = '';
@@ -652,29 +704,30 @@ function publicRecommendationMarkup(item: PublicRecommendation, resolvePlace?: N
 }
 
 function publicRecommendationSampleMarkup(resolvePlace?: NetworkPlaceResolver): string {
+  const feed = publicRecommendationFeed();
   const heading = `<div class="network-public-sample-heading">
     <div><p class="network-membership-label">From the circle</p><h2 id="network-public-recommendations-title">Places members would send you.</h2></div>
     <p>A live sample of published recommendations, in members’ own words.</p>
   </div>`;
 
-  if (publicRecommendationStatus === 'loading' || publicRecommendationStatus === 'idle') {
+  if (feed.status === 'loading' || feed.status === 'idle') {
     return `<section class="network-public-sample" aria-labelledby="network-public-recommendations-title">
       ${heading}
       <div class="network-public-state" role="status"><span class="network-loading-mark" aria-hidden="true"></span><p>Loading current member recommendations…</p></div>
     </section>`;
   }
 
-  if (publicRecommendationStatus === 'error') {
+  if (feed.status === 'error') {
     return `<section class="network-public-sample" aria-labelledby="network-public-recommendations-title">
       ${heading}
       <div class="network-public-state is-unavailable" role="status">
-        <p>${esc(publicRecommendationError || 'The live recommendation sample is unavailable right now. Membership requests and sign-in still work.')}</p>
+        <p>${esc(feed.error || 'The live recommendation sample is unavailable right now. Membership requests and sign-in still work.')}</p>
         <button type="button" class="network-public-retry" data-public-recommendations-retry>Try the sample again</button>
       </div>
     </section>`;
   }
 
-  const sample = publicRecommendations.slice(0, PUBLIC_RECOMMENDATION_PREVIEW_LIMIT);
+  const sample = feed.recommendations.slice(0, PUBLIC_RECOMMENDATION_PREVIEW_LIMIT);
   return `<section class="network-public-sample" aria-labelledby="network-public-recommendations-title">
     ${heading}
     ${sample.length
@@ -734,28 +787,35 @@ async function loadFirstPlaceEligibility(render: () => void): Promise<void> {
   render();
 }
 
-async function loadPublicRecommendations(render: () => void): Promise<void> {
-  if (memberRecord() || publicRecommendationStatus === 'loading') return;
+async function loadPublicRecommendations(render: () => void, city = ''): Promise<void> {
+  const feed = publicRecommendationFeed(city);
+  if (memberRecord() || feed.status === 'loading') return;
   const request = ++publicRecommendationRequest;
-  publicRecommendationStatus = 'loading';
-  publicRecommendationError = '';
+  feed.request = request;
+  feed.status = 'loading';
+  feed.error = '';
+  const cityQuery = city.trim();
   render();
   try {
-    const response = await fetch(new URL('/api/detour/public-recommendations', `${apiBaseUrl}/`), {
+    const url = new URL('/api/detour/public-recommendations', `${apiBaseUrl}/`);
+    if (cityQuery) url.searchParams.set('city', cityQuery);
+    const response = await fetch(url, {
       method: 'GET',
       credentials: 'omit',
       headers: { Accept: 'application/json' },
     });
     if (!response.ok) throw new Error(`Public recommendations returned ${response.status}.`);
     const payload: unknown = await response.json();
-    if (memberRecord() || request !== publicRecommendationRequest) return;
-    publicRecommendations = cleanPublicPayload(payload);
-    publicRecommendationStatus = 'ready';
+    if (memberRecord() || feed.request !== request || publicRecommendationFeeds.get(publicRecommendationKey(city)) !== feed) return;
+    feed.recommendations = cleanPublicPayload(payload);
+    feed.status = 'ready';
   } catch {
-    if (memberRecord() || request !== publicRecommendationRequest) return;
-    publicRecommendations = [];
-    publicRecommendationStatus = 'error';
-    publicRecommendationError = 'The live recommendation sample is unavailable right now. Membership requests and sign-in still work.';
+    if (memberRecord() || feed.request !== request || publicRecommendationFeeds.get(publicRecommendationKey(city)) !== feed) return;
+    feed.recommendations = [];
+    feed.status = 'error';
+    feed.error = cityQuery
+      ? `Member notes for ${cityQuery} are unavailable right now. The published places are still here.`
+      : 'The live recommendation sample is unavailable right now. Membership requests and sign-in still work.';
   }
   render();
 }
@@ -904,7 +964,9 @@ export function bindNetworkDiscovery(root: HTMLElement, render: () => void): voi
   }
 
   root.querySelector<HTMLButtonElement>('[data-public-recommendations-retry]')?.addEventListener('click', () => {
-    publicRecommendationStatus = 'idle';
+    const feed = publicRecommendationFeed();
+    feed.status = 'idle';
+    feed.error = '';
     void loadPublicRecommendations(render);
   });
 

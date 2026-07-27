@@ -13,7 +13,9 @@ import {
   markFirstPlaceContributed,
   networkDiscoveryMarkup,
   networkPlaceNotes,
+  networkPlaceNotesState,
   resetNetworkDiscovery,
+  retryNetworkPlaceNotes,
 } from './network';
 import { renderFoundingSurvey } from './survey';
 
@@ -42,6 +44,8 @@ interface State {
   selectedVia: 'pin' | 'card' | null;
   /** Whether the full filtered selection is currently revealed. */
   selectionOpen: boolean;
+  /** Whether list-first destinations have revealed their planning map and refinements. */
+  explorationOpen: boolean;
   userLocation: UserLocation | null;
   geoStatus: string;
   geoBusy: boolean;
@@ -61,6 +65,7 @@ const state: State = {
   selectedId: null,
   selectedVia: null,
   selectionOpen: false,
+  explorationOpen: false,
   userLocation: null,
   geoStatus: '',
   geoBusy: false,
@@ -159,6 +164,11 @@ interface Destination {
   count: number;
 }
 
+// Six still reads as a deliberate shortlist rather than a directory, while
+// keeping destinations with a meaningfully larger catalogue in the established
+// exploration-first flow.
+const SHORT_LIST_DESTINATION_MAX = 6;
+
 function allVenues(): Venue[] {
   return state.mode === 'live' ? state.venues : [];
 }
@@ -189,6 +199,10 @@ function activeDestination(): Destination | null {
   return state.destination ? destinationBySlug(state.destination) : null;
 }
 
+function isShortListDestination(destination: Destination | null = activeDestination()): boolean {
+  return Boolean(destination && destination.count <= SHORT_LIST_DESTINATION_MAX);
+}
+
 /** Display name for the active destination, covering uncovered searches too. */
 function destinationLabel(): string {
   const active = activeDestination();
@@ -212,6 +226,7 @@ function resetDestinationState(): void {
   state.selectedId = null;
   state.selectedVia = null;
   state.selectionOpen = false;
+  state.explorationOpen = false;
   state.geoStatus = '';
   state.geoBusy = false;
   savedView = null;
@@ -442,6 +457,12 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
       savedView = { center: map.getCenter(), zoom: map.getZoom() };
       pendingFocus = `[data-pin="${CSS.escape(v.id)}"]`;
       render(root);
+      if (!deselecting && isShortListDestination()) {
+        root.querySelector('.short-list-exploration .detail')?.scrollIntoView({
+          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+          block: 'nearest',
+        });
+      }
     };
     const el = marker.getElement();
     if (el) {
@@ -527,7 +548,7 @@ function mapNote(list: Venue[]): string {
   return '';
 }
 
-function mapStage(list: Venue[]): string {
+function mapStage(list: Venue[], showDetail = true): string {
   const note = mapNote(list);
   const name = esc(destinationLabel() || 'Selection');
   return `<section class="map-stage" aria-label="${name} map">
@@ -535,7 +556,7 @@ function mapStage(list: Venue[]): string {
       <div id="venue-map" class="venue-map" tabindex="-1" aria-label="${name} map"></div>
       ${note ? `<p class="map-note" role="status">${esc(note)}</p>` : ''}
     </div>
-    ${detailPanel()}
+    ${showDetail ? detailPanel() : ''}
   </section>`;
 }
 
@@ -610,6 +631,57 @@ function discoveryBar(list: Venue[], hasMap: boolean): string {
   </section>`;
 }
 
+function recommendationLoadStatus(city: string): string {
+  const notesState = networkPlaceNotesState(city);
+  if (notesState.status === 'idle' || notesState.status === 'loading') {
+    return `<p class="trusted-list-status" role="status"><span class="network-loading-mark" aria-hidden="true"></span>Loading member notes…</p>`;
+  }
+  if (notesState.status === 'error') {
+    return `<div class="trusted-list-status trusted-list-status-error" role="status">
+      <p>${esc(notesState.error || 'Member notes are unavailable right now. The published places are still here.')}</p>
+      <button type="button" data-city-notes-retry>Try member notes again</button>
+    </div>`;
+  }
+  return '';
+}
+
+function shortListStage(destination: Destination, list: Venue[], emptyState: string): string {
+  const countLabel = `${destination.count} ${destination.count === 1 ? 'place' : 'places'}`;
+  const selectedFromList = state.selectedId && state.selectedVia !== 'pin';
+  return `<section class="trusted-list" aria-labelledby="trusted-list-title">
+    <div class="trusted-list-heading">
+      <div>
+        <p class="trusted-list-kicker">The ${esc(destination.name)} list</p>
+        <h2 id="trusted-list-title">The short list, from members.</h2>
+      </div>
+      <p>${esc(countLabel)} currently make the list. Open any place for practical details.</p>
+    </div>
+    ${recommendationLoadStatus(destination.name)}
+    <div class="results trusted-list-results" id="selection-results">
+      ${list.length ? `<ul class="card-list trusted-card-list">${list.map((venue) => venueCard(venue, true)).join('')}</ul>` : emptyState}
+    </div>
+    ${selectedFromList ? `<div class="trusted-list-detail">${detailPanel()}</div>` : ''}
+  </section>`;
+}
+
+function shortListExploration(list: Venue[], hasMap: boolean): string {
+  const controlsId = 'short-list-planning-tools';
+  return `<section class="short-list-exploration" aria-labelledby="short-list-exploration-title">
+    <div class="short-list-exploration-heading">
+      <div>
+        <h2 id="short-list-exploration-title">Plan around the list</h2>
+        <p>Use the map, nearby location, or occasion filters when they help with the route.</p>
+      </div>
+      <button type="button" class="short-list-exploration-toggle" data-exploration-toggle aria-expanded="${state.explorationOpen}" aria-controls="${controlsId}">
+        ${state.explorationOpen ? 'Hide' : 'Open'} map &amp; filters
+      </button>
+    </div>
+    <div id="${controlsId}"${state.explorationOpen ? '' : ' hidden'}>
+      ${state.explorationOpen ? `${discoveryBar(list, hasMap)}${hasMap ? mapStage(list, state.selectedVia === 'pin') : `<p class="short-list-map-unavailable">Map positions for this list are still being verified. Filtering remains available above.</p>`}` : ''}
+    </div>
+  </section>`;
+}
+
 // Cover URLs that failed to load this session; those venues render the
 // monogram placeholder directly instead of retrying a dead image every render.
 const failedCoverUrls = new Set<string>();
@@ -660,24 +732,55 @@ function showCoverFallback(img: HTMLImageElement): void {
   figure.append(initial);
 }
 
-function venueCard(v: Venue): string {
+function recommendationNotesForVenue(v: Venue) {
+  const scope = activeDestination()?.name || '';
+  const name = normalizePlacePart(v.name);
+  const city = normalizePlacePart(v.city);
+  return networkPlaceNotes(scope).filter((item) => {
+    const note = item.note?.trim();
+    const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
+    if (!note || (!item.is_own && !recommender)) return false;
+    if (item.venue_id) return item.venue_id === v.id;
+    if (normalizePlacePart(item.venue_name || '') !== name) return false;
+    const itemCity = normalizePlacePart(item.city || '');
+    return !itemCity || !city || itemCity === city;
+  });
+}
+
+function recommendationAttribution(item: ReturnType<typeof recommendationNotesForVenue>[number]): string {
+  const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
+  const label = item.is_own ? 'You' : recommender ? `@${recommender}` : '';
+  if (!label || !item.note?.trim()) return '';
+  return `<blockquote class="card-member-note">
+    <p>${esc(item.note)}</p>
+    <footer>Recommended by <strong class="network-pseudo">${esc(label)}</strong></footer>
+  </blockquote>`;
+}
+
+function venueCard(v: Venue, trustedList = false): string {
   const selected = v.id === state.selectedId;
   const distinctLocality = hasDistinctLocality(v);
+  const recommendations = recommendationNotesForVenue(v)
+    .map(recommendationAttribution)
+    .filter(Boolean)
+    .join('');
   return `<li>
-    <article class="card card-detourist${selected ? ' card-selected' : ''}">
-      <button type="button" class="card-main" data-venue="${esc(v.id)}" aria-expanded="${selected}">
+    <article class="card card-detourist${trustedList ? ' card-trusted' : ''}${selected ? ' card-selected' : ''}">
+      <button type="button" class="card-main" data-venue="${esc(v.id)}" aria-expanded="${selected}" aria-controls="selected-place-detail">
         ${venueCover(v)}
-        <h3>${esc(v.name)}</h3>
-        <p class="card-meta">${esc([v.category, v.neighborhood].filter(Boolean).join(' · '))}</p>
-        ${distinctLocality ? `<p class="card-locality"><span>${esc(v.city)}</span><small>${esc(venueRouteName(v))} selection</small></p>` : ''}
-        <p class="card-address">${
-          v.address
-            ? esc(v.address)
-            : '<span class="approx">Map position being refined</span>'
-        }</p>
-        ${venueOccasions(v).length ? `<span class="card-occasions" aria-label="Good for ${esc(occasionSummary(v))}"><span class="card-occasions-label">Good for</span>${venueOccasions(v).map((occasion) => `<span>${esc(occasionLabel(occasion))}</span>`).join('')}</span>` : ''}
+        <span class="card-place-copy">
+          <h3>${esc(v.name)}</h3>
+          <p class="card-meta">${esc([v.category, v.neighborhood].filter(Boolean).join(' · '))}</p>
+          ${distinctLocality ? `<p class="card-locality"><span>${esc(v.city)}</span><small>${esc(venueRouteName(v))} selection</small></p>` : ''}
+          <p class="card-address">${
+            v.address
+              ? esc(v.address)
+              : '<span class="approx">Map position being refined</span>'
+          }</p>
+          ${venueOccasions(v).length ? `<span class="card-occasions" aria-label="Good for ${esc(occasionSummary(v))}"><span class="card-occasions-label">Good for</span>${venueOccasions(v).map((occasion) => `<span>${esc(occasionLabel(occasion))}</span>`).join('')}</span>` : ''}
+        </span>
       </button>
-      <p class="card-list-note">${esc(detouristNote(v))}</p>
+      ${recommendations ? `<div class="card-member-notes" aria-label="Member recommendation notes">${recommendations}</div>` : ''}
     </article>
   </li>`;
 }
@@ -695,24 +798,18 @@ function shortDate(value: string | undefined): string {
  * Empty for signed-out visitors and for places nobody has annotated.
  */
 function networkNotesBlock(v: Venue): string {
-  const name = normalizePlacePart(v.name);
-  if (!name) return '';
-  const city = normalizePlacePart(v.city);
-  const notes = networkPlaceNotes().filter((item) => {
-    if (normalizePlacePart(item.venue_name || '') !== name) return false;
-    const itemCity = normalizePlacePart(item.city || '');
-    return !itemCity || !city || itemCity === city;
-  });
+  const notes = recommendationNotesForVenue(v);
   if (notes.length === 0) return '';
   return `<div class="detail-network" role="group" aria-label="Notes from the Detour circle">
     <h4>From the Detour circle</h4>
     ${notes
       .map((item) => {
         const pseudo = item.recommender_pseudo?.trim().replace(/^@+/, '');
-        const memberLabel = item.is_own ? 'You' : pseudo ? `@${pseudo}` : 'A Detour member';
+        const memberLabel = item.is_own ? 'You' : pseudo ? `@${pseudo}` : '';
+        if (!memberLabel || !item.note?.trim()) return '';
         const when = shortDate(item.created);
         return `<blockquote class="detail-network-note">
-          <p>${esc(item.note || '')}</p>
+          <p>${esc(item.note)}</p>
           <footer><strong class="network-pseudo">${esc(memberLabel)}</strong>${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created || '')}">${esc(when)}</time>` : ''}</footer>
         </blockquote>`;
       })
@@ -731,6 +828,7 @@ function detailPanel(): string {
   }
   const distinctLocality = hasDistinctLocality(v);
   const signal = detouristSignal(v);
+  const memberNotes = networkNotesBlock(v);
   const detailMeta = [v.category, v.neighborhood, distinctLocality ? v.city : '']
     .filter(Boolean)
     .join(' · ');
@@ -755,14 +853,14 @@ function detailPanel(): string {
     </div>
     <div class="detail-body">
       <section class="detail-recommendation" aria-labelledby="detail-recommendation-title">
-        <h3 id="detail-recommendation-title">Why it’s here</h3>
+        <h3 id="detail-recommendation-title">${isShortListDestination() ? (memberNotes ? 'Member recommendation' : 'Place image') : 'Why it’s here'}</h3>
         ${venueCover(v, 'detail')}
-        <p class="detail-note">${esc(
+        ${isShortListDestination() ? '' : `<p class="detail-note">${esc(
           signal
             ? `${signal} — a place worth a deliberate detour.`
             : 'Recommended by Detour members as a place worth a deliberate detour.'
-        )}</p>
-        ${networkNotesBlock(v)}
+        )}</p>`}
+        ${memberNotes}
       </section>
       <section class="detail-practical" aria-labelledby="detail-practical-title">
         <h3 id="detail-practical-title">Place details</h3>
@@ -836,7 +934,12 @@ function bindRouteLinks(root: HTMLElement): void {
         state.selectedId = venueId;
         state.selectedVia = 'card';
         state.selectionOpen = true;
+        pendingFocus = `[data-venue="${CSS.escape(venueId)}"]`;
         render(root);
+        root.querySelector('.detail')?.scrollIntoView({
+          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+          block: 'nearest',
+        });
       }
     });
   });
@@ -1033,7 +1136,12 @@ function renderHome(root: HTMLElement): void {
         state.selectedId = resolved.venueId;
         state.selectedVia = 'card';
         state.selectionOpen = true;
+        pendingFocus = `[data-venue="${CSS.escape(resolved.venueId)}"]`;
         render(root);
+        root.querySelector('.detail')?.scrollIntoView({
+          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+          block: 'nearest',
+        });
       }
       return;
     }
@@ -1113,20 +1221,42 @@ function render(root: HTMLElement) {
   const hasMap = mappableVenues(destinationVenues()).length > 0;
   const emptyState = `<div class="empty-state" role="status">
       <p class="empty-state-title">Nothing matches yet</p>
-      <p class="empty-state-body">Adjust the filters, or start again with the full ${esc(destination.name)} selection.</p>
+      <p class="empty-state-body">Adjust the filters, or start again with all ${esc(destination.name)} places.</p>
       <button type="button" class="empty-state-reset" data-reset-filters>Show everything</button>
     </div>`;
   const selectionLabel = `${list.length} ${list.length === 1 ? 'place' : 'places'}`;
   const occasionBrowsing = destinationHasOccasions();
-  const destinationTitle = occasionBrowsing
-    ? `${destination.name}, for the plan you have.`
-    : `${destination.name}, recommended by Detour members.`;
-  const destinationTagline = occasionBrowsing
-    ? `${destination.count} current ${destination.count === 1 ? 'place' : 'places'}. Browse by occasion, from celebrations and date nights to neighborhood meals and quick local stops.`
-    : `${destination.count} ${destination.count === 1 ? 'place' : 'places'} on the member-recommended Detourist List.`;
+  const shortList = isShortListDestination(destination);
+  const destinationTitle = shortList
+    ? `${destination.name}, a few places members stand behind.`
+    : occasionBrowsing
+      ? `${destination.name}, for the plan you have.`
+      : `${destination.name}, recommended by Detour members.`;
+  const destinationTagline = shortList
+    ? `${destination.count} current ${destination.count === 1 ? 'place' : 'places'}, kept intentionally short. Start with the recommendations; open the planning tools only when useful.`
+    : occasionBrowsing
+      ? `${destination.count} current ${destination.count === 1 ? 'place' : 'places'}. Browse by occasion, from celebrations and date nights to neighborhood meals and quick local stops.`
+      : `${destination.count} ${destination.count === 1 ? 'place' : 'places'} on the member-recommended Detourist List.`;
+  const destinationContent = shortList
+    ? `${shortListStage(destination, list, emptyState)}${shortListExploration(list, hasMap)}`
+    : `${discoveryBar(list, hasMap)}
+      ${hasMap ? mapStage(list) : listPreviewStage()}
+      <section class="selection-disclosure" aria-labelledby="selection-disclosure-title">
+        <div class="selection-disclosure-copy">
+          <h2 id="selection-disclosure-title">Full selection</h2>
+          <p>${selectionLabel} ${list.length === 1 ? 'matches' : 'match'} the current filters. Open the list when you want to browse every place.</p>
+        </div>
+        <button type="button" class="selection-toggle" data-selection-toggle
+          aria-expanded="${state.selectionOpen}" aria-controls="selection-results">
+          ${state.selectionOpen ? 'Hide' : 'Show'} full selection <span>${list.length}</span>
+        </button>
+        <div class="results" id="selection-results"${state.selectionOpen ? '' : ' hidden'}>
+          ${state.selectionOpen ? (list.length ? `<ul class="card-list">${list.map((venue) => venueCard(venue)).join('')}</ul>` : emptyState) : ''}
+        </div>
+      </section>`;
 
   root.innerHTML = `
-    <a class="skip-link" href="${hasMap ? '#venue-map' : '#selection-disclosure-title'}">Skip to discovery</a>
+    <a class="skip-link" href="${shortList ? '#trusted-list-title' : hasMap ? '#venue-map' : '#selection-disclosure-title'}">Skip to discovery</a>
     <header class="hero city-detail-hero">
       <div class="hero-inner">
         <a class="brand" href="${esc(homeHref())}" data-home>Detour</a>
@@ -1135,21 +1265,7 @@ function render(root: HTMLElement) {
       </div>
       <div class="hero-account">${communityControl(accountHref())}</div>
     </header>
-    ${discoveryBar(list, hasMap)}
-    ${hasMap ? mapStage(list) : listPreviewStage()}
-    <section class="selection-disclosure" aria-labelledby="selection-disclosure-title">
-      <div class="selection-disclosure-copy">
-        <h2 id="selection-disclosure-title">Full selection</h2>
-        <p>${selectionLabel} ${list.length === 1 ? 'matches' : 'match'} the current filters. Open the list when you want to browse every place.</p>
-      </div>
-      <button type="button" class="selection-toggle" data-selection-toggle
-        aria-expanded="${state.selectionOpen}" aria-controls="selection-results">
-        ${state.selectionOpen ? 'Hide' : 'Show'} full selection <span>${list.length}</span>
-      </button>
-      <div class="results" id="selection-results"${state.selectionOpen ? '' : ' hidden'}>
-        ${state.selectionOpen ? (list.length ? `<ul class="card-list">${list.map(venueCard).join('')}</ul>` : emptyState) : ''}
-      </div>
-    </section>
+    ${destinationContent}
     <footer class="footer">
       <p>Recommended by members. Ready for your next detour.</p>
     </footer>
@@ -1158,7 +1274,7 @@ function render(root: HTMLElement) {
   bindRouteLinks(root);
   // Notes from the Detour circle render inside the place detail; load the
   // circle feed here too so a direct destination link still surfaces them.
-  ensureNetworkDiscovery(() => render(root));
+  ensureNetworkDiscovery(() => render(root), destination.name);
 
   const keepSelectionValid = () => {
     const visible = filteredVenues();
@@ -1187,6 +1303,19 @@ function render(root: HTMLElement) {
     if (!state.selectionOpen && state.selectedVia === 'card') state.selectedVia = null;
     pendingFocus = '[data-selection-toggle]';
     render(root);
+  });
+  root.querySelector<HTMLButtonElement>('[data-exploration-toggle]')?.addEventListener('click', () => {
+    state.explorationOpen = !state.explorationOpen;
+    if (!state.explorationOpen && state.selectedVia === 'pin') {
+      state.selectedId = null;
+      state.selectedVia = null;
+    }
+    pendingFocus = '[data-exploration-toggle]';
+    render(root);
+  });
+  root.querySelector<HTMLButtonElement>('[data-city-notes-retry]')?.addEventListener('click', () => {
+    pendingFocus = '[data-city-notes-retry]';
+    retryNetworkPlaceNotes(() => render(root), destination.name);
   });
   root.querySelectorAll<HTMLButtonElement>('[data-chip]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -1235,7 +1364,7 @@ function render(root: HTMLElement) {
   });
   root.querySelector<HTMLButtonElement>('[data-reset-filters]')?.addEventListener('click', () => {
     state.occasionFilters = [];
-    pendingFocus = '[data-selection-toggle]';
+    pendingFocus = shortList ? '[data-occasion=""]' : '[data-selection-toggle]';
     render(root);
   });
   root.querySelector('[data-close]')?.addEventListener('click', () => {
@@ -1255,8 +1384,9 @@ function render(root: HTMLElement) {
     render(root);
   });
 
-  // (Re)create the Leaflet map only when the destination has located places.
-  if (hasMap) mountMap(root, list);
+  // (Re)create the Leaflet map only when the destination has located places,
+  // and only after a shortlist visitor asks for the secondary planning tools.
+  if (hasMap && (!shortList || state.explorationOpen)) mountMap(root, list);
   else destroyMap();
 
   // Restore focus to the control that triggered this render (map pins are

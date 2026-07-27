@@ -188,6 +188,22 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
     };
   }
 
+  function normalizeCityFilter(value) {
+    if (typeof value !== "string" || value.length > 512) return "";
+    if (
+      /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff\ufffd]/.test(
+        value
+      )
+    ) {
+      return "";
+    }
+
+    const normalized = value.replace(/\s+/g, " ").trim();
+    if (!normalized || normalized.length > 120) return "";
+    return normalized;
+  }
+
+  const city = normalizeCityFilter(e.request.url.query().get("city") || "");
   const rows = arrayOf(
     new DynamicModel({
       venue_name: "",
@@ -200,32 +216,35 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
   );
 
   try {
-    e.app
-      .db()
-      .newQuery(
-        "SELECT COALESCE(TRIM(v.name), '') AS venue_name, " +
-          "COALESCE(TRIM(v.city), '') AS city, " +
-          "COALESCE(TRIM(v.country), '') AS country, " +
-          "COALESCE(TRIM(r.note), '') AS note, " +
-          "COALESCE(TRIM(m.pseudo), '') AS recommender_pseudo, " +
-          "COALESCE(v.id, '') AS venue_id " +
-          "FROM community_recommendations r " +
-          "JOIN members m ON m.id = r.member " +
-          "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
-          "JOIN venues v ON v.id = w.published_venue " +
-          "WHERE w.status = 'published' " +
-          "AND w.published_venue != '' " +
-          "AND w.published_at != '' " +
-          "AND COALESCE(m.internal_member, FALSE) = FALSE " +
-          "AND m.community_status = 'verified' " +
-          "AND COALESCE(m.discovery_visible, FALSE) = TRUE " +
-          "AND LOWER(TRIM(m.email)) NOT LIKE '%.invalid' " +
-          "AND LOWER(TRIM(m.email)) != 'agent@detour.supernaut.to' " +
-          "AND LENGTH(TRIM(r.note)) >= 24 " +
-          "AND TRIM(m.pseudo) != '' " +
-          "ORDER BY r.created DESC, r.id DESC LIMIT 4"
-      )
-      .all(rows);
+    let sql =
+      "SELECT COALESCE(TRIM(v.name), '') AS venue_name, " +
+      "COALESCE(TRIM(v.city), '') AS city, " +
+      "COALESCE(TRIM(v.country), '') AS country, " +
+      "COALESCE(TRIM(r.note), '') AS note, " +
+      "COALESCE(TRIM(m.pseudo), '') AS recommender_pseudo, " +
+      "COALESCE(v.id, '') AS venue_id " +
+      "FROM community_recommendations r " +
+      "JOIN members m ON m.id = r.member " +
+      "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+      "JOIN venues v ON v.id = w.published_venue " +
+      "WHERE w.status = 'published' " +
+      "AND w.published_venue != '' " +
+      "AND w.published_at != '' " +
+      "AND COALESCE(m.internal_member, FALSE) = FALSE " +
+      "AND m.community_status = 'verified' " +
+      "AND COALESCE(m.discovery_visible, FALSE) = TRUE " +
+      "AND LOWER(TRIM(m.email)) NOT LIKE '%.invalid' " +
+      "AND LOWER(TRIM(m.email)) != 'agent@detour.supernaut.to' " +
+      "AND LENGTH(TRIM(r.note)) >= 24 " +
+      "AND TRIM(m.pseudo) != '' ";
+    if (city) {
+      sql += "AND LOWER(TRIM(v.city)) = LOWER({:city}) ";
+    }
+    sql += "ORDER BY r.created DESC, r.id DESC LIMIT " + (city ? "24" : "4");
+
+    const query = e.app.db().newQuery(sql);
+    if (city) query.bind({ city: city });
+    query.all(rows);
   } catch {
     return e.json(200, { recommendations: [] });
   }
