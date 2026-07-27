@@ -654,7 +654,7 @@ function shortListStage(destination: Destination, list: Venue[], emptyState: str
         <p class="trusted-list-kicker">The ${esc(destination.name)} list</p>
         <h2 id="trusted-list-title">The short list, from members.</h2>
       </div>
-      <p>${esc(countLabel)} currently make the list. Open any place for practical details.</p>
+      <p>${esc(countLabel)} currently ${destination.count === 1 ? 'makes' : 'make'} the list. Open any place for practical details.</p>
     </div>
     ${recommendationLoadStatus(destination.name)}
     <div class="results trusted-list-results" id="selection-results">
@@ -820,8 +820,12 @@ function networkNotesBlock(v: Venue): string {
 function detailPanel(): string {
   const v = destinationVenues().find((x) => x.id === state.selectedId);
   if (!v) {
-    const prompt =
-      mappableVenues(destinationVenues()).length > 0
+    const shortList = isShortListDestination();
+    const prompt = shortList
+      ? mappableVenues(destinationVenues()).length > 0
+        ? 'Choose a pin on the map — or a place above — to see more.'
+        : 'Choose a place above to see more.'
+      : mappableVenues(destinationVenues()).length > 0
         ? 'Choose a pin on the map — or open the full selection — to see more.'
         : 'Open the full selection and choose a place to see more.';
     return `<p class="map-prompt" aria-live="polite">${prompt}</p>`;
