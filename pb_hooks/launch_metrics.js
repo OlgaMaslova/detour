@@ -49,7 +49,7 @@ function collectLaunchNumbers(app) {
         "(SELECT COUNT(*) FROM members m " +
         " WHERE COALESCE(m.internal_member, FALSE) = FALSE " +
         " AND LOWER(TRIM(m.email)) NOT LIKE '%.invalid' " +
-        " AND m.created >= {:periodStart} AND m.created < {:periodEnd}) AS new_members_24h, " +
+        " AND m.joined_at >= {:periodStart} AND m.joined_at < {:periodEnd}) AS new_members_24h, " +
         "(SELECT COUNT(*) FROM real_members) AS total_members, " +
         "(SELECT COUNT(*) FROM invite_requests i " +
         " WHERE LOWER(TRIM(i.email)) NOT LIKE '%.invalid' " +

@@ -483,6 +483,12 @@ routerAdd(
 // generated invitation. `redeemed_invite` has a partial unique index, so a
 // simultaneous second redemption cannot create another member account.
 onRecordCreateRequest((e) => {
+  // The members auth collection intentionally has no created autodate field.
+  // Stamp every account in the create hook so both public invite redemption
+  // and superuser creation use the same server-owned join time; this also
+  // overwrites any value supplied in a public create payload.
+  e.record.set("joined_at", new Date().toISOString());
+
   // Every verified invited member joins the shared discovery circle by
   // default. Ignore create payloads so the server owns the signup default;
   // members may opt out later through their existing profile preference.
