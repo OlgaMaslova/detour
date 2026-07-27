@@ -1096,6 +1096,14 @@ onRecordAfterCreateSuccess((e) => {
   e.next();
 }, "community_recommendations");
 
+// Daily production launch-number rollup at 05:15 UTC. The shared helper owns
+// fixture exclusion, zero-activity suppression, delivery, and best-effort
+// failure logging; requiring it inside the callback is required by the hook VM.
+cronAdd("detour_daily_launch_numbers", "15 5 * * *", () => {
+  const launchMetrics = require(__hooks + "/launch_metrics.js");
+  launchMetrics.emitLaunchNumbers($app);
+});
+
 // Nightly retry for published community venues that still lack verified
 // coordinates (geocoder outage, no-match addresses corrected later, …).
 // geocodeVenue exits early for venues that already have coordinates.
