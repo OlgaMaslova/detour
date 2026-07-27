@@ -827,6 +827,13 @@ function bindRouteLinks(root: HTMLElement): void {
   });
 }
 
+async function refreshCatalogue(): Promise<Venue[]> {
+  const { venues } = await loadLiveCatalogue();
+  state.mode = 'live';
+  state.venues = venues;
+  return venues;
+}
+
 function renderAccount(root: HTMLElement): void {
   destroyMap();
   syncDocumentMeta(null, true);
@@ -851,7 +858,7 @@ function renderAccount(root: HTMLElement): void {
     </footer>
   `;
 
-  bindCommunity(root, state.venues, () => render(root), () => showHome(root), markFirstPlaceContributed);
+  bindCommunity(root, state.venues, () => render(root), () => showHome(root), markFirstPlaceContributed, refreshCatalogue);
   bindRouteLinks(root);
   if (pendingFocus) {
     const target = root.querySelector<HTMLElement>(pendingFocus);
@@ -1062,7 +1069,7 @@ function render(root: HTMLElement) {
       <section class="city-chooser" aria-label="No coverage yet">
         <div class="city-chooser-heading">
           <h2>Be the first</h2>
-          <p>A place joins the list once 3 members recommend it. <a href="${esc(accountHref())}" data-community-route>Recommend a place in ${esc(name)} ↗</a></p>
+          <p>A meaningful recommendation from a verified member puts a place on the list. <a href="${esc(accountHref())}" data-community-route>Recommend a place in ${esc(name)} ↗</a></p>
         </div>
         <p class="city-chooser-status"><a href="${esc(homeHref())}" data-home>← Back to search</a></p>
       </section>
@@ -1377,10 +1384,8 @@ if (root instanceof HTMLElement) {
   }, false);
   applyRouteFromUrl(root);
   window.addEventListener('popstate', () => applyRouteFromUrl(root));
-  loadLiveCatalogue()
-    .then(({ venues }) => {
-      state.mode = 'live';
-      state.venues = venues;
+  refreshCatalogue()
+    .then(() => {
       applyRouteFromUrl(root);
     })
     .catch(() => {

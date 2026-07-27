@@ -40,6 +40,7 @@ interface WaitlistEntry {
   image_url?: string;
   status?: 'pending' | 'published';
   signal_count?: number;
+  published_venue?: string;
   created?: string;
   updated?: string;
 }
@@ -321,6 +322,34 @@ function recommendationForEntry(entryId: string): RecommendationRecord | undefin
   return recommendations.find((rec) => rec.waitlist === entryId);
 }
 
+function placeIdentity(name: string | undefined, city: string | undefined): string {
+  const normalize = (value: string | undefined) => (value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+  return `${normalize(name)}\u0000${normalize(city)}`;
+}
+
+function publishedVenueForEntry(entry: WaitlistEntry): Venue | undefined {
+  const publishedId = entry.published_venue?.trim();
+  if (publishedId) {
+    const directMatch = knownVenues.find((venue) => venue.id === publishedId);
+    if (directMatch) return directMatch;
+  }
+  const identity = placeIdentity(entry.venue_name, entry.city);
+  if (!identity || identity === '\u0000') return undefined;
+  const matches = knownVenues.filter((venue) => placeIdentity(venue.name, venue.city) === identity);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function discoveryHref(venue: Venue): string {
+  const url = new URL(window.location.href);
+  url.pathname = '/';
+  url.searchParams.delete('city');
+  url.searchParams.delete('view');
+  url.searchParams.delete('invite');
+  url.searchParams.set('d', venue.marketSlug);
+  url.hash = '';
+  return `${url.pathname}${url.search}`;
+}
+
 function entryEditMarkup(entry: WaitlistEntry): string {
   const links = [
     entry.official_url ? `<a href="${esc(entry.official_url)}" target="_blank" rel="noopener noreferrer">Website</a>` : '',
@@ -331,6 +360,11 @@ function entryEditMarkup(entry: WaitlistEntry): string {
   const rec = recommendationForEntry(entry.id);
   const selectedCategory = entry.category || '';
   const selectedOccasions = entry.occasions || [];
+  const editPromise = entry.status === 'published'
+    ? 'Your edits carry through to the public page right away.'
+    : rec
+      ? 'Your edits will carry through if this place becomes live.'
+      : 'These details stay with this private entry until it has a recommendation note.';
   return `${hasLinks ? `<p class="community-place-links" aria-label="Destination links">${links.join('<span aria-hidden="true"> · </span>')}</p>` : ''}
     <details class="community-share-disclosure community-links-disclosure">
       <summary>Edit this recommendation</summary>
@@ -350,28 +384,45 @@ function entryEditMarkup(entry: WaitlistEntry): string {
         <label>Website<input name="official_url" value="${esc(entry.official_url || '')}" maxlength="300" inputmode="url" autocomplete="off" spellcheck="false" placeholder="restaurant.example"></label>
         <label>Instagram<input name="instagram_url" value="${esc(entry.instagram_url || '')}" maxlength="300" autocomplete="off" spellcheck="false" placeholder="@restaurant or instagram.com/restaurant"></label>
         <label>Photo link<input name="image_url" value="${esc(entry.image_url || '')}" maxlength="2048" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Direct link to a photo of the destination"></label>
-        <p class="community-form-note">Your edits carry through to the public page${entry.status === 'published' ? ' right away' : ' when it publishes'}.</p>
+        <p class="community-form-note">${esc(editPromise)}</p>
         <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Saving…' : 'Save changes'}</button>
       </form>
     </details>`;
 }
 
 function waitlistCard(entry: WaitlistEntry): string {
-  const progress = cleanCount(entry.signal_count, 3);
+  const rec = recommendationForEntry(entry.id);
   const published = entry.status === 'published';
+  const publishedVenue = published ? publishedVenueForEntry(entry) : undefined;
+  const otherSeconders = Math.max(0, cleanCount(entry.signal_count) - (rec ? 1 : 0));
+  const secondingCopy = otherSeconders === 1
+    ? 'Seconded by 1 other member.'
+    : otherSeconders > 1
+      ? `Seconded by ${otherSeconders} other members.`
+      : 'No other members have seconded this place yet.';
+  const statusLabel = published ? 'Live' : rec ? 'Not live' : 'Needs recommendation';
+  const statusClass = published ? 'published' : rec ? 'unpublished' : 'incomplete';
   const directoryKey = `share-${entry.id}`;
   const category = labelForOption(CATEGORY_OPTIONS, entry.category);
   const occasions = (entry.occasions || []).map((occasion) => labelForOption(OCCASION_OPTIONS, occasion)).filter(Boolean);
+  const publicationMarkup = published
+    ? publishedVenue
+      ? `<div class="community-publication-summary">
+          <p class="community-queue-context">Live on the Detourist List.</p>
+          <a class="community-secondary community-open-place" href="${esc(discoveryHref(publishedVenue))}" data-open-destination="${esc(publishedVenue.marketSlug)}" data-open-venue="${esc(publishedVenue.id)}" aria-label="Open ${esc(publishedVenue.name)} on the Detourist List">Open this place</a>
+        </div>`
+      : '<p class="community-queue-context">Live on the Detourist List. This place is not available to open in discovery yet.</p>'
+    : rec
+      ? '<p class="community-queue-context">Your recommendation is saved, but this place is not live on the Detourist List yet.</p>'
+      : '<p class="community-queue-context">This entry has no recommendation note, so it is not publishable yet.</p>';
   return `<article class="community-queue-card${highlightedWaitlistId === entry.id ? ' is-highlighted' : ''}" id="waitlist-${esc(entry.id)}" tabindex="-1">
     <div class="community-queue-head">
       <div><h4>${esc(entry.venue_name || 'Unnamed food-and-drink destination')}</h4><p>${esc([entry.address, entry.city, entry.country].filter(Boolean).join(', '))}</p></div>
-      <span class="community-queue-status is-${published ? 'published' : 'pending'}">${published ? 'Published' : 'Pending'}</span>
+      <span class="community-queue-status is-${statusClass}">${statusLabel}</span>
     </div>
     ${category || occasions.length ? `<dl class="community-place-facts">${category ? `<div><dt>Category</dt><dd>${esc(category)}</dd></div>` : ''}${occasions.length ? `<div><dt>Good for</dt><dd>${esc(occasions.join(' · '))}</dd></div>` : ''}</dl>` : ''}
-    <div class="community-signal" aria-label="${progress} of 3 recommendations">
-      <div class="community-signal-label"><span>Recommendations</span><strong>${progress}/3</strong></div>
-      <div class="community-signal-track" aria-hidden="true"><span style="width: ${(progress / 3) * 100}%"></span></div>
-    </div>
+    ${publicationMarkup}
+    ${rec ? `<p class="community-seconding">${esc(secondingCopy)}</p>` : ''}
     ${entryEditMarkup(entry)}
     ${
       !published
@@ -872,7 +923,8 @@ export function bindCommunity(
   venues: Venue[],
   render: () => void,
   onAuthed: () => void,
-  onPlaceContributed: () => void
+  onPlaceContributed: () => void,
+  refreshCatalogue: () => Promise<Venue[]>
 ): void {
   knownVenues = venues;
   if (memberTab === 'settings') void refreshMemberRecord(render);
@@ -1159,10 +1211,23 @@ export function bindCommunity(
       if (occasions.length) payload.occasions = occasions;
       const created = await pb.collection('community_recommendations').create<RecommendationRecord>(payload);
       highlightedWaitlistId = created.waitlist || '';
-      notice = { kind: 'success', text: 'Recommendation added.' };
+      notice = { kind: 'success', text: 'Recommendation saved.' };
       onPlaceContributed();
       communityLoaded = false;
-      await loadCommunity(render);
+      const catalogueRefresh = refreshCatalogue()
+        .then((venues) => {
+          knownVenues = venues;
+        })
+        .catch(() => {
+          // The card remains truthful when discovery data is temporarily unavailable.
+        });
+      await Promise.all([loadCommunity(render), catalogueRefresh]);
+      const createdEntry = waitlistEntries.find((entry) => entry.id === highlightedWaitlistId);
+      notice = createdEntry?.status === 'published'
+        ? { kind: 'success', text: 'Your recommendation is live on the Detourist List.' }
+        : createdEntry
+          ? { kind: 'info', text: 'Your recommendation is saved. Its card shows whether the place is live.' }
+          : notice;
       focusWaitlistEntry(highlightedWaitlistId);
     } catch (error) {
       notice = { kind: 'error', text: readableError(error, 'That recommendation could not be added. Check the food-and-drink destination details and note, then try again.') };

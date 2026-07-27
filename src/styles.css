@@ -1426,7 +1426,7 @@ a.brand:focus-visible {
 .community-evidence-status.is-rejected,
 .community-submission-status.is-rejected { color: var(--critical); background: var(--oxblood-soft); }
 
-/* Member community loop: a continuous private ledger with place-level progress. */
+/* Member community loop: a continuous private ledger with truthful publication state. */
 .community-share-column,
 .community-queue,
 .community-ledger-section { display: grid; }
@@ -1514,14 +1514,24 @@ a.brand:focus-visible {
 .community-share-heading p { margin: 0.2rem 0 0; color: var(--ink-soft); font-size: 0.8rem; }
 .community-queue-status,
 .community-share-heading > span { flex: none; padding: 0.2rem 0.45rem; border-radius: 4px; font-size: 0.68rem; font-weight: 850; letter-spacing: 0.02em; }
-.community-queue-status.is-pending { color: oklch(0.37 0.09 75); background: oklch(0.94 0.04 75); }
+.community-queue-status.is-unpublished { color: oklch(0.37 0.09 75); background: oklch(0.94 0.04 75); }
+.community-queue-status.is-incomplete { color: var(--critical); background: var(--oxblood-soft); }
 .community-queue-status.is-published { color: oklch(0.31 0.08 145); background: oklch(0.94 0.035 145); }
-.community-signal { display: grid; gap: 0.38rem; }
-.community-signal-label { display: flex; justify-content: space-between; gap: 1rem; color: var(--ink-soft); font-size: 0.75rem; }
-.community-signal-label strong { color: var(--violet); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
-.community-signal-track { height: 7px; overflow: hidden; background: var(--line); border-radius: 999px; }
-.community-signal-track span { display: block; height: 100%; background: var(--violet); border-radius: inherit; transition: width 250ms cubic-bezier(0.25, 1, 0.5, 1); }
-.community-queue-context { margin: 0; color: var(--ink-soft); font-size: 0.82rem; }
+.community-publication-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1rem; }
+.community-queue-context,
+.community-seconding { margin: 0; color: var(--ink-soft); font-size: 0.82rem; line-height: 1.5; }
+.community-seconding { font-variant-numeric: tabular-nums; }
+.community-open-place {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  color: var(--ink);
+  text-decoration: none;
+}
+.community-open-place:visited { color: var(--ink); }
+.community-open-place:hover,
+.community-open-place:visited:hover { color: white; background: var(--ink); }
 .community-share-disclosure { border-top: 1px solid var(--line); }
 .community-share-disclosure summary { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 1rem; color: var(--oxblood); font-size: 0.82rem; font-weight: 800; cursor: pointer; list-style: none; }
 .community-share-disclosure summary::-webkit-details-marker { display: none; }

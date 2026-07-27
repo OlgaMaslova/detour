@@ -131,24 +131,32 @@ buttons.
   must never render a map, city chooser, discovery controls, or catalogue below
   it.
 - The member area is a continuous ledger, not a bordered/shadowed card attached
-  to a hero. Invitations, the member's private recommendation queue, private
+  to a hero. Invitations, the member's recommendation history, private
   shares, eligible contribution intake/history, and account settings remain
   separated by the existing tabs. Broad support surfaces use `--canvas`, while
   success, warning, and error colors remain semantically separate from brand
   accents.
 - Privacy is expressed structurally: member search is a names-only typeahead;
-  queue cards show place, status, and 0–3 signal progress; incoming shares show
-  only the private note and place. Other members' status, email, identities,
-  recommendation prose, and the endorsement graph are never rendered.
+  recommendation cards show place and truthful publication state, with a direct
+  discovery action when the published venue is available in the catalogue.
+  Additional distinct member recommendations appear only as an aggregate count
+  of other members who seconded the place; there is no threshold or progress
+  framing. Incoming shares show only the private note and place. Other members'
+  status, email, identities, recommendation prose, and the endorsement graph are
+  never rendered.
 - Verification copy names two distinct paths without conflating account email
   confirmation with trust: Olga curates founding members, while later members
   need two active endorsements from verified members. Verified members also see
   their active outgoing allowance out of three.
-- A recommendation creates or updates a matching waiting-list entry. The UI
-  refreshes and highlights that queue card, where members can then share the
-  pending entry privately. Three independent recommendations publish the place
-  automatically into the shared selection; there is no editor-approval promise
-  in member-facing copy.
+- A meaningful recommendation from a verified member creates or updates a
+  matching entry and publishes the place immediately on the Detourist List. The
+  UI refreshes both the member history and public catalogue, highlights the
+  recommendation card, and lets the member open that specific published place
+  in discovery. Additional distinct member recommendations are social proof
+  only and are never required for publication. A rare unpublished card must say
+  whether it has no recommendation note or has a saved recommendation that is
+  not live yet, without inventing a cause; its edit and private-share workflows
+  remain available.
 - **Member contributions are a separate review lane.** Only a signed-in member
   whose community status is `verified` sees the “Places I love” prompt, tab,
   and form. The form sends only place name, city, country, optional address,
