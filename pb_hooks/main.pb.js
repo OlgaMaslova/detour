@@ -169,17 +169,17 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
   }
 
   function projectRecommendation(row) {
-    const placeName = String(row.place_name || "").trim();
+    const venueName = String(row.venue_name || "").trim();
     const city = String(row.city || "").trim();
     const country = String(row.country || "").trim();
     const note = meaningfulText(row.note);
     const recommenderPseudo = String(row.recommender_pseudo || "").trim();
     const venueId = String(row.venue_id || "").trim();
-    if (!placeName || !city || !country || !note || !recommenderPseudo || !venueId) {
+    if (!venueName || !city || !country || !note || !recommenderPseudo || !venueId) {
       return null;
     }
     return {
-      place_name: placeName,
+      venue_name: venueName,
       city: city,
       country: country,
       note: note,
@@ -190,7 +190,7 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
 
   const rows = arrayOf(
     new DynamicModel({
-      place_name: "",
+      venue_name: "",
       city: "",
       country: "",
       note: "",
@@ -203,7 +203,7 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
     e.app
       .db()
       .newQuery(
-        "SELECT COALESCE(TRIM(v.name), '') AS place_name, " +
+        "SELECT COALESCE(TRIM(v.name), '') AS venue_name, " +
           "COALESCE(TRIM(v.city), '') AS city, " +
           "COALESCE(TRIM(v.country), '') AS country, " +
           "COALESCE(TRIM(r.note), '') AS note, " +
