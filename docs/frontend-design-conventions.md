@@ -102,11 +102,18 @@ buttons.
 
 ## Public founding-member requests
 
-- The signed-out network homepage keeps its public discovery explanation, city
-  search, and existing member sign-in/join-with-code route. Its membership plane
-  now gives equal, clearly separated paths to request a founding-member invite
-  or continue with an invitation already received; the request form is not a
-  replacement for the dedicated account route.
+- The signed-out network homepage leads with the member-network proposition and
+  a compact live sample from the anonymous public-recommendations endpoint. The
+  sample renders only complete real-member recommendations (place, city, note,
+  and pseudo), never fills missing content, and activates a place only through a
+  safe published-catalogue match. Loading, empty, and unavailable states leave
+  the invitation request and member sign-in paths fully usable.
+- The founding-member request follows the live sample. City search remains
+  available afterward as a quiet destination utility, never as the homepage's
+  main proposition or a complete-directory promise. The membership plane gives
+  clearly separated paths to request an invite or continue with an invitation
+  already received; the request form is not a replacement for the dedicated
+  account route.
 - The public request asks for name, email, city, and a short note about what the
   visitor would bring to Detour. Only email is required. The form retains typed
   values through ordinary homepage rerenders and failed submissions, disables

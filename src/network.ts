@@ -1,6 +1,7 @@
-import { pb } from './pocketbase';
+import { apiBaseUrl, pb } from './pocketbase';
 
 type DiscoveryStatus = 'idle' | 'loading' | 'ready' | 'error';
+type PublicRecommendationStatus = 'idle' | 'loading' | 'ready' | 'error';
 type FirstPlaceStatus = 'idle' | 'loading' | 'ready' | 'error';
 type ShareDirection = 'received' | 'sent';
 type InviteRequestStatus = 'idle' | 'submitting' | 'success';
@@ -15,6 +16,16 @@ export interface DiscoveryRecommendation {
   country?: string;
   address?: string;
   created?: string;
+}
+
+interface PublicRecommendation {
+  venue_name: string;
+  city: string;
+  country?: string;
+  note: string;
+  recommender_pseudo: string;
+  created?: string;
+  venue_id?: string;
 }
 
 interface DiscoveryReply {
@@ -62,6 +73,7 @@ const REPLY_MAX_LENGTH = 1200;
 // The landing feed shows only the most recent recommendations to keep the page
 // short; the country filter lets members reach the rest.
 const RECOMMENDATION_PREVIEW_LIMIT = 4;
+const PUBLIC_RECOMMENDATION_PREVIEW_LIMIT = 3;
 
 /**
  * Resolves a recommended place to a published catalogue venue so the feed can
@@ -79,6 +91,10 @@ let status: DiscoveryStatus = 'idle';
 let loadedFor = '';
 let errorMessage = '';
 let recommendationCountry = '';
+let publicRecommendationStatus: PublicRecommendationStatus = 'idle';
+let publicRecommendationError = '';
+let publicRecommendationRequest = 0;
+let publicRecommendations: PublicRecommendation[] = [];
 let firstPlaceStatus: FirstPlaceStatus = 'idle';
 let firstPlaceLoadedFor = '';
 let firstPlaceCount = 0;
@@ -135,6 +151,34 @@ function cleanRecommendation(value: unknown): DiscoveryRecommendation | null {
     address: cleanText(item.address),
     created: cleanDate(item.created),
   };
+}
+
+function cleanPublicRecommendation(value: unknown): PublicRecommendation | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Record<string, unknown>;
+  const venueName = cleanText(item.venue_name);
+  const city = cleanText(item.city);
+  const note = cleanText(item.note);
+  const recommenderPseudo = cleanText(item.recommender_pseudo)?.replace(/^@+/, '');
+  if (!venueName || !city || !note || !recommenderPseudo) return null;
+  return {
+    venue_name: venueName,
+    city,
+    country: cleanText(item.country),
+    note,
+    recommender_pseudo: recommenderPseudo,
+    created: cleanDate(item.created),
+    venue_id: cleanText(item.venue_id),
+  };
+}
+
+function cleanPublicPayload(value: unknown): PublicRecommendation[] {
+  if (!value || typeof value !== 'object') throw new Error('The public recommendation response was not valid.');
+  const recommendations = (value as { recommendations?: unknown }).recommendations;
+  if (!Array.isArray(recommendations)) throw new Error('The public recommendation response was not valid.');
+  return recommendations
+    .map(cleanPublicRecommendation)
+    .filter((item): item is PublicRecommendation => item !== null);
 }
 
 function cleanReply(value: unknown): DiscoveryReply | null {
@@ -328,14 +372,18 @@ export function networkPlaceNotes(): DiscoveryRecommendation[] {
   return discovery.recommendations.filter((item) => Boolean(item.note));
 }
 
-/** Loads the signed-in member's discovery data when it isn't loaded yet. */
+/** Loads the appropriate circle data for the current authentication state. */
 export function ensureNetworkDiscovery(render: () => void): void {
   const record = memberRecord();
-  if (record && loadedFor !== record.id && status !== 'loading') {
+  if (!record) {
+    if (publicRecommendationStatus === 'idle') void loadPublicRecommendations(render);
+    return;
+  }
+  if (loadedFor !== record.id && status !== 'loading') {
     status = 'idle';
     void loadNetworkDiscovery(render);
   }
-  if (record && firstPlaceLoadedFor !== record.id && firstPlaceStatus !== 'loading') {
+  if (firstPlaceLoadedFor !== record.id && firstPlaceStatus !== 'loading') {
     firstPlaceStatus = 'idle';
     void loadFirstPlaceEligibility(render);
   }
@@ -356,6 +404,10 @@ export function resetNetworkDiscovery(): void {
   loadedFor = '';
   errorMessage = '';
   recommendationCountry = '';
+  publicRecommendationRequest += 1;
+  publicRecommendationStatus = 'idle';
+  publicRecommendationError = '';
+  publicRecommendations = [];
   firstPlaceRequest += 1;
   firstPlaceStatus = 'idle';
   firstPlaceLoadedFor = '';
@@ -576,20 +628,71 @@ function memberFeedMarkup(accountHref: string, resolvePlace?: NetworkPlaceResolv
   </div>`;
 }
 
+function publicRecommendationMarkup(item: PublicRecommendation, resolvePlace?: NetworkPlaceResolver): string {
+  const place = resolvePlace ? resolvePlace(item.venue_name, item.city) : null;
+  const whereabouts = [item.city, item.country].filter(Boolean).join(', ');
+  const when = formatDate(item.created);
+  const title = place
+    ? `<button type="button" class="network-entry-place" data-open-destination="${esc(place.destinationSlug)}" data-open-venue="${esc(place.venueId)}" aria-label="Open ${esc(item.venue_name)} in Detour">${esc(item.venue_name)}</button>`
+    : esc(item.venue_name);
+  const thumb = place?.imageUrl
+    ? `<figure class="network-entry-thumb"><img src="${esc(place.imageUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-network-thumb></figure>`
+    : '';
+  return `<article class="network-public-recommendation${thumb ? ' network-entry-with-thumb' : ''}" data-network-recommendation>
+    <div class="network-entry-main">
+      <header>
+        <h3>${title}</h3>
+        <p class="network-place-meta">${esc(whereabouts)}</p>
+      </header>
+      <blockquote><p>${esc(item.note)}</p></blockquote>
+      <p class="network-entry-byline">Recommended by <strong class="network-pseudo">@${esc(item.recommender_pseudo)}</strong>${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
+    </div>
+    ${thumb}
+  </article>`;
+}
+
+function publicRecommendationSampleMarkup(resolvePlace?: NetworkPlaceResolver): string {
+  const heading = `<div class="network-public-sample-heading">
+    <div><p class="network-membership-label">From the circle</p><h2 id="network-public-recommendations-title">Places members would send you.</h2></div>
+    <p>A live sample of published recommendations, in members’ own words.</p>
+  </div>`;
+
+  if (publicRecommendationStatus === 'loading' || publicRecommendationStatus === 'idle') {
+    return `<section class="network-public-sample" aria-labelledby="network-public-recommendations-title">
+      ${heading}
+      <div class="network-public-state" role="status"><span class="network-loading-mark" aria-hidden="true"></span><p>Loading current member recommendations…</p></div>
+    </section>`;
+  }
+
+  if (publicRecommendationStatus === 'error') {
+    return `<section class="network-public-sample" aria-labelledby="network-public-recommendations-title">
+      ${heading}
+      <div class="network-public-state is-unavailable" role="status">
+        <p>${esc(publicRecommendationError || 'The live recommendation sample is unavailable right now. Membership requests and sign-in still work.')}</p>
+        <button type="button" class="network-public-retry" data-public-recommendations-retry>Try the sample again</button>
+      </div>
+    </section>`;
+  }
+
+  const sample = publicRecommendations.slice(0, PUBLIC_RECOMMENDATION_PREVIEW_LIMIT);
+  return `<section class="network-public-sample" aria-labelledby="network-public-recommendations-title">
+    ${heading}
+    ${sample.length
+      ? `<div class="network-public-list">${sample.map((item) => publicRecommendationMarkup(item, resolvePlace)).join('')}</div><p class="network-public-sample-note">This sample stays small: only real, published member recommendations appear here.</p>`
+      : '<div class="network-public-state"><p>No public recommendation sample is available right now. You can still request an invitation or sign in.</p></div>'}
+  </section>`;
+}
+
 export function networkDiscoveryMarkup(accountHref: string, resolvePlace?: NetworkPlaceResolver): string {
   const record = memberRecord();
   if (!record) {
     return `<section class="network-invitation" aria-labelledby="network-home-title">
       <div class="network-invitation-copy">
-        <p class="network-kicker">An invite-only circle for food-and-drink discovery</p>
-        <h1 id="network-home-title">Discover memorable places to eat and drink through the Detour circle.</h1>
-        <p class="network-invitation-lead">Detour is an invitation-only, community-curated food-and-drink list built from recommendations by people you can trust. Direct shares and replies remain private between the people involved.</p>
-        <ol class="network-how" aria-label="How Detour works">
-          <li><span aria-hidden="true">1</span><div><strong>Recommend somewhere to eat or drink</strong><p>Add a restaurant, café, bar, or other food-and-drink destination you would genuinely send another Detourist.</p></div></li>
-          <li><span aria-hidden="true">2</span><div><strong>Discover together</strong><p>Recommendations are visible across the full circle unless a member keeps theirs private.</p></div></li>
-          <li><span aria-hidden="true">3</span><div><strong>Share privately</strong><p>Send a food-and-drink destination and continue the conversation directly with another member.</p></div></li>
-        </ol>
+        <p class="network-kicker">An invite-only circle shaped by member taste</p>
+        <h1 id="network-home-title">See the places your network would actually recommend.</h1>
+        <p class="network-invitation-lead">Every place shown begins with a member’s recommendation and the note behind it. The circle stays intentionally considered, while direct shares and replies remain private.</p>
       </div>
+      ${publicRecommendationSampleMarkup(resolvePlace)}
       <aside class="network-invitation-action" aria-label="Founding membership and member sign-in">
         ${inviteRequestFormMarkup(accountHref)}
       </aside>
@@ -627,6 +730,32 @@ async function loadFirstPlaceEligibility(render: () => void): Promise<void> {
     if (memberRecord()?.id !== record.id || request !== firstPlaceRequest) return;
     firstPlaceCount = 0;
     firstPlaceStatus = 'error';
+  }
+  render();
+}
+
+async function loadPublicRecommendations(render: () => void): Promise<void> {
+  if (memberRecord() || publicRecommendationStatus === 'loading') return;
+  const request = ++publicRecommendationRequest;
+  publicRecommendationStatus = 'loading';
+  publicRecommendationError = '';
+  render();
+  try {
+    const response = await fetch(new URL('/api/detour/public-recommendations', `${apiBaseUrl}/`), {
+      method: 'GET',
+      credentials: 'omit',
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(`Public recommendations returned ${response.status}.`);
+    const payload: unknown = await response.json();
+    if (memberRecord() || request !== publicRecommendationRequest) return;
+    publicRecommendations = cleanPublicPayload(payload);
+    publicRecommendationStatus = 'ready';
+  } catch {
+    if (memberRecord() || request !== publicRecommendationRequest) return;
+    publicRecommendations = [];
+    publicRecommendationStatus = 'error';
+    publicRecommendationError = 'The live recommendation sample is unavailable right now. Membership requests and sign-in still work.';
   }
   render();
 }
@@ -773,6 +902,11 @@ export function bindNetworkDiscovery(root: HTMLElement, render: () => void): voi
       }
     });
   }
+
+  root.querySelector<HTMLButtonElement>('[data-public-recommendations-retry]')?.addEventListener('click', () => {
+    publicRecommendationStatus = 'idle';
+    void loadPublicRecommendations(render);
+  });
 
   root.querySelector<HTMLButtonElement>('[data-network-retry]')?.addEventListener('click', () => {
     status = 'idle';

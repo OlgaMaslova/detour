@@ -151,6 +151,93 @@ routerAdd(
   $apis.requireAuth("members")
 );
 
+// Anonymous home-page preview of real recommendations that have completed the
+// community publication path. The private source collections have no public
+// CRUD rules, so keep this projection deliberately small and independently
+// enforce member visibility and fixture exclusions here.
+routerAdd("GET", "/api/detour/public-recommendations", (e) => {
+  function meaningfulText(value) {
+    if (typeof value !== "string") return "";
+    const normalized = value.replace(/\s+/g, " ").trim();
+    const words = normalized
+      .split(/\s+/)
+      .map((word) =>
+        word.replace(/[.,!?;:'"()\[\]{}<>/\\|`~@#$%^&*+=_-]+/g, "")
+      )
+      .filter((word) => word.length >= 2);
+    return normalized.length >= 24 && words.length >= 5 ? normalized : "";
+  }
+
+  function projectRecommendation(row) {
+    const placeName = String(row.place_name || "").trim();
+    const city = String(row.city || "").trim();
+    const country = String(row.country || "").trim();
+    const note = meaningfulText(row.note);
+    const recommenderPseudo = String(row.recommender_pseudo || "").trim();
+    const venueId = String(row.venue_id || "").trim();
+    if (!placeName || !city || !country || !note || !recommenderPseudo || !venueId) {
+      return null;
+    }
+    return {
+      place_name: placeName,
+      city: city,
+      country: country,
+      note: note,
+      recommender_pseudo: recommenderPseudo,
+      venue_id: venueId,
+    };
+  }
+
+  const rows = arrayOf(
+    new DynamicModel({
+      place_name: "",
+      city: "",
+      country: "",
+      note: "",
+      recommender_pseudo: "",
+      venue_id: "",
+    })
+  );
+
+  try {
+    e.app
+      .db()
+      .newQuery(
+        "SELECT COALESCE(TRIM(v.name), '') AS place_name, " +
+          "COALESCE(TRIM(v.city), '') AS city, " +
+          "COALESCE(TRIM(v.country), '') AS country, " +
+          "COALESCE(TRIM(r.note), '') AS note, " +
+          "COALESCE(TRIM(m.pseudo), '') AS recommender_pseudo, " +
+          "COALESCE(v.id, '') AS venue_id " +
+          "FROM community_recommendations r " +
+          "JOIN members m ON m.id = r.member " +
+          "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+          "JOIN venues v ON v.id = w.published_venue " +
+          "WHERE w.status = 'published' " +
+          "AND w.published_venue != '' " +
+          "AND w.published_at != '' " +
+          "AND COALESCE(m.internal_member, FALSE) = FALSE " +
+          "AND m.community_status = 'verified' " +
+          "AND COALESCE(m.discovery_visible, FALSE) = TRUE " +
+          "AND LOWER(TRIM(m.email)) NOT LIKE '%.invalid' " +
+          "AND LOWER(TRIM(m.email)) != 'agent@detour.supernaut.to' " +
+          "AND LENGTH(TRIM(r.note)) >= 24 " +
+          "AND TRIM(m.pseudo) != '' " +
+          "ORDER BY r.created DESC, r.id DESC LIMIT 4"
+      )
+      .all(rows);
+  } catch {
+    return e.json(200, { recommendations: [] });
+  }
+
+  const recommendations = [];
+  for (const row of rows) {
+    const recommendation = projectRecommendation(row);
+    if (recommendation) recommendations.push(recommendation);
+  }
+  return e.json(200, { recommendations: recommendations });
+});
+
 routerAdd(
   "GET",
   "/api/detour/network-discovery",

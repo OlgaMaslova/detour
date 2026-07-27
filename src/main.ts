@@ -991,7 +991,7 @@ function renderHome(root: HTMLElement): void {
     ${networkDiscoveryMarkup(accountHref(), resolveNetworkPlace)}
     <section class="network-search-context" aria-labelledby="network-search-title">
       <div class="network-search-heading">
-        <div><h2 id="network-search-title">Find your city</h2><p>Search by city when you want the wider Detour selection. Each city opens with every place members recommend there.</p></div>
+        <div><h2 id="network-search-title">Browse by city</h2><p>Have a destination in mind? Search the places Detour members have chosen to publish there.</p></div>
       </div>
       <form class="destination-search network-destination-search" data-destination-search role="search" aria-label="Find a city">
         <label for="destination-search">City or destination</label>
@@ -1017,7 +1017,7 @@ function renderHome(root: HTMLElement): void {
   root.querySelectorAll<HTMLImageElement>('[data-network-thumb]').forEach((img) => {
     img.addEventListener('error', () => {
       failedCoverUrls.add(img.src);
-      img.closest('.network-entry')?.classList.remove('network-entry-with-thumb');
+      img.closest<HTMLElement>('[data-network-recommendation], .network-entry')?.classList.remove('network-entry-with-thumb');
       img.closest('.network-entry-thumb')?.remove();
     });
   });
