@@ -469,26 +469,49 @@ a:hover { color: var(--wine-deep); }
   border-bottom: 1px solid var(--line);
 }
 .card-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.card-cover-placeholder { display: flex; align-items: center; justify-content: center; }
-.card-cover-placeholder span {
+.cover-placeholder {
+  display: grid;
+  place-items: center;
+  background: var(--mint-soft);
+}
+.cover-placeholder span {
   font-family: var(--serif);
-  font-size: 2.1rem;
   font-weight: 700;
-  color: var(--ink-soft);
-  opacity: 0.5;
+  color: var(--oxblood);
+  line-height: 1;
+}
+.card-cover-placeholder span {
+  font-size: 2.1rem;
+  opacity: 0.45;
 }
 .detail-cover {
   width: min(100%, 11rem);
+  height: 11rem;
   margin: 0;
   overflow: hidden;
+  background: var(--mint-soft);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
 }
 .detail-cover img {
   display: block;
   width: 100%;
-  height: 11rem;
+  height: 100%;
   object-fit: cover;
+}
+.detail-cover-placeholder {
+  box-shadow: inset 0 0 0 0.4rem color-mix(in oklch, var(--mint) 32%, transparent);
+}
+.detail-cover-placeholder span {
+  display: grid;
+  width: 4.5rem;
+  height: 4.5rem;
+  place-items: center;
+  color: var(--oxblood);
+  background: white;
+  border: 1px solid var(--oxblood);
+  box-shadow: var(--sticker-shadow);
+  font-size: 3rem;
 }
 .card h3 { margin: 0; font-family: var(--serif); font-size: 1.18rem; font-weight: 700; letter-spacing: 0.005em; }
 .card-awards { display: flex; flex-wrap: wrap; gap: 0.35rem; }

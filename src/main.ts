@@ -614,23 +614,50 @@ function discoveryBar(list: Venue[], hasMap: boolean): string {
 // monogram placeholder directly instead of retrying a dead image every render.
 const failedCoverUrls = new Set<string>();
 
+type CoverVariant = 'card' | 'detail';
+
 function coverInitial(v: Venue): string {
   return (v.name.trim().charAt(0) || '•').toUpperCase();
 }
 
 /**
- * Editorial cover for a place card. Venues without a usable image (or whose
- * image failed to load) get a serif monogram placeholder so every card keeps
- * the same silhouette. Decorative: the venue name is already the card heading.
+ * Editorial cover shared by place cards and selected-place details. Blank or
+ * failed URLs use the same serif monogram treatment so neither surface exposes
+ * a broken image or changes silhouette. Card covers are decorative; the detail
+ * cover has a concise accessible label in both image and fallback states.
  */
-function venueCover(v: Venue): string {
+function venueCover(v: Venue, variant: CoverVariant = 'card'): string {
   const image = safeExternalHref(v.imageUrl);
   const usable = image && !failedCoverUrls.has(image);
-  return `<figure class="card-cover${usable ? '' : ' card-cover-placeholder'}" data-cover-initial="${esc(coverInitial(v))}" aria-hidden="true">${
+  const initial = coverInitial(v);
+  const baseClass = `${variant}-cover`;
+  const placeholderClass = usable ? '' : ` cover-placeholder ${baseClass}-placeholder`;
+  const accessibility = variant === 'card'
+    ? 'aria-hidden="true"'
+    : `role="img" aria-label="${esc(usable ? `Cover photo for ${v.name}` : `Cover photo unavailable for ${v.name}`)}" data-cover-fallback-label="${esc(`Cover photo unavailable for ${v.name}`)}"`;
+
+  return `<figure class="${baseClass}${placeholderClass}" data-cover-initial="${esc(initial)}" ${accessibility}>${
     usable
       ? `<img src="${esc(image)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-cover-image>`
-      : `<span>${esc(coverInitial(v))}</span>`
+      : `<span aria-hidden="true">${esc(initial)}</span>`
   }</figure>`;
+}
+
+function showCoverFallback(img: HTMLImageElement): void {
+  failedCoverUrls.add(img.currentSrc || img.src);
+  const figure = img.closest<HTMLElement>('.card-cover, .detail-cover');
+  if (!figure || figure.classList.contains('cover-placeholder')) return;
+  const baseClass = figure.classList.contains('detail-cover') ? 'detail-cover' : 'card-cover';
+  figure.classList.add('cover-placeholder', `${baseClass}-placeholder`);
+  figure.textContent = '';
+  if (baseClass === 'detail-cover') {
+    figure.setAttribute('role', 'img');
+    figure.setAttribute('aria-label', figure.dataset.coverFallbackLabel || 'Cover photo unavailable');
+  }
+  const initial = document.createElement('span');
+  initial.setAttribute('aria-hidden', 'true');
+  initial.textContent = figure.dataset.coverInitial || '•';
+  figure.append(initial);
 }
 
 function venueCard(v: Venue): string {
@@ -729,12 +756,7 @@ function detailPanel(): string {
     <div class="detail-body">
       <section class="detail-recommendation" aria-labelledby="detail-recommendation-title">
         <h3 id="detail-recommendation-title">Why it’s here</h3>
-        ${(() => {
-          const cover = safeExternalHref(v.imageUrl);
-          return cover && !failedCoverUrls.has(cover)
-            ? `<figure class="detail-cover"><img src="${esc(cover)}" alt="${esc(v.name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-cover-image></figure>`
-            : '';
-        })()}
+        ${venueCover(v, 'detail')}
         <p class="detail-note">${esc(
           signal
             ? `${signal} — a place worth a deliberate detour.`
@@ -1185,24 +1207,15 @@ function render(root: HTMLElement) {
   root.querySelector<HTMLButtonElement>('[data-geolocate]')?.addEventListener('click', () => {
     requestUserLocation(root);
   });
-  // A cover that fails to load falls back to the monogram placeholder in
-  // place (cards) or disappears (detail); the URL is remembered so later
-  // renders skip it without re-requesting.
+  // Failed card and detail covers become the same intentional monogram
+  // fallback in place; the URL is remembered so later renders skip it without
+  // re-requesting and dimensions remain stable.
   root.querySelectorAll<HTMLImageElement>('[data-cover-image]').forEach((img) => {
-    img.addEventListener('error', () => {
-      failedCoverUrls.add(img.src);
-      const figure = img.closest<HTMLElement>('.card-cover, .detail-cover');
-      if (!figure) return;
-      if (figure.classList.contains('card-cover')) {
-        figure.classList.add('card-cover-placeholder');
-        figure.textContent = '';
-        const initial = document.createElement('span');
-        initial.textContent = figure.dataset.coverInitial || '•';
-        figure.append(initial);
-      } else {
-        figure.remove();
-      }
-    });
+    img.addEventListener('error', () => showCoverFallback(img), { once: true });
+    // A cached failure may complete before listeners are attached after the
+    // render; cover that path explicitly so a broken image never flashes or
+    // remains in either surface.
+    if (img.complete && img.naturalWidth === 0) showCoverFallback(img);
   });
   root.querySelectorAll<HTMLButtonElement>('[data-venue]').forEach((btn) => {
     btn.addEventListener('click', () => {
