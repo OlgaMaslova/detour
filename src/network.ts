@@ -1,6 +1,7 @@
 import { pb } from './pocketbase';
 
 type DiscoveryStatus = 'idle' | 'loading' | 'ready' | 'error';
+type FirstPlaceStatus = 'idle' | 'loading' | 'ready' | 'error';
 type ShareDirection = 'received' | 'sent';
 
 export interface DiscoveryRecommendation {
@@ -66,6 +67,10 @@ let status: DiscoveryStatus = 'idle';
 let loadedFor = '';
 let errorMessage = '';
 let recommendationCountry = '';
+let firstPlaceStatus: FirstPlaceStatus = 'idle';
+let firstPlaceLoadedFor = '';
+let firstPlaceCount = 0;
+let firstPlaceRequest = 0;
 const replyStates = new Map<string, ReplyState>();
 let discovery: NetworkDiscovery = {
   recommendations: [],
@@ -212,6 +217,20 @@ export function ensureNetworkDiscovery(render: () => void): void {
     status = 'idle';
     void loadNetworkDiscovery(render);
   }
+  if (record && firstPlaceLoadedFor !== record.id && firstPlaceStatus !== 'loading') {
+    firstPlaceStatus = 'idle';
+    void loadFirstPlaceEligibility(render);
+  }
+}
+
+/** Hides the invitation immediately after the existing add-a-place flow succeeds. */
+export function markFirstPlaceContributed(): void {
+  const record = memberRecord();
+  if (!record) return;
+  firstPlaceRequest += 1;
+  firstPlaceLoadedFor = record.id;
+  firstPlaceCount = Math.max(1, firstPlaceCount);
+  firstPlaceStatus = 'ready';
 }
 
 export function resetNetworkDiscovery(): void {
@@ -219,6 +238,10 @@ export function resetNetworkDiscovery(): void {
   loadedFor = '';
   errorMessage = '';
   recommendationCountry = '';
+  firstPlaceRequest += 1;
+  firstPlaceStatus = 'idle';
+  firstPlaceLoadedFor = '';
+  firstPlaceCount = 0;
   replyStates.clear();
   discovery = { recommendations: [], shares: [] };
 }
@@ -347,6 +370,18 @@ function shareMarkup(item: DiscoveryShare): string {
   </article>`;
 }
 
+function firstPlaceInvitationMarkup(accountHref: string): string {
+  const hasCurrentRecommendation = discovery.recommendations.some((item) => item.is_own);
+  if (status !== 'ready' || firstPlaceStatus !== 'ready' || firstPlaceCount !== 0 || hasCurrentRecommendation) return '';
+  return `<aside class="network-first-place" aria-labelledby="network-first-place-title">
+    <div>
+      <h2 id="network-first-place-title">Know somewhere worth a detour?</h2>
+      <p>Your first place gives the circle somewhere new to discover.</p>
+    </div>
+    <a class="network-primary-link" href="${esc(accountHref)}" data-community-route="recommend-place">Add your first place <span aria-hidden="true">↗</span></a>
+  </aside>`;
+}
+
 function memberFeedMarkup(accountHref: string, resolvePlace?: NetworkPlaceResolver): string {
   const recommendations = discovery.recommendations;
   const received = discovery.shares.filter((share) => share.direction === 'received');
@@ -455,8 +490,31 @@ export function networkDiscoveryMarkup(accountHref: string, resolvePlace?: Netwo
       <h1 id="network-home-title">Food-and-drink destinations shared around the circle.</h1>
       <p>Welcome back, ${esc(memberLabel)}. Discover restaurants, cafés, bars, and other food-and-drink recommendations from the full circle, and keep your direct shares together here.</p>
     </div>
+    ${firstPlaceInvitationMarkup(accountHref)}
     ${memberFeedMarkup(accountHref, resolvePlace)}
   </section>`;
+}
+
+async function loadFirstPlaceEligibility(render: () => void): Promise<void> {
+  const record = memberRecord();
+  if (!record || firstPlaceStatus === 'loading') return;
+  const request = ++firstPlaceRequest;
+  firstPlaceStatus = 'loading';
+  firstPlaceLoadedFor = record.id;
+  try {
+    const payload = await pb.send<unknown>('/api/detour/member-place-contributions', { requestKey: null });
+    if (memberRecord()?.id !== record.id || request !== firstPlaceRequest) return;
+    if (!payload || typeof payload !== 'object' || !Array.isArray((payload as { items?: unknown }).items)) {
+      throw new Error('The member contribution response was not valid.');
+    }
+    firstPlaceCount = (payload as { items: unknown[] }).items.length;
+    firstPlaceStatus = 'ready';
+  } catch {
+    if (memberRecord()?.id !== record.id || request !== firstPlaceRequest) return;
+    firstPlaceCount = 0;
+    firstPlaceStatus = 'error';
+  }
+  render();
 }
 
 async function loadNetworkDiscovery(render: () => void): Promise<void> {

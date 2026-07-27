@@ -867,7 +867,13 @@ async function refreshMemberRecord(render: () => void): Promise<void> {
   }
 }
 
-export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => void, onAuthed: () => void): void {
+export function bindCommunity(
+  root: HTMLElement,
+  venues: Venue[],
+  render: () => void,
+  onAuthed: () => void,
+  onPlaceContributed: () => void
+): void {
   knownVenues = venues;
   if (memberTab === 'settings') void refreshMemberRecord(render);
   root.querySelectorAll<HTMLButtonElement>('[data-community-mode]').forEach((button) => {
@@ -1154,6 +1160,7 @@ export function bindCommunity(root: HTMLElement, venues: Venue[], render: () => 
       const created = await pb.collection('community_recommendations').create<RecommendationRecord>(payload);
       highlightedWaitlistId = created.waitlist || '';
       notice = { kind: 'success', text: 'Recommendation added.' };
+      onPlaceContributed();
       communityLoaded = false;
       await loadCommunity(render);
       focusWaitlistEntry(highlightedWaitlistId);

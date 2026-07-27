@@ -7,7 +7,14 @@ import { GLOBAL_META_DESCRIPTION, GLOBAL_META_TITLE } from './cities';
 import { OCCASION_OPTIONS, occasionLabel } from './occasions';
 import { applyInvitationRoute, bindCommunity, communityControl, communityPanel, openRecommendPlace, openSharePlace } from './community';
 import { pb } from './pocketbase';
-import { bindNetworkDiscovery, ensureNetworkDiscovery, networkDiscoveryMarkup, networkPlaceNotes, resetNetworkDiscovery } from './network';
+import {
+  bindNetworkDiscovery,
+  ensureNetworkDiscovery,
+  markFirstPlaceContributed,
+  networkDiscoveryMarkup,
+  networkPlaceNotes,
+  resetNetworkDiscovery,
+} from './network';
 import { renderFoundingSurvey } from './survey';
 
 type DataMode = 'loading' | 'live' | 'error';
@@ -843,7 +850,7 @@ function renderAccount(root: HTMLElement): void {
     </footer>
   `;
 
-  bindCommunity(root, state.venues, () => render(root), () => showHome(root));
+  bindCommunity(root, state.venues, () => render(root), () => showHome(root), markFirstPlaceContributed);
   bindRouteLinks(root);
   if (pendingFocus) {
     const target = root.querySelector<HTMLElement>(pendingFocus);
