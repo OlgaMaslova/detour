@@ -796,6 +796,8 @@ onRecordCreate((e) => {
 // participant state, and publication state are server-owned.
 onRecordCreateRequest((e) => {
   if (e.hasSuperuserAuth()) {
+    e.record.set("_detour_publication_actor", "");
+    e.record.hide("_detour_publication_actor");
     return e.next();
   }
 
@@ -836,13 +838,18 @@ onRecordCreateRequest((e) => {
   e.record.set("address", resolved.entry.getString("address"));
   e.record.set("category", category);
   e.record.set("occasions", occasions);
+  // Request after-success events no longer retain e.auth in PocketBase 0.39.
+  // Carry the authenticated member id as a hidden, non-schema record value so
+  // only this real member request can authorize the publication side effects.
+  e.record.set("_detour_publication_actor", e.auth.id);
+  e.record.hide("_detour_publication_actor");
   e.next();
 }, "community_recommendations");
 
 onRecordAfterCreateSuccess((e) => {
   const community = require(__hooks + "/community_waitlist.js");
   const waitlistId = e.record.getString("waitlist");
-  community.recalculateAndPublish(e.app, waitlistId);
+  const publication = community.recalculateAndPublish(e.app, waitlistId);
   // Publication happened inside the transaction above; the external
   // enrichment runs after it so an outage of OpenStreetMap or of the place's
   // own website can never block or roll back the publish. Members only supply
@@ -861,6 +868,173 @@ onRecordAfterCreateSuccess((e) => {
     }
   } catch {
     // Entry lookup is best-effort; the sweeps cover anything missed.
+  }
+
+  // A fresh publication caused by this exact authenticated member request gets
+  // one reserved notification attempt. Migration/backfill reconciliation,
+  // superuser writes, already-published entries, internal members, and reserved
+  // .invalid fixtures never claim the marker or produce publication noise.
+  let publicationNotification = null;
+  if (publication && publication.publishedNow) {
+    try {
+      const memberId = e.record.getString("member");
+      const memberCreatedRecommendation =
+        e.record.getString("_detour_publication_actor") === memberId;
+      if (memberCreatedRecommendation) {
+        const author = e.app.findRecordById("members", memberId);
+        const recipient = author.getString("email").trim();
+        const reservedInvalidRecipient = /@(?:[^@\s]+\.)*invalid$/i.test(recipient);
+        if (
+          author.getString("community_status") === "verified" &&
+          !author.getBool("internal_member") &&
+          recipient &&
+          !reservedInvalidRecipient
+        ) {
+          const claimed = community.claimPublicationNotification(e.app, waitlistId);
+          if (claimed) {
+            publicationNotification = {
+              memberId,
+              recipient,
+              placeName: String(claimed.venueName || "").trim() || "Your place",
+              city: String(claimed.city || "").trim(),
+            };
+          }
+        }
+      }
+    } catch (error) {
+      try {
+        e.app.logger().error(
+          "Detour publication notification claim failed.",
+          "recommendationId",
+          e.record.id,
+          "waitlistId",
+          waitlistId,
+          "error",
+          String(error)
+        );
+      } catch {
+        // Claim failures must not affect publication, enrichment, or the save.
+      }
+    }
+  }
+
+  if (publicationNotification) {
+    try {
+      function escapeHtml(value) {
+        return String(value || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      const apiKey = $os.getenv("AGENTMAIL_API_KEY");
+      const inboxId = $os.getenv("AGENTMAIL_INBOX_ID");
+      if (!apiKey || !inboxId) {
+        throw new Error("AgentMail runtime configuration is missing.");
+      }
+
+      const siteUrl = "https://takedetour.app";
+      const response = $http.send({
+        url:
+          "https://api.agentmail.to/v0/inboxes/" +
+          encodeURIComponent(inboxId) +
+          "/messages/send",
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          to: publicationNotification.recipient,
+          subject: publicationNotification.placeName + " is on Detour",
+          text:
+            "Good call — " +
+            publicationNotification.placeName +
+            " is now on Detour.\n\nSee it: " +
+            siteUrl +
+            "\n\nYou received this because your recommendation put this place on Detour.",
+          html:
+            "<p>Good call — <strong>" +
+            escapeHtml(publicationNotification.placeName) +
+            "</strong> is now on Detour.</p>" +
+            '<p><a href="' +
+            siteUrl +
+            '">See it on Detour</a></p>' +
+            "<p>You received this because your recommendation put this place on Detour.</p>",
+          labels: ["app"],
+        }),
+        timeout: 10,
+      });
+      if (!response || response.statusCode < 200 || response.statusCode >= 300) {
+        throw new Error(
+          "AgentMail returned HTTP " +
+            (response && response.statusCode ? response.statusCode : "unknown") +
+            "."
+        );
+      }
+    } catch (error) {
+      try {
+        e.app.logger().error(
+          "Detour publication email delivery failed.",
+          "recommendationId",
+          e.record.id,
+          "memberId",
+          publicationNotification.memberId,
+          "recipient",
+          publicationNotification.recipient,
+          "error",
+          String(error)
+        );
+      } catch {
+        // Email delivery is best-effort after the durable marker is claimed.
+      }
+    }
+
+    try {
+      const eventsUrl = $os.getenv("SUPERNAUT_EVENTS_URL");
+      if (!eventsUrl) {
+        throw new Error("SUPERNAUT_EVENTS_URL is not configured.");
+      }
+      const response = $http.send({
+        url: eventsUrl,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "detour.place.published",
+          subject: "Detour place published",
+          text:
+            publicationNotification.placeName +
+            (publicationNotification.city
+              ? " in " + publicationNotification.city
+              : "") +
+            " is now on Detour.",
+        }),
+        timeout: 5,
+      });
+      if (!response || response.statusCode < 200 || response.statusCode >= 300) {
+        throw new Error(
+          "Dashboard events endpoint returned HTTP " +
+            (response && response.statusCode ? response.statusCode : "unknown") +
+            "."
+        );
+      }
+    } catch (error) {
+      try {
+        e.app.logger().error(
+          "Detour publication event delivery failed.",
+          "recommendationId",
+          e.record.id,
+          "waitlistId",
+          waitlistId,
+          "error",
+          String(error)
+        );
+      } catch {
+        // Dashboard delivery is best-effort after the durable marker is claimed.
+      }
+    }
   }
 
   try {

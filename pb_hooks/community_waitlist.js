@@ -535,7 +535,13 @@ function publishEntry(app, entry) {
 }
 
 function recalculateAndPublish(app, entryId) {
-  if (!entryId) return;
+  const result = {
+    entryId: entryId || "",
+    publishedNow: false,
+    publishedVenue: "",
+  };
+  if (!entryId) return result;
+
   app.runInTransaction((txApp) => {
     let entry;
     try {
@@ -568,8 +574,47 @@ function recalculateAndPublish(app, entryId) {
     // pending entry; additional persisted signals are social proof, not a gate.
     if (entry.getString("status") === "pending" && signalCount >= 1) {
       publishEntry(txApp, entry);
+      result.publishedNow = true;
     }
+    result.publishedVenue = entry.getString("published_venue");
   });
+
+  return result;
+}
+
+// Atomically reserves the one publication-notification attempt for an entry.
+// Only the member recommendation after-create hook calls this helper; migration
+// and reconciliation callers use recalculateAndPublish alone and stay silent.
+function claimPublicationNotification(app, entryId) {
+  if (!entryId) return null;
+  const claimedAt = new Date().toISOString();
+  const claimed = arrayOf(
+    new DynamicModel({
+      id: "",
+      venue_name: "",
+      city: "",
+      publication_notification_sent_at: "",
+    })
+  );
+  app
+    .db()
+    .newQuery(
+      "UPDATE community_waitlist_entries " +
+        "SET publication_notification_sent_at = {:claimedAt} " +
+        "WHERE id = {:entryId} AND status = 'published' " +
+        "AND COALESCE(publication_notification_sent_at, '') = '' " +
+        "RETURNING id, venue_name, city, publication_notification_sent_at"
+    )
+    .bind({ entryId, claimedAt })
+    .all(claimed);
+
+  if (claimed.length !== 1) return null;
+  return {
+    entryId: claimed[0].id,
+    venueName: claimed[0].venue_name,
+    city: claimed[0].city,
+    claimedAt: claimed[0].publication_notification_sent_at,
+  };
 }
 
 // Validates a published venue's address by geocoding it via OpenStreetMap
@@ -1315,6 +1360,7 @@ function resolveCoverImage(app, venueId) {
 
 module.exports = {
   addParticipants,
+  claimPublicationNotification,
   cleanText,
   createOrResolveEntry,
   ensureEntryPending,
