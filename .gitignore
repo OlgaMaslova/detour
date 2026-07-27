@@ -2,4 +2,3 @@ pb_data/
 *.db-shm
 *.db-wal
 node_modules/
-public/
