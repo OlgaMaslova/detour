@@ -377,7 +377,8 @@ routerAdd("GET", "/api/detour/place-detourists", (e) => {
         "SELECT COALESCE(NULLIF(w.published_venue, ''), w.canonical_venue) AS venue_id, s.sender AS member_id " +
         "FROM community_shares s " +
         "JOIN community_waitlist_entries w ON w.id = s.waitlist" +
-        ") WHERE venue_id IS NOT NULL AND venue_id != '' AND member_id != ''"
+        ") WHERE venue_id IS NOT NULL AND venue_id != '' AND member_id != '' " +
+        "AND member_id NOT IN (SELECT id FROM members WHERE email LIKE '%.invalid')"
     )
     .all(pairs);
 
@@ -392,7 +393,8 @@ routerAdd("GET", "/api/detour/place-detourists", (e) => {
     .db()
     .newQuery(
       "SELECT member AS member_id, normalized_name, normalized_city " +
-        "FROM member_place_contributions WHERE status = 'approved'"
+        "FROM member_place_contributions WHERE status = 'approved' " +
+        "AND member NOT IN (SELECT id FROM members WHERE email LIKE '%.invalid')"
     )
     .all(contributions);
   const contributionRows = [];

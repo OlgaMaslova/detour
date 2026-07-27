@@ -35,7 +35,7 @@ interface State {
   pendingDestination: string | null;
   /** Every loaded place, across all destinations. Never rendered directly — see destinationVenues(). */
   venues: Venue[];
-  /** San Francisco-only multi-select occasion browsing; selected values compose as AND. */
+  /** Multi-select occasion browsing; selected values compose as AND. */
   occasionFilters: string[];
   selectedId: string | null;
   /** Whether the last selection came from a map pin or a list card — used to restore focus on close. */
@@ -334,8 +334,9 @@ function activeFilters(): ActiveFilter[] {
   }));
 }
 
-function isSanFranciscoDestination(): boolean {
-  return state.destination === 'san-francisco';
+/** Occasion browsing appears wherever the destination's venues carry occasion tags. */
+function destinationHasOccasions(): boolean {
+  return destinationVenues().some((v) => venueOccasions(v).length > 0);
 }
 
 /* ---------- interactive map (Leaflet + OpenStreetMap) ---------- */
@@ -431,7 +432,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
       zIndexOffset: selected ? 1000 : 0,
     }).addTo(map);
     marker.bindPopup(
-      `<strong>${esc(v.name)}</strong><br><span class="popup-member">${esc(detouristNote(v))}</span>${isSanFranciscoDestination() && venueOccasions(v).length ? `<br><span class="popup-occasions">Good for: ${esc(occasionSummary(v))}</span>` : ''}`,
+      `<strong>${esc(v.name)}</strong><br><span class="popup-member">${esc(detouristNote(v))}</span>${venueOccasions(v).length ? `<br><span class="popup-occasions">Good for: ${esc(occasionSummary(v))}</span>` : ''}`,
       { closeButton: false, offset: [0, -6] }
     );
     const select = () => {
@@ -456,7 +457,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
         pin.setAttribute('aria-pressed', String(selected));
         pin.setAttribute(
           'aria-label',
-          `${v.name}, ${detouristNote(v)}${isSanFranciscoDestination() && venueOccasions(v).length ? ` Good for ${occasionSummary(v)}.` : ''} ${selected ? 'Selected.' : 'Select for details.'}`
+          `${v.name}, ${detouristNote(v)}${venueOccasions(v).length ? ` Good for ${occasionSummary(v)}.` : ''} ${selected ? 'Selected.' : 'Select for details.'}`
         );
         pin.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -549,7 +550,7 @@ function listPreviewStage(): string {
 }
 
 function occasionBrowser(): string {
-  if (!isSanFranciscoDestination()) return '';
+  if (!destinationHasOccasions()) return '';
   const venues = destinationVenues();
   const buttons = OCCASION_OPTIONS.flatMap(([value, label]) => {
     const active = state.occasionFilters.includes(value);
@@ -568,7 +569,7 @@ function occasionBrowser(): string {
       <h2 id="occasion-browser-title">What kind of stop is this?</h2>
       <p id="occasion-browser-help">Combine as many as apply — counts update with your picks.</p>
     </div>
-    <div class="occasion-options" role="group" aria-label="Browse San Francisco by occasion">
+    <div class="occasion-options" role="group" aria-label="Browse ${esc(destinationLabel() || 'the selection')} by occasion">
       <button type="button" class="occasion-option occasion-option-all${state.occasionFilters.length === 0 ? ' occasion-option-active' : ''}" data-occasion="" aria-pressed="${state.occasionFilters.length === 0}">
         <span>All occasions</span><small aria-hidden="true">${destinationVenues().length}</small>
       </button>
@@ -647,7 +648,7 @@ function venueCard(v: Venue): string {
             ? esc(v.address)
             : '<span class="approx">Map position being refined</span>'
         }</p>
-        ${isSanFranciscoDestination() && venueOccasions(v).length ? `<span class="card-occasions" aria-label="Good for ${esc(occasionSummary(v))}"><span class="card-occasions-label">Good for</span>${venueOccasions(v).map((occasion) => `<span>${esc(occasionLabel(occasion))}</span>`).join('')}</span>` : ''}
+        ${venueOccasions(v).length ? `<span class="card-occasions" aria-label="Good for ${esc(occasionSummary(v))}"><span class="card-occasions-label">Good for</span>${venueOccasions(v).map((occasion) => `<span>${esc(occasionLabel(occasion))}</span>`).join('')}</span>` : ''}
       </button>
       <p class="card-list-note">${esc(detouristNote(v))}</p>
     </article>
@@ -750,7 +751,7 @@ function detailPanel(): string {
               : '<span class="approx">Map position being refined</span>'
           }</dd></div>
           ${distinctLocality ? `<div><dt>Locality</dt><dd><span class="detail-locality">${esc(v.city)}</span><span class="detail-market">${esc(venueRouteName(v))} selection</span></dd></div>` : ''}
-          ${isSanFranciscoDestination() && venueOccasions(v).length ? `<div><dt>Good for</dt><dd>${esc(venueOccasions(v).map(occasionLabel).join(' · '))}</dd></div>` : ''}
+          ${venueOccasions(v).length ? `<div><dt>Good for</dt><dd>${esc(venueOccasions(v).map(occasionLabel).join(' · '))}</dd></div>` : ''}
         </dl>
         ${visitLinks ? `<nav class="detail-visit" aria-labelledby="detail-visit-title"><h3 id="detail-visit-title">Visit</h3><div class="detail-visit-links">${visitLinks}</div></nav>` : ''}
       </section>
@@ -774,8 +775,8 @@ function syncDocumentMeta(destinationName: string | null, account = false): void
       account
         ? 'Sign in to Detour membership to manage invitations, recommend places, and exchange private place shares.'
         : destinationName
-          ? destinationName === 'San Francisco'
-            ? 'Browse member-recommended Detourist List places in San Francisco by occasion, from celebrations to quick local stops.'
+          ? destinationHasOccasions()
+            ? `Browse member-recommended Detourist List places in ${destinationName} by occasion, from celebrations to quick local stops.`
             : `Explore member-recommended Detourist List places in ${destinationName}, with practical details and a map for planning your next detour.`
           : GLOBAL_META_DESCRIPTION
     );
@@ -1087,11 +1088,11 @@ function render(root: HTMLElement) {
       <button type="button" class="empty-state-reset" data-reset-filters>Show everything</button>
     </div>`;
   const selectionLabel = `${list.length} ${list.length === 1 ? 'place' : 'places'}`;
-  const sanFrancisco = isSanFranciscoDestination();
-  const destinationTitle = sanFrancisco
-    ? 'San Francisco, for the plan you have.'
+  const occasionBrowsing = destinationHasOccasions();
+  const destinationTitle = occasionBrowsing
+    ? `${destination.name}, for the plan you have.`
     : `${destination.name}, recommended by Detour members.`;
-  const destinationTagline = sanFrancisco
+  const destinationTagline = occasionBrowsing
     ? `${destination.count} current ${destination.count === 1 ? 'place' : 'places'}. Browse by occasion, from celebrations and date nights to neighborhood meals and quick local stops.`
     : `${destination.count} ${destination.count === 1 ? 'place' : 'places'} on the member-recommended Detourist List.`;
 
