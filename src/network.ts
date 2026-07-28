@@ -1,6 +1,7 @@
-import { pb } from './pocketbase';
+import { apiBaseUrl, pb } from './pocketbase';
 
 type DiscoveryStatus = 'idle' | 'loading' | 'ready' | 'error';
+type PublicRecommendationStatus = 'idle' | 'loading' | 'ready' | 'error';
 type FirstPlaceStatus = 'idle' | 'loading' | 'ready' | 'error';
 type ShareDirection = 'received' | 'sent';
 type InviteRequestStatus = 'idle' | 'submitting' | 'success';
@@ -16,6 +17,16 @@ export interface DiscoveryRecommendation {
   country?: string;
   address?: string;
   created?: string;
+}
+
+interface PublicRecommendation {
+  venue_name: string;
+  city: string;
+  country?: string;
+  note: string;
+  recommender_pseudo: string;
+  created?: string;
+  venue_id?: string;
 }
 
 interface DiscoveryReply {
@@ -60,16 +71,20 @@ interface InviteRequestState {
 
 const REPLY_MIN_LENGTH = 8;
 const REPLY_MAX_LENGTH = 1200;
-// The landing feed shows only the most recent recommendations to keep the page
-// short; the country filter lets members reach the rest.
-const RECOMMENDATION_PREVIEW_LIMIT = 4;
+const PUBLIC_RECOMMENDATION_PREVIEW_LIMIT = 3;
+// Each cassette side opens on its newest shares and expands from there, so a
+// long ledger cannot stretch the shell past the flip control.
+const SHARE_PREVIEW_LIMIT = 3;
 
 /**
  * Resolves a recommended place to a published catalogue venue so the feed can
  * open it on the destination map. Returns null when the place has no published
  * venue yet — the entry then renders as plain text.
  */
-export type NetworkPlaceResolver = (venueName: string, city: string) => { venueId: string; destinationSlug: string; imageUrl?: string } | null;
+export type NetworkPlaceResolver = (
+  venueName: string,
+  city: string
+) => { venueId: string; destinationSlug: string; destinationHref: string; placeHref: string; imageUrl?: string } | null;
 
 interface NetworkDiscovery {
   recommendations: DiscoveryRecommendation[];
@@ -79,7 +94,19 @@ interface NetworkDiscovery {
 let status: DiscoveryStatus = 'idle';
 let loadedFor = '';
 let errorMessage = '';
-let recommendationCountry = '';
+let recommendationsExpanded = false;
+type RecommendationColumns = 2 | 3;
+const RECOMMENDATION_COLUMNS_KEY = 'detour-recommendation-columns';
+let recommendationColumns: RecommendationColumns =
+  localStorage.getItem(RECOMMENDATION_COLUMNS_KEY) === '3' ? 3 : 2;
+let sharesSide: 'a' | 'b' = 'a';
+let sharesExpanded = false;
+const archivingShareIds = new Set<string>();
+
+function cassetteFlipLabel(): string {
+  return sharesSide === 'a' ? 'Flip to side B ▸' : '◂ Flip to side A';
+}
+
 interface PublicRecommendationFeed {
   status: PublicRecommendationStatus;
   error: string;
@@ -146,6 +173,34 @@ function cleanRecommendation(value: unknown): DiscoveryRecommendation | null {
     address: cleanText(item.address),
     created: cleanDate(item.created),
   };
+}
+
+function cleanPublicRecommendation(value: unknown): PublicRecommendation | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Record<string, unknown>;
+  const venueName = cleanText(item.venue_name);
+  const city = cleanText(item.city);
+  const note = cleanText(item.note);
+  const recommenderPseudo = cleanText(item.recommender_pseudo)?.replace(/^@+/, '');
+  if (!venueName || !city || !note || !recommenderPseudo) return null;
+  return {
+    venue_name: venueName,
+    city,
+    country: cleanText(item.country),
+    note,
+    recommender_pseudo: recommenderPseudo,
+    created: cleanDate(item.created),
+    venue_id: cleanText(item.venue_id),
+  };
+}
+
+function cleanPublicPayload(value: unknown): PublicRecommendation[] {
+  if (!value || typeof value !== 'object') throw new Error('The public recommendation response was not valid.');
+  const recommendations = (value as { recommendations?: unknown }).recommendations;
+  if (!Array.isArray(recommendations)) throw new Error('The public recommendation response was not valid.');
+  return recommendations
+    .map(cleanPublicRecommendation)
+    .filter((item): item is PublicRecommendation => item !== null);
 }
 
 function cleanReply(value: unknown): DiscoveryReply | null {
@@ -270,7 +325,7 @@ function inviteRequestFormMarkup(accountHref: string): string {
     </div>
     <div class="network-member-return">
       <p class="network-membership-label">Already invited?</p>
-      <a class="network-primary-link" href="${esc(accountHref)}" data-community-route>Sign in or join with a code <span aria-hidden="true">↗</span></a>
+      <a class="network-primary-link" href="${esc(accountHref)}" data-community-route>Sign in or join with a code <span class="nav-arrow" aria-hidden="true">↗</span></a>
       <p class="network-invitation-note">Invitations and replies are shared personally by the Detour team and current members.</p>
     </div>`;
   }
@@ -322,7 +377,7 @@ function inviteRequestFormMarkup(accountHref: string): string {
     </form>
     <div class="network-member-return">
       <p class="network-membership-label">Already invited?</p>
-      <a class="network-primary-link" href="${esc(accountHref)}" data-community-route>Sign in or join with a code <span aria-hidden="true">↗</span></a>
+      <a class="network-primary-link" href="${esc(accountHref)}" data-community-route>Sign in or join with a code <span class="nav-arrow" aria-hidden="true">↗</span></a>
       <p class="network-invitation-note">Invitations are shared personally by current Detour members.</p>
     </div>`;
 }
@@ -410,6 +465,17 @@ export function retryNetworkPlaceNotes(render: () => void, city = ''): void {
   void loadPublicRecommendations(render, city);
 }
 
+/**
+ * Clears the "New share" markers once the member area has marked the same
+ * incoming shares as seen on the server, so the deck and the tab badge agree
+ * on the next render.
+ */
+export function markNetworkSharesSeen(): void {
+  discovery.shares.forEach((share) => {
+    if (share.direction === 'received') share.seen = true;
+  });
+}
+
 /** Hides the invitation immediately after the existing add-a-place flow succeeds. */
 export function markFirstPlaceContributed(): void {
   const record = memberRecord();
@@ -424,7 +490,6 @@ export function resetNetworkDiscovery(): void {
   status = 'idle';
   loadedFor = '';
   errorMessage = '';
-  recommendationCountry = '';
   publicRecommendationRequest += 1;
   publicRecommendationFeeds.clear();
   firstPlaceRequest += 1;
@@ -530,13 +595,20 @@ function recommendationCardMarkup(
   const when = view.created ? formatDate(view.created) : '';
   const whereabouts = [view.city, view.country].filter(Boolean).join(', ');
   const place = view.venueName && resolvePlace ? resolvePlace(view.venueName, view.city || '') : null;
+  // A published place is a link to its own page, so a feed card behaves like
+  // every other card in the app — and can be opened in a new tab.
   const title = place
-    ? `<button type="button" class="network-entry-place" data-open-destination="${esc(place.destinationSlug)}" data-open-venue="${esc(place.venueId)}" aria-label="Open ${esc(view.venueName)} in Detour">${esc(view.venueName)}</button>`
+    ? `<a class="network-entry-place" href="${esc(place.placeHref)}" data-place="${esc(place.venueId)}" aria-label="Open the ${esc(view.venueName)} place page">${esc(view.venueName)}</a>`
     : esc(view.venueName);
+  // Every card carries a cover of the same height — a photo when the place has
+  // one, otherwise the monogram placeholder the catalogue and detail views
+  // already use. A card that skipped it would be stretched to its neighbour's
+  // photo and collect the difference as one dead gap.
+  const initial = (view.venueName.trim().charAt(0) || '•').toUpperCase();
   const thumb = place?.imageUrl
-    ? `<figure class="network-entry-thumb"><img src="${esc(place.imageUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-network-thumb></figure>`
-    : '';
-  return `<article class="network-entry network-recommendation${thumb ? ' network-entry-with-thumb' : ''}" data-network-recommendation>
+    ? `<figure class="network-entry-thumb" data-cover-initial="${esc(initial)}" aria-hidden="true"><img src="${esc(place.imageUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-network-thumb></figure>`
+    : `<figure class="network-entry-thumb cover-placeholder network-entry-thumb-placeholder" data-cover-initial="${esc(initial)}" aria-hidden="true"><span aria-hidden="true">${esc(initial)}</span></figure>`;
+  return `<article class="network-entry network-recommendation network-entry-with-thumb" data-network-recommendation>
     <div class="network-entry-main">
       <header class="network-entry-head">
         <div>
@@ -595,26 +667,31 @@ function firstPlaceInvitationMarkup(accountHref: string): string {
       <h2 id="network-first-place-title">Know somewhere worth a detour?</h2>
       <p>Your first place gives the circle somewhere new to discover.</p>
     </div>
-    <a class="network-primary-link" href="${esc(accountHref)}" data-community-route="recommend-place">Add your first place <span aria-hidden="true">↗</span></a>
+    <a class="network-primary-link" href="${esc(accountHref)}" data-community-route="recommend-place">Add your first place <span class="nav-arrow" aria-hidden="true">↗</span></a>
   </aside>`;
 }
 
 function shareColumnMarkup(items: DiscoveryShare[], emptyText: string): string {
   if (!items.length) return `<p class="network-column-empty">${emptyText}</p>`;
   const sorted = [...items].sort((a, b) => recencyValue(b) - recencyValue(a));
-  const shown = sharesExpanded ? sorted : sorted.slice(0, 1);
+  const shown = sharesExpanded ? sorted : sorted.slice(0, SHARE_PREVIEW_LIMIT);
   const hidden = sorted.length - shown.length;
   const toggle =
     hidden > 0
       ? `<button type="button" class="network-retry network-show-more" data-shares-toggle>Show ${hidden} more</button>`
-      : sharesExpanded && sorted.length > 1
+      : sharesExpanded && sorted.length > SHARE_PREVIEW_LIMIT
         ? '<button type="button" class="network-retry network-show-more" data-shares-toggle>Show fewer</button>'
         : '';
   return `<div class="network-entry-list">${shown.map(shareMarkup).join('')}</div>${toggle}`;
 }
 
-function memberFeedMarkup(accountHref: string, resolvePlace?: NetworkPlaceResolver): string {
-  const recommendations = discovery.recommendations;
+/**
+ * The private-share deck. It belongs to the member area (My detours → Shares)
+ * rather than the landing feed: home is a discovery surface, and a member's
+ * incoming and outgoing shares are private ledger work. The cassette flip,
+ * the archive controls, and the reply threads travel with it.
+ */
+export function memberSharesMarkup(): string {
   const received = discovery.shares.filter((share) => share.direction === 'received');
   const sent = discovery.shares.filter((share) => share.direction === 'sent');
   const shareCount = received.length + sent.length;
@@ -622,73 +699,96 @@ function memberFeedMarkup(accountHref: string, resolvePlace?: NetworkPlaceResolv
   if (status === 'loading' || status === 'idle') {
     return `<div class="network-state network-state-loading" role="status">
       <span class="network-loading-mark" aria-hidden="true"></span>
-      <div><h2>Gathering the Detour circle</h2><p>Loading full-circle food-and-drink recommendations and private shares.</p></div>
+      <div><h2>Gathering your private shares</h2><p>Loading incoming and outgoing destination shares.</p></div>
     </div>`;
   }
 
   if (status === 'error') {
     return `<div class="network-state network-state-error" role="alert">
-      <div><h2>The Detour circle could not be loaded</h2><p>${esc(errorMessage || 'Please try again. Circle recommendations and your private shares have not been shown.')}</p></div>
+      <div><h2>Your private shares could not be loaded</h2><p>${esc(errorMessage || 'Please try again. Your private shares have not been shown.')}</p></div>
+      <button type="button" class="network-retry" data-network-shares-retry>Try again</button>
+    </div>`;
+  }
+
+  return `<section class="network-stream network-shares" aria-labelledby="network-shares-title">
+    <div class="network-section-heading">
+      <div><h2 id="network-shares-title">Your private shares</h2><p>Private incoming and outgoing destination shares, kept together.</p></div>
+      <div class="network-section-actions">
+        <p class="network-section-count">${shareCount} ${shareCount === 1 ? 'share' : 'shares'}</p>
+        ${shareCount ? `<button type="button" class="network-retry network-cassette-flip" data-cassette-flip>${cassetteFlipLabel()}</button>` : ''}
+      </div>
+    </div>
+    ${shareCount ? `<div class="network-share-columns${sharesSide === 'b' ? ' is-side-b' : ''}">
+      <section aria-labelledby="network-received-title"><h3 id="network-received-title">Shared with you</h3>${shareColumnMarkup(received, 'Nothing received yet.')}</section>
+      <section aria-labelledby="network-sent-title"><h3 id="network-sent-title">Sent by you</h3>${shareColumnMarkup(sent, 'Nothing sent yet.')}</section>
+    </div>` : `<div class="network-empty"><h3>No shares yet</h3><p>Use the form above to send a restaurant, café, bar, or other food-and-drink destination privately to another member of the circle.</p></div>`}
+  </section>`;
+}
+
+function memberFeedMarkup(
+  accountHref: string,
+  resolvePlace?: NetworkPlaceResolver
+): string {
+  const recommendations = discovery.recommendations;
+
+  if (status === 'loading' || status === 'idle') {
+    return `<div class="network-state network-state-loading" role="status">
+      <span class="network-loading-mark" aria-hidden="true"></span>
+      <div><h2>Gathering the Detour circle</h2><p>Loading full-circle food-and-drink recommendations.</p></div>
+    </div>`;
+  }
+
+  if (status === 'error') {
+    return `<div class="network-state network-state-error" role="alert">
+      <div><h2>The Detour circle could not be loaded</h2><p>${esc(errorMessage || 'Please try again. Circle recommendations have not been shown.')}</p></div>
       <button type="button" class="network-retry" data-network-retry>Try again</button>
     </div>`;
   }
 
-  // Country facets are derived from the recommendations themselves, so the
-  // filter only ever offers countries that actually have something to show.
-  const countries = [...new Set(recommendations.map((item) => item.country?.trim()).filter((country): country is string => Boolean(country)))].sort(
-    (a, b) => a.localeCompare(b)
-  );
-  const activeCountry = countries.includes(recommendationCountry) ? recommendationCountry : '';
-  const matching = activeCountry ? recommendations.filter((item) => item.country?.trim() === activeCountry) : recommendations;
-  const sorted = [...matching].sort((a, b) => recencyValue(b) - recencyValue(a));
-  const latest = recommendationsExpanded ? sorted : sorted.slice(0, RECOMMENDATION_PREVIEW_LIMIT);
-  const hiddenCount = matching.length - latest.length;
+  const sorted = [...recommendations].sort((a, b) => recencyValue(b) - recencyValue(a));
+  const previewLimit = recommendationColumns * 2;
+  const latest = recommendationsExpanded ? sorted : sorted.slice(0, previewLimit);
+  const hiddenCount = recommendations.length - latest.length;
+  const recentCount = recommendations.filter(
+    (item) => recencyValue(item) >= Date.now() - 24 * 60 * 60 * 1000
+  ).length;
+  const recentLabel = recentCount
+    ? `${recentCount} new ${recentCount === 1 ? 'recommendation' : 'recommendations'}`
+    : 'No new recommendations';
 
   return `<div class="network-member-content">
-    <section class="network-stream" aria-labelledby="network-recommendations-title">
-      <div class="network-section-heading">
-        <div><h2 id="network-recommendations-title">Destinations recommended by the community</h2><p>Restaurants, cafés, bars, and other food-and-drink destinations shared across the invite-only Detour circle.</p></div>
+    <section class="network-stream" aria-label="Recommendations from the circle">
+      <div class="network-section-heading network-section-toolbar">
+        <p class="network-recency-status">${recentLabel}<span>Last 24 hours</span></p>
+        <div class="network-layout-picker" role="group" aria-label="Cards per row">
+          ${([2, 3] as const)
+            .map(
+              (columns) =>
+                `<button type="button" data-network-columns="${columns}" aria-label="${columns} cards per row" aria-pressed="${
+                  recommendationColumns === columns ? 'true' : 'false'
+                }"><span class="network-layout-icon network-layout-icon-${columns}" aria-hidden="true">${Array.from(
+                  { length: columns * columns },
+                  () => '<i></i>'
+                ).join('')}</span></button>`
+            )
+            .join('')}
+        </div>
         <div class="network-section-actions">
-          <p class="network-section-count">${matching.length} ${matching.length === 1 ? 'recommendation' : 'recommendations'}</p>
-          <a class="network-primary-link network-recommend-cta" href="${esc(accountHref)}" data-community-route="recommend-place">Recommend<span aria-hidden="true">↗</span></a>
+          <a class="network-primary-link network-recommend-cta" href="${esc(accountHref)}" data-community-route="recommend-place">Recommend<span class="nav-arrow" aria-hidden="true">↗</span></a>
+          <a class="network-primary-link network-share-cta" href="${esc(accountHref)}" data-community-route="share-place">Share privately<span class="nav-arrow" aria-hidden="true">↗</span></a>
         </div>
       </div>
       ${
-        countries.length > 1
-          ? `<div class="network-filter">
-              <label for="network-country-filter">Country</label>
-              <select id="network-country-filter" data-network-country>
-                <option value="">All countries</option>
-                ${countries.map((country) => `<option value="${esc(country)}"${country === activeCountry ? ' selected' : ''}>${esc(country)}</option>`).join('')}
-              </select>
-            </div>`
-          : ''
-      }
-      ${
         latest.length
-          ? `<div class="network-entry-list network-recommendation-grid">${latest.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div>${
+          ? `<div class="network-entry-list network-recommendation-grid network-recommendation-grid-${recommendationColumns}">${latest.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div>${
               hiddenCount > 0
                 ? `<button type="button" class="network-retry network-show-more" data-network-show-more>Show ${hiddenCount} more</button>`
-                : recommendationsExpanded && matching.length > RECOMMENDATION_PREVIEW_LIMIT
+                : recommendationsExpanded && recommendations.length > previewLimit
                   ? '<button type="button" class="network-retry network-show-more" data-network-show-more>Show fewer</button>'
                   : ''
             }`
           : `<div class="network-empty"><h3>No circle recommendations yet</h3><p>Recommendations will appear here as members add them, unless they choose to keep theirs private.</p></div>`
       }
-    </section>
-    <section class="network-stream network-shares" aria-labelledby="network-shares-title">
-      <div class="network-section-heading">
-        <div><h2 id="network-shares-title">Your private shares</h2><p>Private incoming and outgoing destination shares, kept together.</p></div>
-        <div class="network-section-actions">
-          <p class="network-section-count">${shareCount} ${shareCount === 1 ? 'share' : 'shares'}</p>
-          ${shareCount ? `<button type="button" class="network-retry network-cassette-flip" data-cassette-flip>${cassetteFlipLabel()}</button>` : ''}
-          <a class="network-primary-link network-share-cta" href="${esc(accountHref)}" data-community-route="share-place">Share<span aria-hidden="true">↗</span></a>
-        </div>
-      </div>
-      ${shareCount ? `<div class="network-share-columns${sharesSide === 'b' ? ' is-side-b' : ''}">
-        <section aria-labelledby="network-received-title"><h3 id="network-received-title">Shared with you</h3>${shareColumnMarkup(received, 'Nothing received yet.')}</section>
-        <section aria-labelledby="network-sent-title"><h3 id="network-sent-title">Sent by you</h3>${shareColumnMarkup(sent, 'Nothing sent yet.')}</section>
-      </div>` : `<div class="network-empty"><h3>No shares yet</h3><p>Use the member area to send a restaurant, café, bar, or other food-and-drink destination privately to another member of the circle.</p></div>`}
     </section>
   </div>`;
 }
@@ -728,7 +828,10 @@ function publicRecommendationSampleMarkup(resolvePlace?: NetworkPlaceResolver): 
   </section>`;
 }
 
-export function networkDiscoveryMarkup(accountHref: string, resolvePlace?: NetworkPlaceResolver): string {
+export function networkDiscoveryMarkup(
+  accountHref: string,
+  resolvePlace?: NetworkPlaceResolver
+): string {
   const record = memberRecord();
   if (!record) {
     return `<section class="network-invitation" aria-labelledby="network-home-title">
@@ -749,8 +852,8 @@ export function networkDiscoveryMarkup(accountHref: string, resolvePlace?: Netwo
   return `<section class="network-home" aria-labelledby="network-home-title">
     <div class="network-home-heading">
       <p class="network-kicker">Your Detour circle</p>
-      <h1 id="network-home-title">Food-and-drink destinations shared around the circle.</h1>
-      <p>Welcome back, ${esc(memberLabel)}. Discover restaurants, cafés, bars, and other food-and-drink recommendations from the full circle, and keep your direct shares together here.</p>
+      <h1 id="network-home-title">What the circle recommends.</h1>
+      <p>Welcome back, ${esc(memberLabel)}. Every place here comes from a member who said why. Your private shares stay in My detours.</p>
     </div>
     ${firstPlaceInvitationMarkup(accountHref)}
     ${memberFeedMarkup(accountHref, resolvePlace)}
@@ -967,14 +1070,33 @@ export function bindNetworkDiscovery(root: HTMLElement, render: () => void): voi
     void loadNetworkDiscovery(render);
   });
 
-  root.querySelector<HTMLSelectElement>('[data-network-country]')?.addEventListener('change', (event) => {
-    recommendationCountry = (event.currentTarget as HTMLSelectElement).value;
-    render();
-  });
-
   root.querySelector<HTMLButtonElement>('[data-network-show-more]')?.addEventListener('click', () => {
     recommendationsExpanded = !recommendationsExpanded;
     render();
+  });
+  root.querySelectorAll<HTMLButtonElement>('[data-network-columns]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const columns: RecommendationColumns = button.dataset.networkColumns === '3' ? 3 : 2;
+      if (columns === recommendationColumns) return;
+      recommendationColumns = columns;
+      localStorage.setItem(RECOMMENDATION_COLUMNS_KEY, String(columns));
+      render();
+    });
+  });
+
+}
+
+/**
+ * Binds the private-share deck wherever it is mounted — the member area's
+ * My detours → Shares tab. Kept apart from the landing-feed bindings so the
+ * two surfaces can be rendered independently.
+ */
+export function bindMemberShares(root: HTMLElement, render: () => void, onArchived?: (shareId: string) => void): void {
+  ensureNetworkDiscovery(render);
+
+  root.querySelector<HTMLButtonElement>('[data-network-shares-retry]')?.addEventListener('click', () => {
+    status = 'idle';
+    void loadNetworkDiscovery(render);
   });
 
   root.querySelectorAll<HTMLButtonElement>('[data-shares-toggle]').forEach((button) => {
@@ -997,6 +1119,9 @@ export function bindNetworkDiscovery(root: HTMLElement, render: () => void): voi
       try {
         await pb.collection('community_shares').update(shareId, { [field]: true }, { requestKey: null });
         discovery.shares = discovery.shares.filter((item) => item.id !== shareId);
+        // The member area keeps its own copy of the share ledger for the tab
+        // badge, so it is told to drop the archived share too.
+        onArchived?.(shareId);
       } catch {
         // Leave the share in place; the button simply becomes pressable again.
       } finally {

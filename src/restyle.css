@@ -150,12 +150,20 @@
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.05'/%3E%3C/svg%3E"),
     radial-gradient(ellipse at 50% 38%, transparent 42%, var(--tape-vignette) 100%);
 }
-[data-restyle] > * { position: relative; z-index: 1; }
+/* lift content above the fixed grain overlay — but never re-position the
+   skip-link, which must stay absolute (top: -3rem) or it occupies layout
+   space and pushes the masthead down on every page that has one */
+[data-restyle] > *:not(.skip-link) { position: relative; z-index: 1; }
+[data-restyle] > .skip-link { z-index: 60; }
 
 [data-restyle] ::selection { background: var(--tape-orange); color: var(--tape-ink); }
 [data-restyle] :focus-visible { outline: 3px solid var(--tape-accent-strong); outline-offset: 2px; }
 
 /* ================= MASTHEAD ================= */
+/* Beats the blanket z-index:1 above, so the member menu opens over the hero
+   instead of behind it (the hero would otherwise swallow the clicks). */
+[data-restyle] .network-masthead,
+[data-restyle] .account-masthead { z-index: 40; }
 [data-restyle] .network-masthead {
   border-bottom: 2.5px solid var(--tape-chrome);
   padding-bottom: 16px;
@@ -198,11 +206,50 @@
   box-shadow: 2px 2px 0 var(--tape-rust);
 }
 
+[data-restyle] .community-menu-items {
+  padding: 0;
+  background: var(--tape-surface);
+  border: 2.5px solid var(--tape-chrome);
+  border-radius: 0;
+  box-shadow: 4px 4px 0 var(--tape-rust);
+}
+[data-restyle] .community-menu-item {
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--tape-text);
+  border-radius: 0;
+  padding: 11px 15px;
+}
+[data-restyle] .community-menu-item + .community-menu-item { border-top: 1px solid var(--tape-hairline-strong); }
+[data-restyle] .community-menu-item:hover,
+[data-restyle] .community-menu-item:focus-visible {
+  background: var(--tape-orange);
+  color: var(--tape-ink);
+}
+/* chrome/surface is the one pair that inverts in both themes — chrome against
+   --tape-ink is navy-on-black in light mode. */
+[data-restyle] .community-menu-item.is-current {
+  background: var(--tape-chrome);
+  color: var(--tape-surface);
+}
+[data-restyle] .community-menu-item.community-menu-signout {
+  margin-top: 0;
+  padding-top: 11px;
+  border-top: 2.5px solid var(--tape-chrome);
+}
+[data-restyle] .community-menu-item.community-menu-signout:hover,
+[data-restyle] .community-menu-item.community-menu-signout:focus-visible {
+  background: var(--tape-rust);
+  color: var(--tape-cream);
+}
+
 /* ================= DISPLAY TYPE ================= */
 [data-restyle] h1,
 [data-restyle] .network-section-heading h2,
 [data-restyle] .network-public-sample-heading h2,
-[data-restyle] #network-search-title,
 [data-restyle] #network-membership-title,
 [data-restyle] .network-first-place h2,
 [data-restyle] .network-empty h3 {
@@ -217,8 +264,7 @@
 }
 [data-restyle] h1 { font-size: clamp(34px, 6vw, 54px); }
 [data-restyle] .network-section-heading h2,
-[data-restyle] .network-public-sample-heading h2,
-[data-restyle] #network-search-title { font-size: clamp(24px, 4vw, 34px); }
+[data-restyle] .network-public-sample-heading h2 { font-size: clamp(24px, 4vw, 34px); }
 
 /* mono kickers */
 [data-restyle] .network-kicker {
@@ -255,7 +301,6 @@
 [data-restyle] .network-invitation-lead,
 [data-restyle] .network-section-heading p,
 [data-restyle] .network-public-sample-heading p,
-[data-restyle] .network-search-heading p,
 [data-restyle] .network-home-heading p,
 [data-restyle] .network-invitation-note,
 [data-restyle] .network-invite-field-hint,
@@ -302,6 +347,13 @@
   color: var(--tape-accent);
   padding: 6px 10px;
 }
+[data-restyle] .network-section-toolbar .network-section-count {
+  min-height: 44px;
+  align-items: center;
+}
+[data-restyle] .network-section-toolbar .network-section-count {
+  display: inline-flex;
+}
 
 /* rotated verification stamp */
 [data-restyle] .network-membership-label {
@@ -331,8 +383,9 @@
 [data-restyle] .network-public-state,
 [data-restyle] .detail,
 [data-restyle] .community-share-card,
-[data-restyle] .community-queue-card,
+[data-restyle] .community-queue-list,
 [data-restyle] .community-empty,
+[data-restyle] .place-cta,
 [data-restyle] .member-directory-results {
   position: relative;
   background: var(--tape-surface);
@@ -394,6 +447,7 @@
   text-shadow: inherit;
   letter-spacing: inherit;
   text-transform: inherit;
+  text-decoration: none;
   background: none;
   border: none;
   border-bottom: 3px solid var(--tape-orange);
@@ -440,6 +494,14 @@
   border: 2.5px solid var(--tape-chrome);
   border-radius: 0;
   background: var(--tape-surface-raised);
+}
+/* styles.css shrinks the cover on phones, but a bare .network-entry-thumb
+   loses to the [data-restyle] rule above, so the shrink has to be restated at
+   this specificity. Without it a single card eats two-thirds of a phone
+   screen — and now that every card carries a cover, that applies to all of
+   them, not just the ones with photos. */
+@media (max-width: 520px) {
+  [data-restyle] .network-entry-thumb { height: 9rem; }
 }
 [data-restyle] .network-entry-with-thumb .network-entry-main { order: 2; }
 [data-restyle] .network-recommendation::after { order: 3; }
@@ -548,8 +610,7 @@
   box-shadow: 4px 4px 0 var(--tape-rust);
 }
 [data-restyle] .network-invite-field label,
-[data-restyle] .destination-search label,
-[data-restyle] .network-filter label {
+[data-restyle] .destination-search label {
   font-weight: 700;
   font-size: 11px;
   letter-spacing: 0.16em;
@@ -580,9 +641,77 @@
 }
 [data-restyle] .network-invitation { border-bottom: none; }
 
+/* The anonymous three-place preview reads as a physical card deck: same card
+   proportions, overlapped and lightly fanned, with every exposed card able to
+   rise to the front on hover or keyboard focus. */
+[data-restyle] .network-public-list {
+  isolation: isolate;
+  display: grid;
+  min-height: 88rem;
+  place-items: start center;
+  padding: 1.4rem 2.6rem 2.5rem;
+  perspective: 1200px;
+}
+[data-restyle] .network-public-list .network-entry {
+  grid-area: 1 / 1;
+  height: 32.5rem;
+  width: min(100%, 24rem);
+  transform-origin: 50% 92%;
+  transition:
+    filter 140ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease;
+}
+[data-restyle] .network-public-list .network-entry:nth-child(1) {
+  z-index: 1;
+  transform: translate(2rem, -0.75rem) rotate(4deg);
+}
+[data-restyle] .network-public-list .network-entry:nth-child(2) {
+  z-index: 2;
+  transform: translate(-2rem, 80%) rotate(-6deg);
+}
+[data-restyle] .network-public-list .network-entry:nth-child(3) {
+  z-index: 3;
+  transform: translate(1rem, 160%) rotate(3deg);
+}
+[data-restyle] .network-public-list .network-entry:focus-within {
+  z-index: 5;
+}
+[data-restyle] .network-public-list .network-entry:hover {
+  filter: brightness(1.08) saturate(1.08);
+  border-color: var(--tape-accent-strong);
+  box-shadow: 14px 14px 0 var(--tape-rust);
+}
+[data-restyle] .network-public-list .network-entry-thumb {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 8;
+}
+@media (max-width: 620px) {
+  [data-restyle] .network-public-list {
+    min-height: 84rem;
+    padding-inline: 1rem;
+  }
+  [data-restyle] .network-public-list .network-entry {
+    width: calc(100% - 1.5rem);
+    height: 31rem;
+  }
+  [data-restyle] .network-public-list .network-entry:nth-child(2) {
+    transform: translate(-0.65rem, 80%) rotate(-4deg);
+  }
+  [data-restyle] .network-public-list .network-entry:nth-child(3) {
+    transform: translate(0.4rem, 160%) rotate(2deg);
+  }
+  [data-restyle] .network-public-list .network-entry:nth-child(1) {
+    transform: translate(0.65rem, -0.35rem) rotate(3deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-restyle] .network-public-list .network-entry { transition: none; }
+}
+
 [data-restyle] .network-section-count,
 [data-restyle] .network-public-sample-note,
-[data-restyle] .network-entry-more,
 [data-restyle] .network-column-empty {
   font-family: var(--tape-mono);
   font-weight: 700;
@@ -597,6 +726,8 @@
   height: 100%;
   grid-template-rows: auto 1fr;
 }
+[data-restyle] .network-recommendation-grid-3 .network-entry-thumb { height: 10.5rem; }
+[data-restyle] .network-recommendation-grid-3 .network-entry h3 { font-size: 21px; }
 [data-restyle] .network-recommendation .network-entry-main {
   grid-template-rows: auto auto 1fr;
 }
@@ -605,8 +736,7 @@
 [data-restyle] .network-entry h3 { overflow-wrap: anywhere; }
 [data-restyle] .network-entry-kind { flex: none; }
 
-[data-restyle] .network-stream,
-[data-restyle] .network-search-context {
+[data-restyle] .network-stream {
   background: none;
   border: none;
   border-top: 2.5px solid var(--tape-chrome);
@@ -615,8 +745,6 @@
   padding-top: 26px;
   margin-top: 34px;
 }
-[data-restyle] .network-filter select { min-width: 200px; }
-
 [data-restyle] .network-loading-mark {
   border-radius: 0;
   border-color: var(--tape-orange);
@@ -853,29 +981,11 @@
   max-width: none;
 }
 
-/* wordmarks: Righteous, no chip */
-[data-restyle] .brand,
-[data-restyle] .account-brand,
-[data-restyle] .survey-brand {
-  font-family: var(--tape-logo);
-  font-size: 20px;
-  letter-spacing: -0.5px;
-  text-transform: none;
-  color: var(--tape-text);
-  background: none;
-  padding: 0;
-  text-decoration: none;
-}
-
 /* display type beyond the home selectors */
-[data-restyle] .occasion-browser h2,
-[data-restyle] .selection-disclosure h2,
-[data-restyle] .list-preview h2,
 [data-restyle] .empty-state-title,
 [data-restyle] .detail h2,
 [data-restyle] .city-chooser-heading h2,
 [data-restyle] .community-panel-intro h2,
-[data-restyle] .community-member-head h2,
 [data-restyle] .community-section-heading h3,
 [data-restyle] .community-subheading,
 [data-restyle] .survey-intro h1,
@@ -893,7 +1003,6 @@
 [data-restyle] .account-kicker,
 [data-restyle] .community-kicker,
 [data-restyle] .survey-kicker,
-[data-restyle] .list-preview-kicker,
 [data-restyle] .detail-overline {
   font-family: var(--tape-mono);
   font-weight: 700;
@@ -908,8 +1017,7 @@
 [data-restyle] .community-primary,
 [data-restyle] .survey-primary-link,
 [data-restyle] [data-survey-submit],
-[data-restyle] .empty-state-reset,
-[data-restyle] .selection-toggle {
+[data-restyle] .empty-state-reset {
   font-family: var(--tape-anton);
   font-weight: 400;
   font-size: 16px;
@@ -928,12 +1036,24 @@
 [data-restyle] .community-primary:hover:not(:disabled),
 [data-restyle] .survey-primary-link:hover,
 [data-restyle] [data-survey-submit]:hover:not(:disabled),
-[data-restyle] .empty-state-reset:hover,
-[data-restyle] .selection-toggle:hover {
+[data-restyle] .empty-state-reset:hover {
   transform: translate(3px, 3px);
   box-shadow: 2px 2px 0 var(--tape-chrome);
   background: var(--tape-orange);
   color: var(--tape-ink);
+}
+
+/* wordmarks: Righteous, no chip */
+[data-restyle] .account-brand,
+[data-restyle] .survey-brand {
+  font-family: var(--tape-logo);
+  font-size: 20px;
+  letter-spacing: -0.5px;
+  text-transform: none;
+  color: var(--tape-text);
+  background: none;
+  padding: 0;
+  text-decoration: none;
 }
 /* secondary/outline actions */
 [data-restyle] .community-secondary,
@@ -955,11 +1075,15 @@
   transition: transform 0.1s ease, box-shadow 0.1s ease;
   text-decoration: none;
 }
+/* Invert to the orange chip on hover, like the masthead toggle and menu. Tinting
+   only the label left it sitting on the translucent veil, which composites
+   against whatever is behind the card rather than against a known colour. */
 [data-restyle] .community-secondary:hover:not(:disabled),
 [data-restyle] .community-tab-signout:hover,
 [data-restyle] .nearby-btn:hover:not(:disabled),
 [data-restyle] .survey-home-link:hover {
-  color: var(--tape-accent-strong);
+  color: var(--tape-ink);
+  background: var(--tape-orange);
   transform: translate(2px, 2px);
   box-shadow: 2px 2px 0 var(--tape-rust);
 }
@@ -975,11 +1099,14 @@
 /* ============================================================
    DESTINATION VIEW
    ============================================================ */
-[data-restyle='destination'] { --tape-map-filter: invert(1) hue-rotate(190deg) saturate(0.5) brightness(0.92) contrast(0.92); }
+[data-restyle='destination'],
+[data-restyle='place'] { --tape-map-filter: invert(1) hue-rotate(190deg) saturate(0.5) brightness(0.92) contrast(0.92); }
 @media (prefers-color-scheme: light) {
-  [data-restyle='destination']:not([data-tape-theme='dark']) { --tape-map-filter: saturate(0.85) sepia(0.08); }
+  [data-restyle='destination']:not([data-tape-theme='dark']),
+  [data-restyle='place']:not([data-tape-theme='dark']) { --tape-map-filter: saturate(0.85) sepia(0.08); }
 }
-[data-restyle='destination'][data-tape-theme='light'] { --tape-map-filter: saturate(0.85) sepia(0.08); }
+[data-restyle='destination'][data-tape-theme='light'],
+[data-restyle='place'][data-tape-theme='light'] { --tape-map-filter: saturate(0.85) sepia(0.08); }
 
 [data-restyle] .hero,
 [data-restyle] .city-detail-hero {
@@ -990,13 +1117,6 @@
 }
 [data-restyle] .city-detail-hero { border-bottom: 2.5px solid var(--tape-chrome); }
 [data-restyle] .tagline { color: var(--tape-muted); font-family: var(--tape-mono); }
-[data-restyle] .status-banner {
-  background: var(--tape-surface);
-  border: 2px solid var(--tape-accent);
-  border-radius: 0;
-  color: var(--tape-text);
-  font-family: var(--tape-mono);
-}
 
 [data-restyle] .discovery .count {
   font-family: var(--tape-mono);
@@ -1010,7 +1130,18 @@
   padding: 6px 10px;
   background: none;
 }
-[data-restyle] .occasion-browser-copy p { color: var(--tape-muted); font-size: 13px; }
+/* the filter question is a bar label, not a section headline */
+[data-restyle] .occasion-browser-copy {
+  font-family: var(--tape-mono);
+  font-size: 12px;
+  color: var(--tape-muted);
+}
+[data-restyle] .occasion-browser-label {
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--tape-accent);
+}
 [data-restyle] .occasion-option {
   font-family: var(--tape-mono);
   font-weight: 700;
@@ -1030,7 +1161,13 @@
   border-left: 2px solid var(--tape-chrome);
   border-radius: 0;
 }
-[data-restyle] .occasion-option:hover { color: var(--tape-accent-strong); border-color: var(--tape-chrome); }
+/* Raised surface rather than a label tint on the translucent veil — and not
+   orange, which marks the selected chip below. */
+[data-restyle] .occasion-option:hover {
+  color: var(--tape-text);
+  background: var(--tape-surface-raised);
+  border-color: var(--tape-chrome);
+}
 [data-restyle] .occasion-option.occasion-option-active {
   color: var(--tape-ink);
   background: var(--tape-orange);
@@ -1052,10 +1189,8 @@
   border-radius: 0;
 }
 [data-restyle] .chip:hover { color: var(--tape-accent-strong); border-color: var(--tape-accent-strong); }
-
 /* the map is the tape window: chunky frame, hard shadow, themed tiles */
-[data-restyle] .map-panel-live,
-[data-restyle] .list-preview {
+[data-restyle] .map-panel-live {
   background: var(--tape-surface);
   border: 3px solid var(--tape-chrome);
   border-radius: 0;
@@ -1072,7 +1207,6 @@
   text-transform: uppercase;
   color: var(--tape-muted);
 }
-[data-restyle] .list-preview > p:not(.list-preview-kicker):not(.map-prompt) { color: var(--tape-muted); }
 
 /* venue cards: shell and stripe come from the shared tape-card block in the
    CARDS section — only the denser catalogue title size lives here */
@@ -1102,13 +1236,6 @@
   border-radius: 0;
 }
 [data-restyle] .card-occasions-label { color: var(--tape-muted); }
-[data-restyle] .card-list-note {
-  background: var(--tape-inset);
-  border-left: 4px solid var(--tape-orange);
-  border-radius: 0;
-  color: var(--tape-text);
-  font-family: var(--tape-mono);
-}
 [data-restyle] .card-cover,
 [data-restyle] .detail-cover {
   border: 2.5px solid var(--tape-chrome);
@@ -1121,6 +1248,118 @@
   font-family: var(--tape-anton);
   color: var(--tape-text);
   text-shadow: 2px 2px 0 var(--tape-ghost);
+}
+
+/* ---- the member short list (three-to-six-place destinations) ----
+   the base paints this section as a full-bleed white panel with violet
+   kickers and a lavender wash behind the notes. On the mixtape it is plain
+   graph paper between two chrome rules, and the notes become the cassette's
+   inset label band at the foot of each shell. */
+/* no bottom rule: the footer draws its own, and stacked they read as a seam */
+[data-restyle] .trusted-list {
+  padding-inline: 0;
+  background: none;
+  border-bottom: none;
+}
+[data-restyle] .trusted-list-status { color: var(--tape-muted); font-family: var(--tape-mono); }
+[data-restyle] .trusted-list-status-error {
+  border-top: 2px solid var(--tape-accent-strong);
+  border-bottom: 2px solid var(--tape-accent-strong);
+}
+[data-restyle] .trusted-list-status-error p { color: var(--tape-accent-strong); }
+[data-restyle] .trusted-list-status-error button {
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tape-accent);
+  background: none;
+  border: 2px solid var(--tape-accent);
+  border-radius: 0;
+}
+[data-restyle] .trusted-list-status-error button:hover {
+  color: var(--tape-ink);
+  background: var(--tape-orange);
+  border-color: var(--tape-orange);
+}
+/* the place you last opened keeps the accent frame */
+[data-restyle] .trusted-entry.is-selected { border-color: var(--tape-accent-strong); }
+/* whole-card hit area, so the frame answers the hover the cursor promises */
+[data-restyle] .network-recommendation:has(.network-entry-place):hover,
+[data-restyle] .card.card-detourist:hover { border-color: var(--tape-accent-strong); }
+[data-restyle] .trusted-card-list .network-entry { height: 100%; }
+/* three to a row: the cassette shrinks with the column */
+[data-restyle] .trusted-card-list .network-entry-thumb { height: 10.5rem; }
+[data-restyle] .trusted-card-list .network-entry h3 { font-size: 19px; }
+[data-restyle] .trusted-card-list .network-entry blockquote { margin: 8px 0; padding: 8px 11px; font-size: 13px; }
+[data-restyle] .trusted-card-list .network-recommendation::after { height: 18px; width: 88px; margin: 10px 0 0; }
+[data-restyle] .card-member-notes {
+  background: var(--tape-inset);
+  border-top: 3px solid var(--tape-chrome);
+}
+[data-restyle] .card-member-note + .card-member-note { border-top: 1px solid var(--tape-hairline-strong); }
+[data-restyle] .card-member-note p {
+  font-family: var(--tape-mono);
+  font-style: normal;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--tape-text);
+}
+[data-restyle] .card-member-note footer {
+  font-family: var(--tape-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tape-muted);
+}
+[data-restyle] .trusted-list-detail .detail { border-top-color: var(--tape-chrome); }
+
+/* the short-list locator: the map is a tape window like every other frame */
+[data-restyle] .detail-locator-map {
+  background: var(--tape-surface-raised);
+  border: 2.5px solid var(--tape-chrome);
+  border-radius: 0;
+}
+[data-restyle] .detail-locator-credit {
+  font-family: var(--tape-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tape-muted);
+}
+[data-restyle] .detail-locator-credit a { color: var(--tape-accent); }
+[data-restyle] .detail-locator-address { color: var(--tape-text); font-family: var(--tape-mono); }
+[data-restyle] .detail-locator-occasions { color: var(--tape-text); font-family: var(--tape-mono); font-size: 13px; }
+[data-restyle] .detail-locator-occasions span {
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  color: var(--tape-accent);
+}
+
+/* list / map switch: the cassette tab row, same idiom as the member area */
+[data-restyle] .city-view-switch {
+  border: 2.5px solid var(--tape-chrome);
+  border-radius: 0;
+  background: none;
+}
+[data-restyle] .city-view-tab {
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--tape-text);
+  background: none;
+  border-right: 2.5px solid var(--tape-chrome);
+  border-radius: 0;
+  padding: 9px 18px;
+}
+[data-restyle] .city-view-tab:last-child { border-right: none; }
+[data-restyle] .city-view-tab:hover { color: var(--tape-accent-strong); }
+[data-restyle] .city-view-tab.is-active {
+  color: var(--tape-ink);
+  background: var(--tape-orange);
 }
 
 /* selected-place detail — shell comes from the shared tape-card block */
@@ -1177,22 +1416,14 @@
   background: none;
 }
 [data-restyle] .detail-visit-links a:hover { color: var(--tape-ink); background: var(--tape-orange); border-color: var(--tape-orange); }
+/* the map preview's one job is to hand off to the place page — filled, not outlined */
+[data-restyle] .detail-visit-links a.detail-open-place {
+  color: var(--tape-ink);
+  background: var(--tape-orange);
+  border-color: var(--tape-chrome);
+}
+[data-restyle] .detail-visit-links a.detail-open-place:hover { background: var(--tape-accent-strong); }
 [data-restyle] .approx { color: var(--tape-muted); font-style: italic; }
-
-[data-restyle] .selection-disclosure {
-  background: none;
-  border: none;
-  border-top: 2.5px solid var(--tape-chrome);
-  border-radius: 0;
-  box-shadow: none;
-}
-[data-restyle] .selection-disclosure-copy p { color: var(--tape-muted); }
-[data-restyle] .selection-toggle span {
-  background: var(--tape-ink);
-  color: var(--tape-cream);
-  border-radius: 0;
-  font-family: var(--tape-mono);
-}
 [data-restyle] .empty-state {
   background: none;
   border: 2px dashed var(--tape-hairline-strong);
@@ -1202,6 +1433,248 @@
 [data-restyle] .city-chooser-heading p,
 [data-restyle] .city-chooser-status { color: var(--tape-muted); }
 [data-restyle] .city-chooser a { color: var(--tape-accent); }
+[data-restyle] .discovery-gate a.network-primary-link,
+[data-restyle] .discovery-gate a.network-primary-link:visited,
+[data-restyle] .discovery-gate a.network-primary-link:hover {
+  color: var(--tape-ink);
+  background: var(--tape-orange);
+  border-color: var(--tape-chrome);
+}
+
+/* Empty destination: a cassette sleeve, not a light-theme content card. */
+[data-restyle='destination'] .city-chooser {
+  margin-top: clamp(2rem, 5vw, 3.5rem);
+  padding: clamp(2rem, 5vw, 3.25rem);
+  overflow: hidden;
+  background:
+    linear-gradient(var(--tape-shell), var(--tape-shell)),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 34px,
+      var(--tape-shell-dots) 34px 35px
+    );
+  border: 3px solid var(--tape-chrome);
+  border-radius: 0;
+  box-shadow: 8px 8px 0 var(--tape-rust);
+}
+[data-restyle='destination'] .city-chooser::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 10px;
+  background: var(--tape-stripe);
+}
+[data-restyle='destination'] .city-chooser-heading {
+  width: 100%;
+  gap: clamp(1.5rem, 4vw, 3.5rem);
+  padding-bottom: 1.5rem;
+  border-bottom: 2px solid var(--tape-hairline-strong);
+}
+[data-restyle='destination'] .city-chooser-heading p {
+  color: var(--tape-text);
+  opacity: 1;
+}
+[data-restyle='destination'] .city-chooser-heading p a {
+  display: inline-flex;
+  margin-top: 0.8rem;
+  padding: 0.45rem 0.7rem;
+  border: 2px solid var(--tape-accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+[data-restyle='destination'] .city-chooser-heading p a:hover {
+  color: var(--tape-ink);
+  background: var(--tape-orange);
+  border-color: var(--tape-orange);
+}
+[data-restyle='destination'] .city-chooser-status {
+  width: 100%;
+  max-width: none;
+  margin-top: 1.25rem;
+  text-align: left;
+}
+[data-restyle='destination'] .city-chooser-status a {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.25em;
+}
+
+@media (max-width: 620px) {
+  [data-restyle='destination'] .city-chooser {
+    padding: 2rem 1.1rem 1.5rem;
+  }
+}
+
+/* ============================================================
+   PLACE PAGE — one place, its own route
+   The sleeve notes to the cassette: display title, the photo as a printed
+   plate, the member count as the figure on the label.
+   ============================================================ */
+[data-restyle] .place-back {
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--tape-text);
+  background: none;
+  border: 2.5px solid var(--tape-chrome);
+  border-radius: 0;
+}
+[data-restyle] .place-back:hover {
+  color: var(--tape-ink);
+  background: var(--tape-orange);
+  border-color: var(--tape-orange);
+}
+
+[data-restyle] .place-overline {
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  line-height: 1.2;
+  letter-spacing: 0.18em;
+  color: var(--tape-accent);
+}
+[data-restyle] .place-hero-copy { gap: 10px; }
+[data-restyle] .place-hero-details { gap: 10px; }
+/* Own size, or the generic display-h1 clamp (up to 54px) wins and a long name
+   runs past the plate. Breaks mid-word as a last resort, like the card titles. */
+[data-restyle] .place-page h1 {
+  font-family: var(--tape-anton);
+  font-weight: 400;
+  font-size: clamp(30px, 4.4vw, 44px);
+  line-height: 0.94;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--tape-text);
+  text-shadow: 3px 3px 0 var(--tape-ghost);
+  overflow-wrap: anywhere;
+}
+[data-restyle] .place-meta {
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1.2;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--tape-accent);
+}
+[data-restyle] .place-good-for {
+  font-family: var(--tape-mono);
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--tape-text);
+}
+[data-restyle] .place-good-for span {
+  color: var(--tape-accent);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ---- member-recommendation signal (shared badge, see signal.ts) ----
+   The plate is the cassette label: orange stock, chunky chrome, hard shadow.
+   The inline pill is the same idiom at index-card scale for cards and the map
+   preview, so one mark and one figure carry the signal across every surface. */
+[data-restyle] .signal-badge { border-radius: 0; }
+/* the figure is display type, not label type — it is the only word left */
+[data-restyle] .signal-count {
+  font-family: var(--tape-anton);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+[data-restyle] .signal-badge-plate {
+  gap: 0.3rem;
+  padding: 0.25rem 0.4rem;
+  background: var(--tape-surface);
+  border: 2px solid var(--tape-accent);
+  box-shadow: 2px 2px 0 var(--tape-rust);
+  color: var(--tape-text);
+}
+[data-restyle] .signal-badge-plate .signal-mark { height: 0.9rem; color: var(--tape-accent); }
+[data-restyle] .signal-badge-plate .signal-count { font-size: 20px; color: var(--tape-text); }
+
+[data-restyle] .signal-badge-inline {
+  background: none;
+  border: 2px solid var(--tape-accent);
+  box-shadow: none;
+  color: var(--tape-accent);
+}
+[data-restyle] .signal-badge-inline .signal-mark { color: var(--tape-accent); }
+[data-restyle] .signal-badge-inline .signal-count { font-size: 16px; color: var(--tape-accent); }
+
+/* nothing recorded yet: dashed stock, so the absence looks deliberate */
+[data-restyle] .signal-badge-bare {
+  color: var(--tape-muted);
+  background: none;
+  border: 2px dashed var(--tape-hairline-strong);
+  box-shadow: none;
+}
+[data-restyle] .signal-badge-bare .signal-mark { color: var(--tape-muted); }
+
+/* the cover is a printed plate, same halftone treatment as the card thumbs */
+[data-restyle] .place-cover {
+  background: var(--tape-surface-raised);
+  border: 3px solid var(--tape-chrome);
+  border-radius: 0;
+  box-shadow: 8px 8px 0 var(--tape-rust);
+}
+[data-restyle] .place-cover img { filter: saturate(0.82) contrast(1.08) sepia(0.12); }
+
+[data-restyle] .place-section { border-top: 2.5px solid var(--tape-chrome); }
+[data-restyle] .place-section h2 {
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--tape-accent);
+}
+[data-restyle] .place-badges,
+[data-restyle] .place-award-source {
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tape-muted);
+}
+[data-restyle] .place-award-source a { color: var(--tape-accent); }
+[data-restyle] .place-award-level {
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  color: var(--tape-text);
+}
+[data-restyle] .place-note p {
+  font-family: var(--tape-mono);
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--tape-text);
+}
+[data-restyle] .place-note footer {
+  font-family: var(--tape-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tape-muted);
+}
+[data-restyle] .place-empty { font-family: var(--tape-mono); color: var(--tape-muted); }
+[data-restyle] .place-page .detail-description { font-family: var(--tape-mono); color: var(--tape-text); }
+[data-restyle] .place-cta h2 {
+  font-family: var(--tape-anton);
+  font-weight: 400;
+  font-size: 26px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--tape-text);
+  text-shadow: 2px 2px 0 var(--tape-ghost);
+}
+[data-restyle] .place-cta p { color: var(--tape-muted); }
 
 /* ============================================================
    ACCOUNT / MEMBERS VIEW
@@ -1323,17 +1796,6 @@
 }
 [data-restyle] .detail-head::after { display: none; }
 [data-restyle] .detail-practical { background: var(--tape-inset); }
-[data-restyle] .detail-award {
-  background: none;
-  border: 2px solid var(--tape-accent);
-  border-radius: 0;
-  color: var(--tape-accent);
-  font-family: var(--tape-mono);
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
 /* member area: the bar behind the tabs and the second tab family */
 [data-restyle] .community-member-bar {
   background: var(--tape-field-veil);
@@ -1349,19 +1811,19 @@
   color: var(--tape-text);
   border-radius: 0;
 }
-[data-restyle] .community-member-tab:hover { color: var(--tape-accent-strong); }
+/* Needs its own background: tinting the label alone left the base sheet's
+   violet-soft fill showing through. Raised surface, not orange — orange marks
+   the active tab. */
+[data-restyle] .community-member-tab:hover {
+  color: var(--tape-text);
+  background: var(--tape-surface-raised);
+}
 [data-restyle] .community-member-tab.is-active {
   color: var(--tape-ink);
   background: var(--tape-orange);
 }
 [data-restyle] .community-member-tab.is-active::after { display: none; }
 [data-restyle] .community-invite-allowance strong { color: var(--tape-accent-strong); }
-[data-restyle] .community-invites {
-  background: var(--tape-surface);
-  border: 3px solid var(--tape-chrome);
-  border-radius: 0;
-}
-[data-restyle] .community-invites h3 { color: var(--tape-text); font-family: var(--tape-anton); text-transform: uppercase; letter-spacing: 0.5px; }
 [data-restyle] .community-danger {
   color: var(--tape-accent);
   border: 2px solid var(--tape-accent);
@@ -1393,17 +1855,6 @@
 
 /* ---- destination view, wide-layout + hero fixes ---- */
 
-/* the hero brand is an <a> with :visited/:hover rules that outrank the
-   class-only override — match them explicitly */
-[data-restyle] a.brand,
-[data-restyle] a.brand:visited,
-[data-restyle] a.brand:hover,
-[data-restyle] a.brand:focus-visible {
-  color: var(--tape-text);
-  background: none;
-  text-decoration: none;
-}
-[data-restyle] a.brand:hover { color: var(--tape-accent-strong); }
 /* base paints an oxblood strip along the hero's bottom edge */
 [data-restyle] .hero::before { display: none; }
 
@@ -1412,7 +1863,8 @@
   background: none;
   border-bottom: none;
 }
-[data-restyle] .occasion-browser { border-top: 1px solid var(--tape-hairline-strong); }
+/* the filters belong to the control bar above them — no rule between */
+[data-restyle] .occasion-browser { border-top: none; padding-top: 0; }
 [data-restyle] .nearby-btn::before {
   background: var(--tape-orange);
   box-shadow: 0 0 0 3px rgba(243, 112, 30, 0.35);
@@ -1485,3 +1937,454 @@
 }
 [data-restyle] .community-panel-intro > p:last-child { color: var(--tape-muted); opacity: 1; }
 [data-restyle] .community-panel-intro .community-kicker { color: var(--tape-accent); }
+
+/* ---- member-area forms and ledger cards ----
+   these all use `.community-form`-prefixed selectors that outrank the generic
+   field rules above, so they need their own overrides */
+[data-restyle] .community-form label { color: var(--tape-text); font-family: var(--tape-mono); }
+[data-restyle] .community-form input,
+[data-restyle] .community-form select,
+[data-restyle] .community-form textarea {
+  color: var(--tape-text);
+  background: var(--tape-field);
+  border: 2.5px solid var(--tape-chrome);
+  border-radius: 0;
+  font-family: var(--tape-mono);
+}
+[data-restyle] .community-form input:focus-visible,
+[data-restyle] .community-form select:focus-visible,
+[data-restyle] .community-form textarea:focus-visible {
+  outline: none;
+  border-color: var(--tape-orange);
+  box-shadow: 4px 4px 0 var(--tape-rust);
+}
+[data-restyle] .community-form .community-choice-grid label {
+  color: var(--tape-text);
+  background: var(--tape-field-veil);
+  border: 2px solid var(--tape-hairline);
+  border-radius: 0;
+  font-family: var(--tape-mono);
+}
+[data-restyle] .community-form .community-choice-grid label:hover { color: var(--tape-text); border-color: var(--tape-chrome); }
+[data-restyle] .community-form .community-choice-grid label:has(input:checked) {
+  color: var(--tape-ink);
+  background: var(--tape-orange);
+  border-color: var(--tape-chrome);
+}
+[data-restyle] .community-form .community-choice-grid input { accent-color: var(--tape-orange); }
+[data-restyle] .community-choice-fieldset legend { color: var(--tape-text); font-family: var(--tape-mono); }
+
+/* ledger card head: title was inheriting the base plum */
+[data-restyle] .community-queue-name,
+[data-restyle] .community-share-card h4,
+[data-restyle] .community-subheading h4 {
+  color: var(--tape-text);
+  font-family: var(--tape-anton);
+  font-weight: 400;
+  font-size: 20px;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  text-transform: uppercase;
+  text-shadow: 2px 2px 0 var(--tape-ghost);
+}
+[data-restyle] .community-queue-where,
+[data-restyle] .community-share-heading p,
+[data-restyle] .community-subheading p,
+[data-restyle] .community-seconding { color: var(--tape-muted); font-family: var(--tape-mono); }
+
+/* ledger counter: the same bordered mono ticket the feed counts use, and it
+   drops the display-type shadow the subheading passes down */
+[data-restyle] .community-queue-count {
+  align-self: center;
+  padding: 6px 10px;
+  color: var(--tape-accent);
+  background: none;
+  border: 2px solid var(--tape-accent);
+  border-radius: 0;
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-shadow: none;
+}
+
+/* the ledger of lines: one cassette shell, hairline-ruled rows inside it */
+[data-restyle] .community-queue-list { padding: 4px 18px; border-top-width: 3px; }
+[data-restyle] .community-queue-row { border-bottom: 1px solid var(--tape-hairline); }
+[data-restyle] .community-queue-row:last-child { border-bottom: none; }
+[data-restyle] .community-queue-row.is-highlighted { box-shadow: inset 4px 0 0 var(--tape-accent-strong); }
+[data-restyle] .community-queue-edit,
+[data-restyle] .community-queue-open {
+  color: var(--tape-accent);
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+[data-restyle] .community-queue-open { text-decoration: none; }
+[data-restyle] .community-queue-open:hover { color: var(--tape-accent-strong); }
+[data-restyle] .community-queue-where { font-size: 11px; }
+
+/* status pills: pale washes -> bordered mono tickets */
+[data-restyle] .community-queue-status,
+[data-restyle] .community-share-heading > span {
+  border-radius: 0;
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 5px 9px;
+  background: none;
+  border: 2px solid currentColor;
+}
+[data-restyle] .community-queue-status.is-published { color: var(--tape-gold); background: none; }
+[data-restyle] .community-queue-status.is-unpublished { color: var(--tape-amber); background: none; }
+[data-restyle] .community-queue-status.is-incomplete { color: var(--tape-rust); background: none; }
+
+/* facts row + disclosure summaries */
+[data-restyle] .community-place-facts dt {
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+[data-restyle] .community-place-facts dd { color: var(--tape-text); font-family: var(--tape-mono); }
+[data-restyle] .community-share-disclosure summary {
+  color: var(--tape-accent);
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+[data-restyle] .community-share-disclosure summary::after { color: var(--tape-accent); }
+[data-restyle] .community-place-links a {
+  color: var(--tape-accent);
+  font-family: var(--tape-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 11px;
+}
+
+/* section intros: the base floats the description right in a 32ch column —
+   stack it under the heading at full width instead */
+[data-restyle] .community-section-heading {
+  display: grid;
+  align-items: start;
+  gap: 0.5rem;
+}
+[data-restyle] .community-section-heading > p {
+  max-width: 70ch;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 13px;
+  font-style: normal;
+  line-height: 1.7;
+  text-align: left;
+}
+/* breathing room between the detour tab row and the section it reveals */
+[data-restyle] .community-detour-tabs { margin-bottom: clamp(1.5rem, 4vw, 2.25rem); }
+[data-restyle] .community-ledger-section { margin-top: clamp(0.5rem, 2vw, 1rem); }
+/* "Signed in as <email>" — the base paints the strong dark ink */
+[data-restyle] .community-session-note strong,
+[data-restyle] .member-identity { color: var(--tape-accent-strong); }
+
+/* visibility toggle: white pill + invisible sub-label */
+[data-restyle] .community-switch-track {
+  background: var(--tape-field);
+  border: 2px solid var(--tape-chrome);
+}
+[data-restyle] .community-switch-track::after { background: var(--tape-chrome); }
+[data-restyle] .community-switch input:checked + .community-switch-track { background: var(--tape-orange); }
+[data-restyle] .community-switch input:checked + .community-switch-track::after { background: var(--tape-ink); }
+[data-restyle] .community-switch-copy strong { color: var(--tape-text); font-family: var(--tape-mono); }
+[data-restyle] .community-switch-copy small { color: var(--tape-muted); font-family: var(--tape-mono); }
+[data-restyle] .community-visibility-copy h3 { color: var(--tape-text); }
+[data-restyle] .community-danger-note { color: var(--tape-muted); font-family: var(--tape-mono); }
+
+/* share cards in the member ledger: violet/mint status chips and a pale
+   quote block that swallowed the note text */
+[data-restyle] .community-share-heading > span,
+[data-restyle] .community-share-card-sent .community-share-heading > span {
+  color: var(--tape-accent);
+  background: none;
+  border: 2px solid var(--tape-accent);
+}
+[data-restyle] .community-share-card blockquote {
+  color: var(--tape-text);
+  background: var(--tape-inset);
+  border-left: 4px solid var(--tape-orange);
+  border-radius: 0;
+  font-family: var(--tape-mono);
+}
+[data-restyle] .community-share-state { color: var(--tape-muted); font-family: var(--tape-mono); }
+[data-restyle] .community-share-state.is-success { color: var(--tape-accent-strong); }
+[data-restyle] .community-share-from { color: var(--tape-muted); font-family: var(--tape-mono); }
+[data-restyle] .community-share-from strong { color: var(--tape-accent-strong); }
+[data-restyle] .network-masthead,
+[data-restyle] .account-masthead,
+[data-restyle] .survey-masthead,
+[data-restyle] .footer,
+[data-restyle] .discovery,
+[data-restyle] .map-stage,
+[data-restyle] .trusted-list,
+[data-restyle] .place-back-row,
+[data-restyle] .place-page,
+[data-restyle] .city-chooser {
+  width: min(100%, 1080px);
+  margin-inline: auto;
+}
+[data-restyle] .hero,
+[data-restyle] .city-detail-hero { margin-inline: auto; padding-inline: 0; width: min(100%, 1080px); }
+[data-restyle] .hero .hero-inner { max-width: none; }
+/* mastheads carry their own inline padding for the old full-bleed bars; drop
+   it so the brand shares the column's left edge */
+[data-restyle] .network-masthead,
+[data-restyle] .account-masthead { padding-inline: 0; }
+
+/* ---- notices: pastel washes -> bordered mono tickets ---- */
+[data-restyle] .community-notice {
+  border-radius: 0;
+  padding: 10px 13px;
+  background: var(--tape-inset);
+  font-family: var(--tape-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+[data-restyle] .community-notice-success {
+  color: var(--tape-accent-strong);
+  border: 2px solid var(--tape-accent-strong);
+  background: var(--tape-inset);
+}
+[data-restyle] .community-notice-error {
+  color: var(--tape-rust);
+  border: 2px solid var(--tape-rust);
+  background: var(--tape-inset);
+}
+[data-restyle] .community-notice-info {
+  color: var(--tape-accent);
+  border: 2px solid var(--tape-accent);
+  background: var(--tape-inset);
+}
+
+/* ---- one masthead treatment across every view ----
+   the wordmark carries the brand mark everywhere, and the separator sits
+   under the brand row (not under the account view's whole intro block) */
+[data-restyle] .network-brand,
+[data-restyle] .account-brand,
+[data-restyle] .survey-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  /* identical wordmark on every view (the base varies 20-22px) */
+  font-family: var(--tape-logo);
+  font-size: 22px;
+  letter-spacing: -0.5px;
+  text-transform: none;
+}
+/* the survey scales its mark to 34px; keep one size everywhere */
+[data-restyle] .survey-brand .brand-mark { width: 18px; height: 18px; }
+[data-restyle] .account-masthead { border-bottom: none; padding-bottom: 0; }
+[data-restyle] .account-nav-row {
+  border-bottom: 2.5px solid var(--tape-chrome);
+  padding-bottom: 16px;
+}
+[data-restyle] .account-intro { margin-top: clamp(1.5rem, 4vw, 2.5rem); }
+
+/* the "you are here" member chip kept a white pill from the base theme */
+[data-restyle] .community-toggle.is-current,
+[data-restyle] .community-toggle.is-current:visited,
+[data-restyle] .community-toggle.is-current:hover {
+  color: var(--tape-text);
+  background: var(--tape-field-veil);
+  border-color: var(--tape-chrome);
+}
+[data-restyle] .community-toggle.is-current span { color: var(--tape-accent); }
+
+/* the destination/account wordmarks are links; keep them undecorated */
+[data-restyle] a.network-brand,
+[data-restyle] a.network-brand:visited,
+[data-restyle] a.account-brand,
+[data-restyle] a.account-brand:visited { color: var(--tape-text); text-decoration: none; }
+[data-restyle] a.network-brand:hover,
+[data-restyle] a.account-brand:hover { color: var(--tape-accent-strong); }
+/* the hero is now just the copy block under the masthead */
+[data-restyle='destination'] .city-detail-hero {
+  display: block;
+  min-height: 0;
+  padding-top: clamp(1.5rem, 4vw, 2.5rem);
+}
+
+/* one masthead height everywhere: the base gives each view its own padding
+   (16px home/destination, 28px account, 13.6px survey), so the logo shifted
+   vertically when navigating */
+[data-restyle] .network-masthead,
+[data-restyle] .account-masthead,
+[data-restyle] .survey-masthead { padding-top: 1rem; }
+/* the brand rows aligned their items differently (centered on home/destination,
+   top-aligned on account/survey), so the wordmark sat 11px lower on some views */
+[data-restyle] .network-masthead,
+[data-restyle] .account-nav-row,
+[data-restyle] .survey-masthead { align-items: center; }
+
+/* ================= EXPLORE DIRECTORY ================= */
+[data-restyle] .network-explore-link,
+[data-restyle] .network-explore-link:visited {
+  min-height: 39px;
+  padding: 8px 12px;
+  color: var(--tape-text);
+  background: transparent;
+  border: 2.5px solid transparent;
+  border-radius: 0;
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+[data-restyle] .network-explore-link:hover,
+[data-restyle] .network-explore-link.is-current {
+  color: var(--tape-ink);
+  background: var(--tape-orange);
+  border-color: var(--tape-chrome);
+}
+[data-restyle] .network-recency-status {
+  color: var(--tape-text);
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+[data-restyle] .network-recency-status span {
+  color: var(--tape-muted);
+  font-size: 9px;
+}
+[data-restyle] .network-layout-picker button {
+  width: 38px;
+  min-height: 38px;
+  color: var(--tape-text);
+  background: transparent;
+  border: 2px solid var(--tape-chrome);
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+[data-restyle] .network-layout-picker button:hover {
+  color: var(--tape-accent-strong);
+  border-color: var(--tape-accent-strong);
+}
+[data-restyle] .network-layout-picker button[aria-pressed='true'] {
+  color: var(--tape-ink);
+  background: var(--tape-orange);
+  border-color: var(--tape-chrome);
+}
+
+[data-restyle] .explore-page,
+[data-restyle] .explore-footer,
+[data-restyle] .explore-breadcrumb,
+[data-restyle] .destination-breadcrumb {
+  width: min(100%, 1080px);
+}
+[data-restyle] .explore-hero { border-color: var(--tape-chrome); }
+[data-restyle] .explore-hero h1,
+[data-restyle] .explore-section-heading h2,
+[data-restyle] .explore-country-heading h2,
+[data-restyle] .explore-destination-name {
+  color: var(--tape-text);
+  font-family: var(--tape-anton);
+  font-weight: 400;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+[data-restyle] .explore-hero h1 {
+  font-size: clamp(38px, 7vw, 68px);
+  line-height: 0.92;
+  text-shadow: 3px 3px 0 var(--tape-ghost);
+}
+/* SPA navigation moves focus to the new page title for screen-reader context.
+   These headings are read-only, so they should not look like focused controls. */
+[data-restyle] h1[tabindex='-1']:focus,
+[data-restyle] h1[tabindex='-1']:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+[data-restyle] .explore-hero > p:last-of-type {
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 13.5px;
+}
+[data-restyle] .explore-search > label {
+  color: var(--tape-text);
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+[data-restyle] .explore-no-result {
+  color: var(--tape-text);
+  background: var(--tape-inset);
+  border: 2.5px solid var(--tape-rust);
+}
+[data-restyle] .explore-no-result p { color: var(--tape-text); font-family: var(--tape-mono); }
+[data-restyle] .explore-no-result a { color: var(--tape-accent-strong); font-family: var(--tape-mono); }
+[data-restyle] .explore-section-heading p,
+[data-restyle] .explore-country-overline,
+[data-restyle] .explore-destination-meta {
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+[data-restyle] .explore-section-heading h2 { font-size: clamp(26px, 4vw, 38px); }
+[data-restyle] .explore-country-heading h2 { font-size: clamp(24px, 3.5vw, 34px); }
+[data-restyle] .explore-country-group { border-color: var(--tape-hairline-strong); }
+[data-restyle] .explore-country-heading > a,
+[data-restyle] .explore-country-heading > a:visited {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55em;
+  color: var(--tape-accent-strong);
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+[data-restyle] .explore-destination-card,
+[data-restyle] .explore-destination-card:visited {
+  color: var(--tape-text);
+  background: var(--tape-card);
+  border: 2.5px solid var(--tape-chrome);
+  border-top: 7px solid var(--tape-orange);
+  box-shadow: 5px 5px 0 var(--tape-rust);
+}
+[data-restyle] .explore-destination-card:hover {
+  border-color: var(--tape-accent-strong);
+  box-shadow: 2px 2px 0 var(--tape-rust);
+}
+[data-restyle] .explore-destination-name { font-size: 24px; line-height: 1; }
+[data-restyle] .explore-destination-arrow { color: var(--tape-accent-strong); }
+[data-restyle] .explore-breadcrumb {
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+[data-restyle] .explore-breadcrumb a,
+[data-restyle] .explore-breadcrumb a:visited { color: var(--tape-accent-strong); }
+[data-restyle] .explore-empty { color: var(--tape-muted); font-family: var(--tape-mono); }
+
+@media (max-width: 560px) {
+  [data-restyle] .network-primary-nav { gap: 0.2rem; }
+  [data-restyle] .network-explore-link { padding-inline: 7px; letter-spacing: 0.1em; }
+}

@@ -514,16 +514,17 @@ routerAdd(
 );
 
 // Public, aggregate-only social proof for the catalogue: how many distinct
-// Detourists have recommended or shared each place. Recommendation signals,
-// shares, and contributions are private collections, so this route exposes
-// counts keyed by public venue id and nothing else — no member identity,
-// prose, or timing ever leaves the server.
+// Detourists have recommended each place. Recommendation signals and
+// contributions are private collections, so this route exposes counts keyed by
+// public venue id and nothing else — no member identity, prose, or timing ever
+// leaves the server. Shares stay completely private: sending a place to
+// someone is never social proof and never moves a count here.
 routerAdd("GET", "/api/detour/place-detourists", (e) => {
   const { normalizePlacePart } = require(__hooks + "/community_waitlist.js");
 
-  // Distinct (venue, member) pairs from recommendation signals and shares.
-  // Waiting-list entries resolve to their published venue first, then to the
-  // canonical catalogue venue they were matched to before publication.
+  // Distinct (venue, member) pairs from recommendation signals only. Waiting-
+  // list entries resolve to their published venue first, then to the canonical
+  // catalogue venue they were matched to before publication.
   const pairs = arrayOf(new DynamicModel({ venue_id: "", member_id: "" }));
   e.app
     .db()
@@ -531,14 +532,7 @@ routerAdd("GET", "/api/detour/place-detourists", (e) => {
       "SELECT venue_id, member_id FROM (" +
         "SELECT COALESCE(NULLIF(w.published_venue, ''), w.canonical_venue) AS venue_id, r.member AS member_id " +
         "FROM community_recommendations r " +
-        "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
-        "UNION " +
-        "SELECT s.venue AS venue_id, s.sender AS member_id " +
-        "FROM community_shares s " +
-        "UNION " +
-        "SELECT COALESCE(NULLIF(w.published_venue, ''), w.canonical_venue) AS venue_id, s.sender AS member_id " +
-        "FROM community_shares s " +
-        "JOIN community_waitlist_entries w ON w.id = s.waitlist" +
+        "JOIN community_waitlist_entries w ON w.id = r.waitlist" +
         ") WHERE venue_id IS NOT NULL AND venue_id != '' AND member_id != '' " +
         "AND member_id NOT IN (SELECT id FROM members WHERE email LIKE '%.invalid')"
     )

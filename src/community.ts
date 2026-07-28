@@ -1,4 +1,6 @@
 import { pb } from './pocketbase';
+import { bindMemberShares, markNetworkSharesSeen, memberSharesMarkup } from './network';
+import { venueMarketSlug, venuePlaceSlug } from './data';
 import type { Venue } from './data';
 import { OCCASION_OPTIONS } from './occasions';
 import { countryOptions } from './countries';
@@ -96,8 +98,17 @@ interface Notice {
   text: string;
 }
 
-const MEMBER_TABS: MemberTab[] = ['invitations', 'detours', 'settings'];
+// One order, used by both the member-area tab strip and the masthead menu.
+const MEMBER_TABS: MemberTab[] = ['detours', 'invitations', 'settings'];
+const MEMBER_TAB_LABELS: Record<MemberTab, string> = {
+  detours: 'My detours',
+  invitations: 'Invitations',
+  settings: 'Settings',
+};
 const INVITATION_LIMIT = 10;
+// Your recommendations reads as a ledger of lines, so it opens on the five
+// most recently touched entries and expands from there.
+const QUEUE_PREVIEW_LIMIT = 5;
 const CATEGORY_OPTIONS = [
   ['restaurant', 'Restaurant'],
   ['cafe', 'Café'],
@@ -124,7 +135,6 @@ let knownVenues: Venue[] = [];
 let waitlistEntries: WaitlistEntry[] = [];
 let recommendations: RecommendationRecord[] = [];
 let shares: ShareRecord[] = [];
-const archivingShares = new Set<string>();
 let communityLoaded = false;
 let loadingCommunity = false;
 let invites: InviteRecord[] = [];
@@ -132,6 +142,7 @@ let invitesLoaded = false;
 let loadingInvites = false;
 let submitting = false;
 let highlightedWaitlistId = '';
+let queueExpanded = false;
 let visibilitySaving = false;
 let visibilityPending: boolean | null = null;
 let memberRefreshed = false;
@@ -233,10 +244,6 @@ function pseudoLabel(pseudo: string | undefined, fallback = 'A Detour member'): 
   return cleaned ? `@${cleaned}` : fallback;
 }
 
-function memberIdentityMarkup(pseudo: string | undefined, fallback?: string): string {
-  return `<strong class="member-identity">${esc(pseudoLabel(pseudo, fallback))}</strong>`;
-}
-
 function directoryResultsMarkup(key: string): string {
   const state = directoryState(key);
   if (state.selected) {
@@ -316,11 +323,6 @@ function incomingShares(): ShareRecord[] {
   return shares.filter((share) => Boolean(id && share.recipient === id) && !share.archived);
 }
 
-function outgoingShares(): ShareRecord[] {
-  const id = member()?.id;
-  return shares.filter((share) => Boolean(id && share.sender === id) && !share.sender_archived);
-}
-
 function recommendationForEntry(entryId: string): RecommendationRecord | undefined {
   return recommendations.find((rec) => rec.waitlist === entryId);
 }
@@ -342,13 +344,15 @@ function publishedVenueForEntry(entry: WaitlistEntry): Venue | undefined {
   return matches.length === 1 ? matches[0] : undefined;
 }
 
+/** Canonical URL of a published place's own page — the same route the cards use. */
 function discoveryHref(venue: Venue): string {
   const url = new URL(window.location.href);
   url.pathname = '/';
   url.searchParams.delete('city');
   url.searchParams.delete('view');
   url.searchParams.delete('invite');
-  url.searchParams.set('d', venue.marketSlug);
+  url.searchParams.set('d', venueMarketSlug(venue));
+  url.searchParams.set('p', venuePlaceSlug(venue, knownVenues));
   url.hash = '';
   return `${url.pathname}${url.search}`;
 }
@@ -369,8 +373,6 @@ function entryEditMarkup(entry: WaitlistEntry): string {
       ? 'Your edits will carry through if this place becomes live.'
       : 'These details stay with this private entry until it has a recommendation note.';
   return `${hasLinks ? `<p class="community-place-links" aria-label="Destination links">${links.join('<span aria-hidden="true"> · </span>')}</p>` : ''}
-    <details class="community-share-disclosure community-links-disclosure">
-      <summary>Edit this recommendation</summary>
       <form class="community-form community-links-form" data-community-edit data-waitlist="${esc(entry.id)}"${rec ? ` data-recommendation="${esc(rec.id)}"` : ''}>
         <label>Food-and-drink destination name<input name="venue_name" value="${esc(entry.venue_name || '')}" maxlength="200" required placeholder="A restaurant, café, bar, or other food-and-drink destination"></label>
         <label>Address <span class="community-optional">Optional</span><input name="address" value="${esc(entry.address || '')}" maxlength="300" placeholder="Street and number"></label>
@@ -389,11 +391,16 @@ function entryEditMarkup(entry: WaitlistEntry): string {
         <label>Photo link<input name="image_url" value="${esc(entry.image_url || '')}" maxlength="2048" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Direct link to a photo of the destination"></label>
         <p class="community-form-note">${esc(editPromise)}</p>
         <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Saving…' : 'Save changes'}</button>
-      </form>
-    </details>`;
+      </form>`;
 }
 
-function waitlistCard(entry: WaitlistEntry): string {
+/**
+ * One recommendation, one line: the name, the Edit disclosure that opens the
+ * whole entry underneath it, and Open for a place that is live. Everything
+ * else — publication state, facts, links, the private-share form — waits
+ * inside the expanded line rather than stacking a card per entry.
+ */
+function waitlistRow(entry: WaitlistEntry): string {
   const rec = recommendationForEntry(entry.id);
   const published = entry.status === 'published';
   const publishedVenue = published ? publishedVenueForEntry(entry) : undefined;
@@ -408,38 +415,49 @@ function waitlistCard(entry: WaitlistEntry): string {
   const directoryKey = `share-${entry.id}`;
   const category = labelForOption(CATEGORY_OPTIONS, entry.category);
   const occasions = (entry.occasions || []).map((occasion) => labelForOption(OCCASION_OPTIONS, occasion)).filter(Boolean);
-  const publicationMarkup = published
+  const name = entry.venue_name || 'Unnamed food-and-drink destination';
+  const where = [entry.address, entry.city, entry.country].filter(Boolean).join(', ');
+  const highlighted = highlightedWaitlistId === entry.id;
+  // A live place ends its line with Open; anything else ends it with the
+  // reason it has no page yet, so the collapsed list still tells the truth.
+  const trailing = publishedVenue
+    ? `<a class="community-queue-open" href="${esc(discoveryHref(publishedVenue))}" data-place="${esc(publishedVenue.id)}" aria-label="Open the ${esc(publishedVenue.name)} place page">Open</a>`
+    : `<span class="community-queue-status is-${statusClass}">${statusLabel}</span>`;
+  const publicationNote = published
     ? publishedVenue
-      ? `<div class="community-publication-summary">
-          <p class="community-queue-context">Live on the Detourist List.</p>
-          <a class="community-secondary community-open-place" href="${esc(discoveryHref(publishedVenue))}" data-open-destination="${esc(publishedVenue.marketSlug)}" data-open-venue="${esc(publishedVenue.id)}" aria-label="Open ${esc(publishedVenue.name)} on the Detourist List">Open this place</a>
-        </div>`
-      : '<p class="community-queue-context">Live on the Detourist List. This place is not available to open in discovery yet.</p>'
+      ? ''
+      : '<p class="community-queue-context">Not available to open in discovery yet.</p>'
     : rec
       ? '<p class="community-queue-context">Your recommendation is saved, but this place is not live on the Detourist List yet.</p>'
       : '<p class="community-queue-context">This entry has no recommendation note, so it is not publishable yet.</p>';
-  return `<article class="community-queue-card${highlightedWaitlistId === entry.id ? ' is-highlighted' : ''}" id="waitlist-${esc(entry.id)}" tabindex="-1">
-    <div class="community-queue-head">
-      <div><h4>${esc(entry.venue_name || 'Unnamed food-and-drink destination')}</h4><p>${esc([entry.address, entry.city, entry.country].filter(Boolean).join(', '))}</p></div>
-      <span class="community-queue-status is-${statusClass}">${statusLabel}</span>
-    </div>
-    ${category || occasions.length ? `<dl class="community-place-facts">${category ? `<div><dt>Category</dt><dd>${esc(category)}</dd></div>` : ''}${occasions.length ? `<div><dt>Good for</dt><dd>${esc(occasions.join(' · '))}</dd></div>` : ''}</dl>` : ''}
-    ${publicationMarkup}
-    ${rec ? `<p class="community-seconding">${esc(secondingCopy)}</p>` : ''}
-    ${entryEditMarkup(entry)}
-    ${
-      !published
-        ? `<details class="community-share-disclosure">
-            <summary>Share with a member</summary>
-            <form class="community-form community-share-form" data-community-share data-waitlist="${esc(entry.id)}">
-              ${directoryMarkup(directoryKey, 'Share with a member')}
-              <label>Personal note<textarea name="personal_note" rows="3" maxlength="1200" minlength="8" required placeholder="Why you thought of them for this food-and-drink destination"></textarea></label>
-              <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sharing…' : 'Share privately'}</button>
-            </form>
-          </details>`
-        : ''
-    }
-  </article>`;
+  return `<li class="community-queue-row${highlighted ? ' is-highlighted' : ''}" id="waitlist-${esc(entry.id)}" tabindex="-1">
+    <details class="community-queue-entry"${highlighted ? ' open' : ''}>
+      <summary class="community-queue-line">
+        <span class="community-queue-name">${esc(name)}</span>
+        ${where ? `<span class="community-queue-where">${esc(where)}</span>` : ''}
+        <span class="community-queue-edit">Edit</span>
+      </summary>
+      <div class="community-queue-body">
+        ${publicationNote}
+        ${category || occasions.length ? `<dl class="community-place-facts">${category ? `<div><dt>Category</dt><dd>${esc(category)}</dd></div>` : ''}${occasions.length ? `<div><dt>Good for</dt><dd>${esc(occasions.join(' · '))}</dd></div>` : ''}</dl>` : ''}
+        ${rec ? `<p class="community-seconding">${esc(secondingCopy)}</p>` : ''}
+        ${entryEditMarkup(entry)}
+        ${
+          !published
+            ? `<details class="community-share-disclosure">
+                <summary>Share with a member</summary>
+                <form class="community-form community-share-form" data-community-share data-waitlist="${esc(entry.id)}">
+                  ${directoryMarkup(directoryKey, 'Share with a member')}
+                  <label>Personal note<textarea name="personal_note" rows="3" maxlength="1200" minlength="8" required placeholder="Why you thought of them for this food-and-drink destination"></textarea></label>
+                  <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sharing…' : 'Share privately'}</button>
+                </form>
+              </details>`
+            : ''
+        }
+      </div>
+    </details>
+    ${trailing}
+  </li>`;
 }
 
 function recommendationPanel(): string {
@@ -466,16 +484,33 @@ function recommendationPanel(): string {
       </form>
     </div>
     <div class="community-queue" aria-labelledby="your-community-queue-title">
-      <div class="community-subheading"><h4 id="your-community-queue-title">Your recommendations</h4></div>
+      <div class="community-subheading">
+        <h4 id="your-community-queue-title">Your recommendations</h4>
+        ${communityLoaded && !loadingCommunity && waitlistEntries.length ? `<p class="community-queue-count">${waitlistEntries.length} ${waitlistEntries.length === 1 ? 'entry' : 'entries'}</p>` : ''}
+      </div>
       ${
         loadingCommunity || !communityLoaded
           ? '<p class="community-loading" role="status">Loading…</p>'
           : waitlistEntries.length
-            ? `<div class="community-queue-list">${waitlistEntries.map(waitlistCard).join('')}</div>`
+            ? queueListMarkup()
             : '<p class="community-empty">Nothing here yet.</p>'
       }
     </div>
   </section>`;
+}
+
+// The newest entries first (the ledger is loaded newest-updated first), with
+// the rest a click away.
+function queueListMarkup(): string {
+  const shown = queueExpanded ? waitlistEntries : waitlistEntries.slice(0, QUEUE_PREVIEW_LIMIT);
+  const hidden = waitlistEntries.length - shown.length;
+  const toggle =
+    hidden > 0
+      ? `<button type="button" class="community-secondary community-queue-more" data-queue-toggle>Show ${hidden} more</button>`
+      : queueExpanded && waitlistEntries.length > QUEUE_PREVIEW_LIMIT
+        ? '<button type="button" class="community-secondary community-queue-more" data-queue-toggle>Show fewer</button>'
+        : '';
+  return `<ul class="community-queue-list">${shown.map(waitlistRow).join('')}</ul>${toggle}`;
 }
 
 function formatDate(value: string | undefined): string {
@@ -483,25 +518,6 @@ function formatDate(value: string | undefined): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return '';
   return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).format(parsed);
-}
-
-function incomingShareCard(share: ShareRecord): string {
-  return `<article class="community-share-card${share.seen ? '' : ' is-new'}">
-    <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared food-and-drink destination')}</h4><p>${esc([share.address, share.city, share.country].filter(Boolean).join(', '))}</p></div><span>${share.seen ? 'Shared with you' : 'New'}</span></div>
-    <p class="community-share-from">${memberIdentityMarkup(share.sender_pseudo)} shared this food-and-drink destination with you.</p>
-    <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
-    ${share.venue ? '<p class="community-share-state is-success">In the Detour selection.</p>' : ''}
-    <button class="community-secondary community-share-archive" type="button" data-community-archive-share="${esc(share.id)}" ${archivingShares.has(share.id) ? 'disabled' : ''}>${archivingShares.has(share.id) ? 'Archiving…' : 'Archive'}</button>
-  </article>`;
-}
-
-function outgoingShareCard(share: ShareRecord): string {
-  return `<article class="community-share-card community-share-card-sent">
-    <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared food-and-drink destination')}</h4><p>${esc([share.address, share.city, share.country].filter(Boolean).join(', '))}</p></div><span>Sent</span></div>
-    <p class="community-share-from">Shared with ${memberIdentityMarkup(share.recipient_pseudo, 'a Detour member')}.</p>
-    <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
-    <button class="community-secondary community-share-archive" type="button" data-community-archive-share="${esc(share.id)}" ${archivingShares.has(share.id) ? 'disabled' : ''}>${archivingShares.has(share.id) ? 'Archiving…' : 'Archive'}</button>
-  </article>`;
 }
 
 function matchVenue(placeInput: string, city: string): Venue | undefined {
@@ -533,9 +549,10 @@ function sharePlaceForm(): string {
   </form>`;
 }
 
+// The Shares tab is the sending form plus the private-share deck that used to
+// sit on the landing feed. The deck itself lives in network.ts, where the
+// share payload, its replies, and its cassette flip are already modelled.
 function sharesPanel(): string {
-  const incoming = incomingShares();
-  const outgoing = outgoingShares();
   return `<section class="community-ledger-section" aria-labelledby="private-shares-title">
     <div class="community-section-heading">
       <div><h3 id="private-shares-title">Share a food-and-drink destination</h3></div>
@@ -544,17 +561,8 @@ function sharesPanel(): string {
     <div class="community-action-grid community-share-place-action">
       ${sharePlaceForm()}
     </div>
-    ${
-      loadingCommunity || !communityLoaded
-        ? '<p class="community-loading" role="status">Loading…</p>'
-        : incoming.length || outgoing.length
-          ? `<div class="community-shares-grid">
-              <div class="community-share-column"><div class="community-subheading"><h4>Received</h4></div>${incoming.length ? incoming.map(incomingShareCard).join('') : '<p class="community-empty">No shares received.</p>'}</div>
-              <div class="community-share-column"><div class="community-subheading"><h4>Sent</h4></div>${outgoing.length ? outgoing.map(outgoingShareCard).join('') : '<p class="community-empty">No shares sent.</p>'}</div>
-            </div>`
-          : '<p class="community-empty">No shares yet.</p>'
-    }
-  </section>`;
+  </section>
+  ${memberSharesMarkup()}`;
 }
 
 function invitesPanel(): string {
@@ -653,17 +661,12 @@ function unseenShareCount(): number {
 }
 
 function memberTabsMarkup(): string {
-  const labels: Record<MemberTab, string> = {
-    invitations: 'Invitations',
-    detours: 'My detours',
-    settings: 'Settings',
-  };
   const unseen = unseenShareCount();
   return `<div class="community-member-bar">
     <div class="community-member-tabs" role="tablist" aria-label="Member areas">
       ${MEMBER_TABS.map(
         (tab) =>
-          `<button class="community-member-tab${memberTab === tab ? ' is-active' : ''}" type="button" role="tab" id="member-tab-${tab}" aria-selected="${memberTab === tab}" aria-controls="member-panel-${tab}" tabindex="${memberTab === tab ? '0' : '-1'}" data-member-tab="${tab}">${labels[tab]}${
+          `<button class="community-member-tab${memberTab === tab ? ' is-active' : ''}" type="button" role="tab" id="member-tab-${tab}" aria-selected="${memberTab === tab}" aria-controls="member-panel-${tab}" tabindex="${memberTab === tab ? '0' : '-1'}" data-member-tab="${tab}">${MEMBER_TAB_LABELS[tab]}${
             tab === 'detours' && unseen ? `<span class="community-tab-badge" aria-label="${unseen} new shares">${unseen}</span>` : ''
           }</button>`
       ).join('')}
@@ -708,8 +711,40 @@ export function openRecommendPlace(): void {
 
 export function communityControl(href: string, current = false): string {
   const record = member();
-  const label = record ? `Member: ${memberName(record)}` : 'Members';
-  return `<a class="community-toggle${current ? ' is-current' : ''}" href="${esc(href)}" data-community-route${current ? ' aria-current="page"' : ''}>${esc(label)}<span aria-hidden="true">${current ? '•' : '↗'}</span></a>`;
+  // Signed out, the control is a plain link into the sign-in / join panel.
+  if (!record) {
+    return `<a class="community-toggle${current ? ' is-current' : ''}" href="${esc(href)}" data-community-route${current ? ' aria-current="page"' : ''}>Members<span${current ? '' : ' class="nav-arrow"'} aria-hidden="true">${current ? '•' : '↗'}</span></a>`;
+  }
+  const items = MEMBER_TABS.map((tab) => {
+    const active = current && memberTab === tab;
+    return `<a class="community-menu-item${active ? ' is-current' : ''}" role="menuitem" href="${esc(href)}" data-community-route="${tab}"${
+      active ? ' aria-current="true"' : ''
+    }>${MEMBER_TAB_LABELS[tab]}</a>`;
+  }).join('');
+  return `<div class="community-menu" data-community-menu>
+    <button class="community-toggle${current ? ' is-current' : ''}" type="button" data-community-menu-toggle
+      aria-haspopup="true" aria-expanded="false" aria-controls="community-menu-items">
+      ${esc(`Member: ${memberName(record)}`)}<span aria-hidden="true">▾</span>
+    </button>
+    <div class="community-menu-items" id="community-menu-items" role="menu" aria-label="Member menu" hidden>
+      ${items}
+      <button class="community-menu-item community-menu-signout" role="menuitem" type="button" data-community-sign-out>Sign out</button>
+    </div>
+  </div>`;
+}
+
+/** Point the member area at one of its tabs (used by the masthead member menu). */
+export function openMemberArea(tab: string): boolean {
+  if (!MEMBER_TABS.includes(tab as MemberTab)) return false;
+  memberTab = tab as MemberTab;
+  return true;
+}
+
+/** Drop the session. Callers re-render; the masthead falls back to "Members". */
+export function signOutMember(): void {
+  pb.authStore.clear();
+  resetCommunityState();
+  notice = { kind: 'info', text: 'You have signed out of Detour.' };
 }
 
 export function communityPanel(venues: Venue[]): string {
@@ -723,13 +758,13 @@ function resetCommunityState(): void {
   waitlistEntries = [];
   recommendations = [];
   shares = [];
-  archivingShares.clear();
   communityLoaded = false;
   loadingCommunity = false;
   invites = [];
   invitesLoaded = false;
   loadingInvites = false;
   highlightedWaitlistId = '';
+  queueExpanded = false;
   visibilitySaving = false;
   visibilityPending = null;
   memberRefreshed = false;
@@ -908,6 +943,9 @@ async function markIncomingSharesSeen(): Promise<void> {
   results.forEach((result, index) => {
     if (result.status === 'fulfilled') unseen[index].seen = true;
   });
+  // The share deck reads its own copy of the ledger, so it is told about the
+  // same change rather than showing "New share" until the next full reload.
+  if (results.some((result) => result.status === 'fulfilled')) markNetworkSharesSeen();
 }
 
 async function refreshMemberRecord(render: () => void): Promise<void> {
@@ -934,6 +972,14 @@ export function bindCommunity(
 ): void {
   knownVenues = venues;
   if (memberTab === 'settings') void refreshMemberRecord(render);
+  // The private-share deck is rendered by network.ts, so its own module binds
+  // the flip, the archive buttons, and the reply threads — and loads the share
+  // payload when the member area is opened directly on this tab.
+  if (member() && memberTab === 'detours' && detourTab === 'shares') {
+    bindMemberShares(root, render, (shareId) => {
+      shares = shares.filter((share) => share.id !== shareId);
+    });
+  }
   root.querySelectorAll<HTMLButtonElement>('[data-community-mode]').forEach((button) => {
     button.addEventListener('click', () => {
       mode = button.dataset.communityMode === 'join' ? 'join' : 'sign-in';
@@ -954,6 +1000,11 @@ export function bindCommunity(
       });
     }
   };
+
+  root.querySelector<HTMLButtonElement>('[data-queue-toggle]')?.addEventListener('click', () => {
+    queueExpanded = !queueExpanded;
+    render();
+  });
 
   const detourTabButtons = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-detour-tab]'));
   detourTabButtons.forEach((button) => {
@@ -1126,37 +1177,6 @@ export function bindCommunity(
     }
   });
 
-  root.querySelectorAll<HTMLButtonElement>('[data-community-sign-out]').forEach((button) =>
-    button.addEventListener('click', () => {
-      pb.authStore.clear();
-      resetCommunityState();
-      notice = { kind: 'info', text: 'You have signed out of Detour.' };
-      render();
-    })
-  );
-
-  root.querySelectorAll<HTMLButtonElement>('[data-community-archive-share]').forEach((button) =>
-    button.addEventListener('click', async () => {
-      const shareId = button.dataset.communityArchiveShare || '';
-      const share = shares.find((item) => item.id === shareId);
-      if (!share || archivingShares.has(shareId)) return;
-      // Archive state is per-side: the recipient's button hides the inbox
-      // copy, the sender's button hides the sent copy.
-      const field = share.recipient === member()?.id ? 'archived' : 'sender_archived';
-      archivingShares.add(shareId);
-      render();
-      try {
-        await pb.collection('community_shares').update(shareId, { [field]: true }, { requestKey: null });
-        share[field] = true;
-      } catch (error) {
-        notice = { kind: 'error', text: readableError(error, 'That share could not be archived. Please try again.') };
-      } finally {
-        archivingShares.delete(shareId);
-        render();
-      }
-    })
-  );
-
   root.querySelector<HTMLButtonElement>('[data-community-remove-account]')?.addEventListener('click', async () => {
     const record = member();
     if (!record || submitting) return;
@@ -1254,7 +1274,7 @@ export function bindCommunity(
       notice = createdEntry?.status === 'published'
         ? { kind: 'success', text: 'Your recommendation is live on the Detourist List.' }
         : createdEntry
-          ? { kind: 'info', text: 'Your recommendation is saved. Its card shows whether the place is live.' }
+          ? { kind: 'info', text: 'Your recommendation is saved. Its line shows whether the place is live.' }
           : notice;
       focusWaitlistEntry(highlightedWaitlistId);
     } catch (error) {

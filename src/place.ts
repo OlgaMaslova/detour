@@ -1,0 +1,275 @@
+/**
+ * The place page — one published place, its own route, the whole record.
+ *
+ * Reached from every card in the app and addressable on its own
+ * (`?d=<market>&p=<place>`), so a place can be linked to and read in full: the
+ * cover, why members put it on the list, every note they wrote, where it sits,
+ * and how to get there.
+ *
+ * This module owns the page's markup only. Routing, state and the post-render
+ * wiring stay in main.ts, which passes the chrome and the venue-formatting
+ * helpers it already owns — the same split network.ts uses.
+ */
+
+import type { Venue, VenueAward } from './data';
+import { detouristSignalBadge } from './signal';
+
+/** One member's note about this place, as the circle feed reports it. */
+export interface PlaceNote {
+  note?: string;
+  recommender_pseudo?: string;
+  is_own?: boolean;
+  created?: string;
+}
+
+/** Shell furniture — hrefs and fragments main.ts already renders elsewhere. */
+export interface PlaceChrome {
+  destinationName: string;
+  destinationSlug: string;
+  destinationHref: string;
+  countryName: string;
+  countrySlug: string;
+  countryHref: string;
+  exploreHref: string;
+  canExplore: boolean;
+  homeHref: string;
+  accountHref: string;
+  brandMark: string;
+  communityControl: string;
+  footerTagline: string;
+  themeToggle: string;
+}
+
+/**
+ * Venue formatting main.ts shares with the cards and the map preview, so the
+ * page cannot drift from how the same facts read on every other surface.
+ */
+export interface PlaceHelpers {
+  esc(value: string): string;
+  safeExternalHref(value: string | undefined): string;
+  /** The `place` cover variant, monogram fallback included. */
+  cover(v: Venue): string;
+  /** Operator and social links, already anchored; '' when the record has none. */
+  visitLinks(v: Venue): string;
+  directionsHref(v: Venue): string;
+  occasionLabels(v: Venue): string[];
+  hasDistinctLocality(v: Venue): boolean;
+  /** Market name a venue is listed under, for the 'X selection' locality line. */
+  routeName(v: Venue): string;
+  notes(v: Venue): PlaceNote[];
+  /** Loading/retry markup for the circle feed the notes come from. */
+  notesStatus: string;
+  shortDate(value: string | undefined): string;
+}
+
+/** Every note members attached to this place, attribution and date intact. */
+function notesSection(v: Venue, h: PlaceHelpers): string {
+  const notes = h.notes(v).filter((item) => {
+    const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
+    return Boolean(item.note?.trim() && (item.is_own || recommender));
+  });
+  const heading = '<h2 id="place-notes-title">What members wrote</h2>';
+  if (notes.length === 0) {
+    return `<section class="place-section place-notes" aria-labelledby="place-notes-title">
+      ${heading}
+      ${h.notesStatus || '<p class="place-empty">No member has attached a note to this place yet.</p>'}
+    </section>`;
+  }
+  return `<section class="place-section place-notes" aria-labelledby="place-notes-title">
+    ${heading}
+    ${h.notesStatus}
+    <div class="place-note-list">
+      ${notes
+        .map((item) => {
+          const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
+          const memberLabel = item.is_own ? 'You' : `@${recommender}`;
+          const when = h.shortDate(item.created);
+          return `<blockquote class="detail-network-note place-note">
+            <p>${h.esc(item.note || '')}</p>
+            <footer>Recommended by <strong class="network-pseudo">${h.esc(memberLabel)}</strong>${
+              when
+                ? `<span aria-hidden="true"> · </span><time datetime="${h.esc(item.created || '')}">${h.esc(when)}</time>`
+                : ''
+            }</footer>
+          </blockquote>`;
+        })
+        .join('')}
+    </div>
+  </section>`;
+}
+
+/**
+ * Guide recognition carried on the venue record. Kept last and quiet: the list
+ * is member-recommended, and an outside award is context, never the reason a
+ * place is here.
+ */
+function recognitionSection(v: Venue, h: PlaceHelpers): string {
+  const awards: VenueAward[] = v.awards ?? [];
+  const badges = (v.sourceBadges ?? []).filter(Boolean);
+  if (awards.length === 0 && badges.length === 0) return '';
+  const rows = awards
+    .map((award) => {
+      const level = award.listRank ? `No. ${award.listRank}` : award.awardLevel;
+      const source = [award.edition || award.sourceName, award.awardYear || '']
+        .filter(Boolean)
+        .join(' · ');
+      const href = h.safeExternalHref(award.sourceUrl);
+      return `<li class="place-award">
+        <p class="place-award-level">${h.esc(level || 'Recognised')}</p>
+        ${
+          source
+            ? `<p class="place-award-source">${
+                href
+                  ? `<a href="${h.esc(href)}" target="_blank" rel="noopener noreferrer">${h.esc(source)} <span class="nav-arrow" aria-hidden="true">↗</span></a>`
+                  : h.esc(source)
+              }</p>`
+            : ''
+        }
+      </li>`;
+    })
+    .join('');
+  return `<section class="place-section place-recognition" aria-labelledby="place-recognition-title">
+    <h2 id="place-recognition-title">Also recognised elsewhere</h2>
+    ${rows ? `<ul class="place-awards">${rows}</ul>` : ''}
+    ${badges.length ? `<p class="place-badges">${h.esc(badges.join(' · '))}</p>` : ''}
+  </section>`;
+}
+
+/** Position, address and the handoff to a maps app. */
+function whereSection(v: Venue, h: PlaceHelpers): string {
+  const located = v.lat !== null && v.lng !== null;
+  const distinctLocality = h.hasDistinctLocality(v);
+  const directions = h.directionsHref(v);
+  const visitLinks = h.visitLinks(v);
+  return `<section class="place-section place-where" aria-labelledby="place-where-title">
+    <h2 id="place-where-title">Where it is</h2>
+    <div class="place-where-body">
+      ${
+        located
+          ? `<div class="place-map-wrap">
+              <div id="${PLACE_MAP_ID}" class="detail-locator-map place-map" role="group" aria-label="${h.esc(`Map of ${v.name}${v.address ? `, ${v.address}` : ''} — zoom controls inside`)}"></div>
+              <p class="detail-locator-credit">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors</p>
+            </div>`
+          : ''
+      }
+      <div class="place-where-facts">
+        <dl class="detail-facts">
+          <div><dt>Address</dt><dd>${
+            v.address ? h.esc(v.address) : '<span class="approx">Map position being refined</span>'
+          }</dd></div>
+          ${
+            distinctLocality
+              ? `<div><dt>Locality</dt><dd><span class="detail-locality">${h.esc(v.city)}</span><span class="detail-market">${h.esc(`${h.routeName(v)} selection`)}</span></dd></div>`
+              : `<div><dt>City</dt><dd>${h.esc([v.city, v.country].filter(Boolean).join(', '))}</dd></div>`
+          }
+        </dl>
+        ${v.approxLocation && located ? '<p class="approx">Position is approximate — confirm before you set off.</p>' : ''}
+        ${
+          directions || visitLinks
+            ? `<div class="detail-visit-links place-visit-links">
+                ${directions ? `<a href="${h.esc(directions)}" target="_blank" rel="noopener noreferrer">Get directions <span class="nav-arrow" aria-hidden="true">↗</span></a>` : ''}
+                ${visitLinks}
+              </div>`
+            : '<p class="place-empty">No address or links on file yet — ask the member who recommended it.</p>'
+        }
+      </div>
+    </div>
+  </section>`;
+}
+
+/**
+ * Container the locator map mounts into. Shared with main.ts so the map is
+ * always looked up by the id this markup actually renders.
+ */
+export const PLACE_MAP_ID = 'selected-place-map';
+
+/** Whether this place has a verified coordinate to plot. */
+export function placeIsLocated(v: Venue): boolean {
+  return v.lat !== null && v.lng !== null;
+}
+
+/** The full page, ready to assign to the app root. */
+export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
+  const meta = [v.category, v.neighborhood, h.hasDistinctLocality(v) ? v.city : '']
+    .filter(Boolean)
+    .join(' · ');
+  const occasions = h.occasionLabels(v);
+  return `
+    <a class="skip-link" href="#place-title">Skip to this place</a>
+    <header class="network-masthead">
+      <a class="network-brand" href="${h.esc(chrome.homeHref)}" data-home>${chrome.brandMark}Detour</a>
+      <nav class="network-primary-nav" aria-label="Primary navigation">
+        ${
+          chrome.canExplore
+            ? `<a class="network-explore-link" href="${h.esc(chrome.exploreHref)}" data-explore>Explore</a>`
+            : ''
+        }
+        ${chrome.communityControl}
+      </nav>
+    </header>
+    <nav class="place-back-row explore-breadcrumb" aria-label="Breadcrumb">
+      ${
+        chrome.canExplore
+          ? `<a href="${h.esc(chrome.exploreHref)}" data-explore>Explore</a>`
+          : `<a href="${h.esc(chrome.homeHref)}" data-home>Home</a>`
+      }
+      ${
+        chrome.canExplore && chrome.countryName
+          ? `<span aria-hidden="true">/</span><a href="${h.esc(chrome.countryHref)}" data-country="${h.esc(
+              chrome.countrySlug
+            )}">${h.esc(chrome.countryName)}</a>`
+          : ''
+      }
+      <span aria-hidden="true">/</span>
+      <a href="${h.esc(chrome.destinationHref)}" data-open-destination="${h.esc(chrome.destinationSlug)}">${h.esc(
+        chrome.destinationName
+      )}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">${h.esc(v.name)}</span>
+    </nav>
+    <article class="place-page">
+      <header class="place-hero">
+        <div class="place-hero-copy">
+          <p class="place-overline">${h.esc(`${chrome.destinationName} · The Detourist List`)}</p>
+          <h1 id="place-title" tabindex="-1">${h.esc(v.name)}</h1>
+          <div class="place-hero-details">
+            ${meta ? `<p class="place-meta">${h.esc(meta)}</p>` : ''}
+            ${
+              occasions.length
+                ? `<p class="place-good-for">${h.esc(occasions.join(' · '))}</p>`
+                : ''
+            }
+            ${detouristSignalBadge(v.detouristCount, 'plate')}
+          </div>
+        </div>
+        ${h.cover(v)}
+      </header>
+      ${
+        v.description
+          ? `<section class="place-section place-about" aria-labelledby="place-about-title">
+              <h2 id="place-about-title">About this place</h2>
+              <p class="detail-description">${h.esc(v.description)}</p>
+            </section>`
+          : ''
+      }
+      ${notesSection(v, h)}
+      ${whereSection(v, h)}
+      ${recognitionSection(v, h)}
+      ${
+        chrome.canExplore
+          ? `<aside class="place-cta" aria-labelledby="place-cta-title">
+              <div>
+                <h2 id="place-cta-title">Been here too?</h2>
+                <p>Add your own note so the next Detourist knows what to order.</p>
+              </div>
+              <a class="network-primary-link" href="${h.esc(chrome.accountHref)}" data-community-route="recommend-place">Recommend a place <span class="nav-arrow" aria-hidden="true">↗</span></a>
+            </aside>`
+          : ''
+      }
+    </article>
+    <footer class="footer place-footer">
+      <p>${chrome.footerTagline}</p>
+      ${chrome.themeToggle}
+    </footer>
+  `;
+}

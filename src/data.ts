@@ -76,9 +76,10 @@ export interface Venue {
    */
   detouristList?: boolean;
   /**
-   * Distinct members who have recommended or shared this place through the
-   * member loops. Aggregate only — no identity attached. Absent when the
-   * backend predates the signals route or the place has no recorded signals.
+   * Distinct members who have recommended this place through the member loops.
+   * Aggregate only — no identity attached. Private shares never contribute to
+   * this figure. Absent when the backend predates the signals route or the
+   * place has no recorded signals.
    */
   detouristCount?: number;
 }
@@ -460,6 +461,27 @@ export function citySlug(name: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+/** Route slug of the market a venue is listed under (e.g. 'san-francisco'). */
+export function venueMarketSlug(v: Venue): string {
+  return v.marketSlug || citySlug(v.market || v.city);
+}
+
+/**
+ * Readable slug identifying one place inside its market route, so every place
+ * page has a shareable URL. Two places in the same market can normalise to the
+ * same name slug (two 'Bar Basque'); the venue id disambiguates only those, and
+ * a place whose name yields no slug at all falls back to the id outright.
+ */
+export function venuePlaceSlug(v: Venue, all: Venue[]): string {
+  const base = citySlug(v.name);
+  if (!base) return v.id;
+  const market = venueMarketSlug(v);
+  const clash = all.some(
+    (other) => other.id !== v.id && venueMarketSlug(other) === market && citySlug(other.name) === base
+  );
+  return clash ? `${base}-${v.id}` : base;
+}
+
 function listRankOf(level: string): number | null {
   return positiveInteger(level.match(LIST_RANK_RE)?.[1]);
 }
@@ -554,9 +576,9 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
         requestKey: null,
       })
       .catch(() => [] as MemberContributionRecord[]),
-    // Aggregate social proof: distinct members who recommended or shared each
-    // venue, keyed by venue id. Purely additive — tolerate backends without
-    // the route by falling back to no counts.
+    // Aggregate social proof: distinct members who recommended each venue,
+    // keyed by venue id. Private shares are excluded. Purely additive —
+    // tolerate backends without the route by falling back to no counts.
     pb
       .send<{ counts?: Record<string, unknown> }>('/api/detour/place-detourists', { requestKey: null })
       .then((payload) => payload?.counts ?? {})
