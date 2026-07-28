@@ -302,6 +302,58 @@ routerAdd(
       };
     }
 
+    // Anonymous callers get the same recommendation shape the member feed
+    // renders, reduced to a public-safe sample: published places only, from
+    // real verified members who opted into discovery, meaningful notes,
+    // capped at 4. If nobody is discovery-visible yet, the Founder's own
+    // published recommendations stand in so the section is never empty.
+    if (!e.auth || !e.auth.id) {
+      function sampleRecommendations(visibilitySql) {
+        const rows = arrayOf(
+          new DynamicModel({
+            recommender_pseudo: "",
+            member_id: "",
+            note: "",
+            venue_name: "",
+            city: "",
+            country: "",
+            address: "",
+            created: "",
+          })
+        );
+        e.app
+          .db()
+          .newQuery(
+            "SELECT m.pseudo AS recommender_pseudo, m.id AS member_id, " +
+              "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
+              "FROM community_recommendations r " +
+              "JOIN members m ON m.id = r.member " +
+              "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+              "WHERE w.status = 'published' AND w.published_venue != '' " +
+              "AND COALESCE(m.internal_member, FALSE) = FALSE " +
+              "AND m.community_status = 'verified' " +
+              "AND " + visibilitySql + " " +
+              "AND LOWER(TRIM(m.email)) NOT LIKE '%.invalid' " +
+              "AND LOWER(TRIM(m.email)) != 'agent@detour.supernaut.to' " +
+              "AND LENGTH(TRIM(r.note)) >= 24 " +
+              "AND TRIM(m.pseudo) != '' " +
+              "ORDER BY r.created DESC, r.id DESC LIMIT 4"
+          )
+          .all(rows);
+        return rows;
+      }
+
+      let sampleRows = sampleRecommendations("COALESCE(m.discovery_visible, FALSE) = TRUE");
+      if (!sampleRows.length) {
+        sampleRows = sampleRecommendations("COALESCE(m.founder_invitation_issuer, FALSE) = TRUE");
+      }
+      const sample = [];
+      for (const row of sampleRows) {
+        sample.push(projectRecommendation(row, ""));
+      }
+      return e.json(200, { discovery_visible: false, shares: [], recommendations: sample });
+    }
+
     const callerId = e.auth.id;
     const caller = e.app.findRecordById("members", callerId);
 
@@ -335,7 +387,10 @@ routerAdd(
           "venue_name, city, country, address, personal_note, " +
           "sender_pseudo, recipient_pseudo, seen, created " +
           "FROM community_shares " +
-          "WHERE sender = {:caller} OR recipient = {:caller} " +
+          // Archive state is per-side: a share leaves the caller's view once
+          // they archived their own copy, while the other side still sees it.
+          "WHERE (recipient = {:caller} AND COALESCE(archived, FALSE) = FALSE) " +
+          "OR (sender = {:caller} AND COALESCE(sender_archived, FALSE) = FALSE) " +
           "ORDER BY created DESC, id DESC LIMIT 100"
       )
       .bind({ caller: callerId })
@@ -420,8 +475,9 @@ routerAdd(
       shares: shares,
       recommendations: recommendations,
     });
-  },
-  $apis.requireAuth("members")
+  }
+  // No auth middleware: anonymous callers are served the public-safe sample
+  // branch above; authenticated members get their full circle feed.
 );
 
 routerAdd(
@@ -642,9 +698,16 @@ onRecordCreateRequest((e) => {
   e.record.set("community_status", "verified");
   // Derive from the invitation's actual issuer marker, not ancestry: a direct
   // Founder invitee does not confer Founder status on people they later invite.
+  // Founding seats are capped; once the cap is reached a founder-issued code
+  // still admits the invitee, as a regular verified member, so a personally
+  // sent invitation never fails at the door. The count-then-grant pair is not
+  // serialized, so two simultaneous redemptions at the boundary could seat one
+  // member over the cap — acceptable for a hand-issued, human-paced flow.
+  const founding = require(__hooks + "/founding_cap.js");
   e.record.set(
     "direct_founder_invited",
-    issuer.getBool("founder_invitation_issuer")
+    issuer.getBool("founder_invitation_issuer") &&
+      founding.countFoundingMembers(e.app) < founding.FOUNDING_MEMBER_CAP
   );
   e.next();
 }, "members");
@@ -656,10 +719,16 @@ onRecordCreateRequest((e) => {
 onRecordAfterCreateSuccess((e) => {
   const inviteId = e.record.getString("redeemed_invite");
   if (inviteId) {
-    const invite = e.app.findRecordById("invites", inviteId);
-    invite.set("claimed_by", e.record.id);
-    invite.set("claimed_at", new Date().toISOString());
-    e.app.save(invite);
+    // The invite can be gone by the time this success hook runs: a fresh-DB
+    // boot replays every migration in one transaction, so a fixture member's
+    // invite may already be removed by its later cleanup migration. A missing
+    // invite must not fail the committed signup.
+    try {
+      const invite = e.app.findRecordById("invites", inviteId);
+      invite.set("claimed_by", e.record.id);
+      invite.set("claimed_at", new Date().toISOString());
+      e.app.save(invite);
+    } catch {}
   }
 
   try {
@@ -1561,14 +1630,18 @@ onRecordCreateRequest((e) => {
   e.next();
 }, "community_shares");
 
-// The recipient's inbox marks shares as seen; every other share field is
-// server-owned and immutable after creation.
+// Each side owns only its own view state: the recipient marks shares as seen
+// and archives their inbox copy (`seen`, `archived`), the sender archives
+// their sent copy (`sender_archived`). Every other share field is server-owned
+// and immutable after creation.
 onRecordUpdateRequest((e) => {
   if (e.hasSuperuserAuth()) {
     return e.next();
   }
-  if (!e.auth || e.auth.id !== e.record.getString("recipient")) {
-    throw new BadRequestError("Only the recipient can update a share.");
+  const isRecipient = e.auth && e.auth.id === e.record.getString("recipient");
+  const isSender = e.auth && e.auth.id === e.record.getString("sender");
+  if (!isRecipient && !isSender) {
+    throw new BadRequestError("Only the sender or recipient can update a share.");
   }
   const original = e.record.original();
   const frozen = [
@@ -1588,8 +1661,18 @@ onRecordUpdateRequest((e) => {
   ];
   for (const field of frozen) {
     if (e.record.getString(field) !== original.getString(field)) {
-      throw new BadRequestError("Only the seen state of a share can change.");
+      throw new BadRequestError("Only the view state of a share can change.");
     }
+  }
+  if (!isRecipient) {
+    for (const field of ["seen", "archived"]) {
+      if (e.record.getBool(field) !== original.getBool(field)) {
+        throw new BadRequestError("Only the recipient can change their inbox state.");
+      }
+    }
+  }
+  if (!isSender && e.record.getBool("sender_archived") !== original.getBool("sender_archived")) {
+    throw new BadRequestError("Only the sender can archive their sent share.");
   }
   e.next();
 }, "community_shares");

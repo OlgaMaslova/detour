@@ -1,7 +1,6 @@
-import { apiBaseUrl, pb } from './pocketbase';
+import { pb } from './pocketbase';
 
 type DiscoveryStatus = 'idle' | 'loading' | 'ready' | 'error';
-type PublicRecommendationStatus = 'idle' | 'loading' | 'ready' | 'error';
 type FirstPlaceStatus = 'idle' | 'loading' | 'ready' | 'error';
 type ShareDirection = 'received' | 'sent';
 type InviteRequestStatus = 'idle' | 'submitting' | 'success';
@@ -17,16 +16,6 @@ export interface DiscoveryRecommendation {
   country?: string;
   address?: string;
   created?: string;
-}
-
-interface PublicRecommendation {
-  venue_name: string;
-  city: string;
-  country?: string;
-  note: string;
-  recommender_pseudo: string;
-  created?: string;
-  venue_id?: string;
 }
 
 interface DiscoveryReply {
@@ -74,7 +63,6 @@ const REPLY_MAX_LENGTH = 1200;
 // The landing feed shows only the most recent recommendations to keep the page
 // short; the country filter lets members reach the rest.
 const RECOMMENDATION_PREVIEW_LIMIT = 4;
-const PUBLIC_RECOMMENDATION_PREVIEW_LIMIT = 3;
 
 /**
  * Resolves a recommended place to a published catalogue venue so the feed can
@@ -158,34 +146,6 @@ function cleanRecommendation(value: unknown): DiscoveryRecommendation | null {
     address: cleanText(item.address),
     created: cleanDate(item.created),
   };
-}
-
-function cleanPublicRecommendation(value: unknown): PublicRecommendation | null {
-  if (!value || typeof value !== 'object') return null;
-  const item = value as Record<string, unknown>;
-  const venueName = cleanText(item.venue_name);
-  const city = cleanText(item.city);
-  const note = cleanText(item.note);
-  const recommenderPseudo = cleanText(item.recommender_pseudo)?.replace(/^@+/, '');
-  if (!venueName || !city || !note || !recommenderPseudo) return null;
-  return {
-    venue_name: venueName,
-    city,
-    country: cleanText(item.country),
-    note,
-    recommender_pseudo: recommenderPseudo,
-    created: cleanDate(item.created),
-    venue_id: cleanText(item.venue_id),
-  };
-}
-
-function cleanPublicPayload(value: unknown): PublicRecommendation[] {
-  if (!value || typeof value !== 'object') throw new Error('The public recommendation response was not valid.');
-  const recommendations = (value as { recommendations?: unknown }).recommendations;
-  if (!Array.isArray(recommendations)) throw new Error('The public recommendation response was not valid.');
-  return recommendations
-    .map(cleanPublicRecommendation)
-    .filter((item): item is PublicRecommendation => item !== null);
 }
 
 function cleanReply(value: unknown): DiscoveryReply | null {
@@ -322,6 +282,13 @@ function inviteRequestFormMarkup(accountHref: string): string {
       <p class="network-membership-label">Founding membership</p>
       <h2 id="network-membership-title">Ask to join the Detour circle.</h2>
       <p>Tell us a little about yourself. The Detour team reads every request and replies personally; submitting does not grant immediate access.</p>
+      <p class="network-founding-benefits-title">What you get by joining now</p>
+      <ul class="network-founding-benefits">
+        <li><strong>Publish instantly.</strong> Places you recommend go live right away — no approval queue.</li>
+        <li><strong>Reach the whole circle.</strong> Every member sees what you recommend.</li>
+        <li><strong>Membership for life.</strong> Your place is permanent, however Detour evolves.</li>
+        <li><strong>More invitations.</strong> A bigger allowance of invites to bring in people whose taste you trust.</li>
+      </ul>
     </div>
     <form class="network-invite-form" data-invite-request-form novalidate aria-labelledby="network-membership-title">
       <fieldset${pending ? ' disabled' : ''}>
@@ -333,14 +300,14 @@ function inviteRequestFormMarkup(accountHref: string): string {
             <p class="network-invite-field-error" id="invite-request-name-error">${esc(inviteRequestState.fieldErrors.name)}</p>
           </div>
           <div class="network-invite-field">
-            <label for="invite-request-email">Email</label>
-            <input id="invite-request-email" name="email" type="email" autocomplete="email" inputmode="email" required value="${esc(inviteRequestState.email)}" aria-describedby="invite-request-email-error"${inviteRequestState.fieldErrors.email ? ' aria-invalid="true"' : ''}>
-            <p class="network-invite-field-error" id="invite-request-email-error">${esc(inviteRequestState.fieldErrors.email)}</p>
-          </div>
-          <div class="network-invite-field">
             <label for="invite-request-city">City <span>(optional)</span></label>
             <input id="invite-request-city" name="city" type="text" autocomplete="address-level2" maxlength="120" value="${esc(inviteRequestState.city)}" aria-describedby="invite-request-city-error"${inviteRequestState.fieldErrors.city ? ' aria-invalid="true"' : ''}>
             <p class="network-invite-field-error" id="invite-request-city-error">${esc(inviteRequestState.fieldErrors.city)}</p>
+          </div>
+          <div class="network-invite-field network-invite-field-wide">
+            <label for="invite-request-email">Email</label>
+            <input id="invite-request-email" name="email" type="email" autocomplete="email" inputmode="email" required value="${esc(inviteRequestState.email)}" aria-describedby="invite-request-email-error"${inviteRequestState.fieldErrors.email ? ' aria-invalid="true"' : ''}>
+            <p class="network-invite-field-error" id="invite-request-email-error">${esc(inviteRequestState.fieldErrors.email)}</p>
           </div>
           <div class="network-invite-field network-invite-field-wide">
             <label for="invite-request-why">What would you bring to Detour? <span>(optional)</span></label>
@@ -425,7 +392,7 @@ export function ensureNetworkDiscovery(render: () => void, city = ''): void {
     status = 'idle';
     void loadNetworkDiscovery(render);
   }
-  if (firstPlaceLoadedFor !== record.id && firstPlaceStatus !== 'loading') {
+  if (record && firstPlaceLoadedFor !== record.id && firstPlaceStatus !== 'loading') {
     firstPlaceStatus = 'idle';
     void loadFirstPlaceEligibility(render);
   }
@@ -536,7 +503,7 @@ function replyThreadMarkup(item: DiscoveryShare): string {
     ${count ? `<ol class="network-reply-list">${item.replies.map(replyMarkup).join('')}</ol>` : '<p class="network-replies-empty">No replies yet. Keep the conversation tied to this food-and-drink destination.</p>'}
     <form class="network-reply-form" data-network-reply-form data-share-id="${esc(item.id)}" novalidate>
       <label for="${fieldId}">Reply about ${esc(item.venue_name || 'this destination')}</label>
-      <textarea id="${fieldId}" name="body" rows="3" minlength="${REPLY_MIN_LENGTH}" maxlength="${REPLY_MAX_LENGTH}" required aria-describedby="${helpId} ${statusId}"${state.validationError ? ' aria-invalid="true"' : ''} placeholder="Add a private note about this food-and-drink destination…" ${state.submitting ? 'disabled' : ''}>${esc(state.body)}</textarea>
+      <textarea id="${fieldId}" name="body" rows="3" minlength="${REPLY_MIN_LENGTH}" maxlength="${REPLY_MAX_LENGTH}" required aria-describedby="${helpId} ${statusId}"${state.validationError ? ' aria-invalid="true"' : ''} placeholder="Add a private note…" ${state.submitting ? 'disabled' : ''}>${esc(state.body)}</textarea>
       <div class="network-reply-form-footer">
         <p id="${helpId}" class="network-reply-help">Visible only within this private share · ${REPLY_MIN_LENGTH}–${REPLY_MAX_LENGTH.toLocaleString()} characters · at least two words</p>
         <button type="submit" class="network-reply-submit" ${state.submitting ? 'disabled aria-busy="true"' : ''}>${state.submitting ? 'Sending…' : 'Send reply'}</button>
@@ -546,31 +513,56 @@ function replyThreadMarkup(item: DiscoveryShare): string {
   </section>`;
 }
 
-function recommendationMarkup(item: DiscoveryRecommendation, resolvePlace?: NetworkPlaceResolver): string {
-  const when = formatDate(item.created);
-  const whereabouts = [item.city, item.country].filter(Boolean).join(', ');
-  const name = item.venue_name || 'Recommended food-and-drink destination';
-  const place = item.venue_name && resolvePlace ? resolvePlace(item.venue_name, item.city || '') : null;
+// The single recommendation-card renderer. The anonymous sample and the
+// signed-in feed both use it, so the two surfaces cannot drift apart — only
+// the byline attribution differs per caller.
+function recommendationCardMarkup(
+  view: {
+    venueName: string;
+    city?: string;
+    country?: string;
+    note?: string;
+    created?: string;
+    bylineHtml: string;
+  },
+  resolvePlace?: NetworkPlaceResolver
+): string {
+  const when = view.created ? formatDate(view.created) : '';
+  const whereabouts = [view.city, view.country].filter(Boolean).join(', ');
+  const place = view.venueName && resolvePlace ? resolvePlace(view.venueName, view.city || '') : null;
   const title = place
-    ? `<button type="button" class="network-entry-place" data-open-destination="${esc(place.destinationSlug)}" data-open-venue="${esc(place.venueId)}" aria-label="Open ${esc(name)} on the map">${esc(name)}</button>`
-    : esc(name);
+    ? `<button type="button" class="network-entry-place" data-open-destination="${esc(place.destinationSlug)}" data-open-venue="${esc(place.venueId)}" aria-label="Open ${esc(view.venueName)} in Detour">${esc(view.venueName)}</button>`
+    : esc(view.venueName);
   const thumb = place?.imageUrl
     ? `<figure class="network-entry-thumb"><img src="${esc(place.imageUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-network-thumb></figure>`
     : '';
-  return `<article class="network-entry network-recommendation${thumb ? ' network-entry-with-thumb' : ''}">
+  return `<article class="network-entry network-recommendation${thumb ? ' network-entry-with-thumb' : ''}" data-network-recommendation>
     <div class="network-entry-main">
       <header class="network-entry-head">
         <div>
           <h3>${title}</h3>
           ${whereabouts ? `<p class="network-place-meta">${esc(whereabouts)}</p>` : ''}
         </div>
-        <span class="network-entry-kind">${item.is_own ? 'Your recommendation' : 'Recommendation'}</span>
       </header>
-      ${item.note ? `<blockquote><p>${esc(item.note)}</p></blockquote>` : '<p class="network-entry-note-empty">No note was included with this recommendation.</p>'}
-      <p class="network-entry-byline">${item.is_own ? '<strong class="network-pseudo">You</strong>' : pseudo(item.recommender_pseudo)}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
+      ${view.note ? `<blockquote><p>${esc(view.note)}</p></blockquote>` : '<p class="network-entry-note-empty">No note was included with this recommendation.</p>'}
+      <p class="network-entry-byline">${view.bylineHtml}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(view.created)}">${esc(when)}</time>` : ''}</p>
     </div>
     ${thumb}
   </article>`;
+}
+
+function recommendationMarkup(item: DiscoveryRecommendation, resolvePlace?: NetworkPlaceResolver): string {
+  return recommendationCardMarkup(
+    {
+      venueName: item.venue_name || 'Recommended food-and-drink destination',
+      city: item.city,
+      country: item.country,
+      note: item.note,
+      created: item.created,
+      bylineHtml: item.is_own ? '<strong class="network-pseudo">You</strong>' : pseudo(item.recommender_pseudo),
+    },
+    resolvePlace
+  );
 }
 
 function shareMarkup(item: DiscoveryShare): string {
@@ -584,7 +576,10 @@ function shareMarkup(item: DiscoveryShare): string {
         <h3>${esc(item.venue_name || 'Shared food-and-drink destination')}</h3>
         ${metadata ? `<p class="network-place-meta">${esc(metadata)}</p>` : ''}
       </div>
-      <span class="network-entry-kind">${received ? (item.seen ? 'Received' : 'New share') : 'Sent'}</span>
+      <div class="network-entry-side">
+        <span class="network-entry-kind">${received ? (item.seen ? 'Received' : 'New share') : 'Sent'}</span>
+        ${item.id ? `<button type="button" class="network-share-archive" data-network-archive-share="${esc(item.id)}" ${archivingShareIds.has(item.id) ? 'disabled' : ''}>${archivingShareIds.has(item.id) ? 'Archiving…' : 'Archive'}</button>` : ''}
+      </div>
     </header>
     ${item.personal_note ? `<blockquote><p>${esc(item.personal_note)}</p></blockquote>` : '<p class="network-entry-note-empty">No personal note was included.</p>'}
     <p class="network-entry-byline">${received ? 'From' : 'To'} ${pseudo(personPseudo, received ? 'A Detour member' : 'a Detour member')}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
@@ -602,6 +597,20 @@ function firstPlaceInvitationMarkup(accountHref: string): string {
     </div>
     <a class="network-primary-link" href="${esc(accountHref)}" data-community-route="recommend-place">Add your first place <span aria-hidden="true">↗</span></a>
   </aside>`;
+}
+
+function shareColumnMarkup(items: DiscoveryShare[], emptyText: string): string {
+  if (!items.length) return `<p class="network-column-empty">${emptyText}</p>`;
+  const sorted = [...items].sort((a, b) => recencyValue(b) - recencyValue(a));
+  const shown = sharesExpanded ? sorted : sorted.slice(0, 1);
+  const hidden = sorted.length - shown.length;
+  const toggle =
+    hidden > 0
+      ? `<button type="button" class="network-retry network-show-more" data-shares-toggle>Show ${hidden} more</button>`
+      : sharesExpanded && sorted.length > 1
+        ? '<button type="button" class="network-retry network-show-more" data-shares-toggle>Show fewer</button>'
+        : '';
+  return `<div class="network-entry-list">${shown.map(shareMarkup).join('')}</div>${toggle}`;
 }
 
 function memberFeedMarkup(accountHref: string, resolvePlace?: NetworkPlaceResolver): string {
@@ -631,7 +640,8 @@ function memberFeedMarkup(accountHref: string, resolvePlace?: NetworkPlaceResolv
   );
   const activeCountry = countries.includes(recommendationCountry) ? recommendationCountry : '';
   const matching = activeCountry ? recommendations.filter((item) => item.country?.trim() === activeCountry) : recommendations;
-  const latest = [...matching].sort((a, b) => recencyValue(b) - recencyValue(a)).slice(0, RECOMMENDATION_PREVIEW_LIMIT);
+  const sorted = [...matching].sort((a, b) => recencyValue(b) - recencyValue(a));
+  const latest = recommendationsExpanded ? sorted : sorted.slice(0, RECOMMENDATION_PREVIEW_LIMIT);
   const hiddenCount = matching.length - latest.length;
 
   return `<div class="network-member-content">
@@ -658,56 +668,38 @@ function memberFeedMarkup(accountHref: string, resolvePlace?: NetworkPlaceResolv
         latest.length
           ? `<div class="network-entry-list network-recommendation-grid">${latest.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div>${
               hiddenCount > 0
-                ? `<p class="network-entry-more">Showing the ${RECOMMENDATION_PREVIEW_LIMIT} most recent${activeCountry ? ` in ${esc(activeCountry)}` : ''}. ${hiddenCount} more ${hiddenCount === 1 ? 'recommendation is' : 'recommendations are'} in the circle${!activeCountry && countries.length > 1 ? ' — filter by country to see others' : ''}.</p>`
-                : ''
+                ? `<button type="button" class="network-retry network-show-more" data-network-show-more>Show ${hiddenCount} more</button>`
+                : recommendationsExpanded && matching.length > RECOMMENDATION_PREVIEW_LIMIT
+                  ? '<button type="button" class="network-retry network-show-more" data-network-show-more>Show fewer</button>'
+                  : ''
             }`
           : `<div class="network-empty"><h3>No circle recommendations yet</h3><p>Recommendations will appear here as members add them, unless they choose to keep theirs private.</p></div>`
       }
     </section>
     <section class="network-stream network-shares" aria-labelledby="network-shares-title">
       <div class="network-section-heading">
-        <div><h2 id="network-shares-title">Shared destinations</h2><p>Private incoming and outgoing destination shares, kept together.</p></div>
+        <div><h2 id="network-shares-title">Your private shares</h2><p>Private incoming and outgoing destination shares, kept together.</p></div>
         <div class="network-section-actions">
           <p class="network-section-count">${shareCount} ${shareCount === 1 ? 'share' : 'shares'}</p>
+          ${shareCount ? `<button type="button" class="network-retry network-cassette-flip" data-cassette-flip>${cassetteFlipLabel()}</button>` : ''}
           <a class="network-primary-link network-share-cta" href="${esc(accountHref)}" data-community-route="share-place">Share<span aria-hidden="true">↗</span></a>
         </div>
       </div>
-      ${shareCount ? `<div class="network-share-columns">
-        <section aria-labelledby="network-received-title"><h3 id="network-received-title">Shared with you</h3>${received.length ? `<div class="network-entry-list">${received.map(shareMarkup).join('')}</div>` : '<p class="network-column-empty">Nothing received yet.</p>'}</section>
-        <section aria-labelledby="network-sent-title"><h3 id="network-sent-title">Sent by you</h3>${sent.length ? `<div class="network-entry-list">${sent.map(shareMarkup).join('')}</div>` : '<p class="network-column-empty">Nothing sent yet.</p>'}</section>
+      ${shareCount ? `<div class="network-share-columns${sharesSide === 'b' ? ' is-side-b' : ''}">
+        <section aria-labelledby="network-received-title"><h3 id="network-received-title">Shared with you</h3>${shareColumnMarkup(received, 'Nothing received yet.')}</section>
+        <section aria-labelledby="network-sent-title"><h3 id="network-sent-title">Sent by you</h3>${shareColumnMarkup(sent, 'Nothing sent yet.')}</section>
       </div>` : `<div class="network-empty"><h3>No shares yet</h3><p>Use the member area to send a restaurant, café, bar, or other food-and-drink destination privately to another member of the circle.</p></div>`}
     </section>
   </div>`;
 }
 
-function publicRecommendationMarkup(item: PublicRecommendation, resolvePlace?: NetworkPlaceResolver): string {
-  const place = resolvePlace ? resolvePlace(item.venue_name, item.city) : null;
-  const whereabouts = [item.city, item.country].filter(Boolean).join(', ');
-  const when = formatDate(item.created);
-  const title = place
-    ? `<button type="button" class="network-entry-place" data-open-destination="${esc(place.destinationSlug)}" data-open-venue="${esc(place.venueId)}" aria-label="Open ${esc(item.venue_name)} in Detour">${esc(item.venue_name)}</button>`
-    : esc(item.venue_name);
-  const thumb = place?.imageUrl
-    ? `<figure class="network-entry-thumb"><img src="${esc(place.imageUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-network-thumb></figure>`
-    : '';
-  return `<article class="network-public-recommendation${thumb ? ' network-entry-with-thumb' : ''}" data-network-recommendation>
-    <div class="network-entry-main">
-      <header>
-        <h3>${title}</h3>
-        <p class="network-place-meta">${esc(whereabouts)}</p>
-      </header>
-      <blockquote><p>${esc(item.note)}</p></blockquote>
-      <p class="network-entry-byline">Recommended by <strong class="network-pseudo">@${esc(item.recommender_pseudo)}</strong>${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
-    </div>
-    ${thumb}
-  </article>`;
-}
-
+// The anonymous sample section: same endpoint, same state, same cards as the
+// member feed — the server already reduces the payload to a public-safe
+// four-place sample for signed-out callers.
 function publicRecommendationSampleMarkup(resolvePlace?: NetworkPlaceResolver): string {
   const feed = publicRecommendationFeed();
   const heading = `<div class="network-public-sample-heading">
     <div><p class="network-membership-label">From the circle</p><h2 id="network-public-recommendations-title">Places members would send you.</h2></div>
-    <p>A live sample of published recommendations, in members’ own words.</p>
   </div>`;
 
   if (feed.status === 'loading' || feed.status === 'idle') {
@@ -731,7 +723,7 @@ function publicRecommendationSampleMarkup(resolvePlace?: NetworkPlaceResolver): 
   return `<section class="network-public-sample" aria-labelledby="network-public-recommendations-title">
     ${heading}
     ${sample.length
-      ? `<div class="network-public-list">${sample.map((item) => publicRecommendationMarkup(item, resolvePlace)).join('')}</div><p class="network-public-sample-note">This sample stays small: only real, published member recommendations appear here.</p>`
+      ? `<div class="network-public-list">${sample.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div><p class="network-public-sample-note">This sample stays small: only real, published member recommendations appear here.</p>`
       : '<div class="network-public-state"><p>No public recommendation sample is available right now. You can still request an invitation or sign in.</p></div>'}
   </section>`;
 }
@@ -743,7 +735,7 @@ export function networkDiscoveryMarkup(accountHref: string, resolvePlace?: Netwo
       <div class="network-invitation-copy">
         <p class="network-kicker">An invite-only circle shaped by member taste</p>
         <h1 id="network-home-title">See the places your network would actually recommend.</h1>
-        <p class="network-invitation-lead">Every place shown begins with a member’s recommendation and the note behind it. The circle stays intentionally considered, while direct shares and replies remain private.</p>
+        <p class="network-invitation-lead">Every place on Detour is here because a member loves it and took the time to say why. No ads, no paid listings, no anonymous stars — only recommendations from people whose taste you trust.</p>
       </div>
       ${publicRecommendationSampleMarkup(resolvePlace)}
       <aside class="network-invitation-action" aria-label="Founding membership and member sign-in">
@@ -821,19 +813,19 @@ async function loadPublicRecommendations(render: () => void, city = ''): Promise
 }
 
 async function loadNetworkDiscovery(render: () => void): Promise<void> {
-  const record = memberRecord();
-  if (!record || status === 'loading') return;
+  if (status === 'loading') return;
+  const identity = memberRecord()?.id || '';
   status = 'loading';
-  loadedFor = record.id;
+  loadedFor = identity || '@anonymous';
   errorMessage = '';
   render();
   try {
     const payload = await pb.send<unknown>('/api/detour/network-discovery', { requestKey: null });
-    if (memberRecord()?.id !== record.id) return;
+    if ((memberRecord()?.id || '') !== identity) return;
     discovery = cleanPayload(payload);
     status = 'ready';
   } catch (error) {
-    if (memberRecord()?.id !== record.id) return;
+    if ((memberRecord()?.id || '') !== identity) return;
     discovery = { recommendations: [], shares: [] };
     status = 'error';
     errorMessage = readableError(error, 'The Detour circle is unavailable right now. Please try again shortly.');
@@ -978,6 +970,49 @@ export function bindNetworkDiscovery(root: HTMLElement, render: () => void): voi
   root.querySelector<HTMLSelectElement>('[data-network-country]')?.addEventListener('change', (event) => {
     recommendationCountry = (event.currentTarget as HTMLSelectElement).value;
     render();
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-network-show-more]')?.addEventListener('click', () => {
+    recommendationsExpanded = !recommendationsExpanded;
+    render();
+  });
+
+  root.querySelectorAll<HTMLButtonElement>('[data-shares-toggle]').forEach((button) => {
+    button.addEventListener('click', () => {
+      sharesExpanded = !sharesExpanded;
+      render();
+    });
+  });
+
+  root.querySelectorAll<HTMLButtonElement>('[data-network-archive-share]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const shareId = button.dataset.networkArchiveShare || '';
+      const share = discovery.shares.find((item) => item.id === shareId);
+      if (!share || archivingShareIds.has(shareId)) return;
+      // Archive state is per-side: receiving and sending each hide only the
+      // caller's own copy; the discovery route filters the same way.
+      const field = share.direction === 'received' ? 'archived' : 'sender_archived';
+      archivingShareIds.add(shareId);
+      render();
+      try {
+        await pb.collection('community_shares').update(shareId, { [field]: true }, { requestKey: null });
+        discovery.shares = discovery.shares.filter((item) => item.id !== shareId);
+      } catch {
+        // Leave the share in place; the button simply becomes pressable again.
+      } finally {
+        archivingShareIds.delete(shareId);
+        render();
+      }
+    });
+  });
+
+  // The cassette flip animates via a CSS transition, so it toggles classes on
+  // the live DOM instead of re-rendering (a re-render would rebuild the DOM
+  // and skip the animation). Module state keeps later re-renders consistent.
+  root.querySelector<HTMLButtonElement>('[data-cassette-flip]')?.addEventListener('click', (event) => {
+    sharesSide = sharesSide === 'a' ? 'b' : 'a';
+    root.querySelector('.network-share-columns')?.classList.toggle('is-side-b', sharesSide === 'b');
+    (event.currentTarget as HTMLButtonElement).textContent = cassetteFlipLabel();
   });
 
   root.querySelectorAll<HTMLFormElement>('[data-network-reply-form]').forEach((form) => {

@@ -1,4 +1,5 @@
 import './styles.css';
+import './restyle.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { citySlug, loadLiveCatalogue } from './data';
@@ -435,7 +436,7 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
         <span class="pin-pearl" aria-hidden="true">
           <span class="pin-signal"></span>
         </span>
-        <span class="pin-label">${esc(v.name)}<small>${esc(detouristNote(v))}</small></span>
+        <span class="pin-label">${esc(v.name)}${v.category ? `<small>${esc(v.category)}</small>` : ''}</span>
       </span>`,
       iconSize: [0, 0],
       iconAnchor: [0, 0],
@@ -446,10 +447,6 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
       riseOnHover: true,
       zIndexOffset: selected ? 1000 : 0,
     }).addTo(map);
-    marker.bindPopup(
-      `<strong>${esc(v.name)}</strong><br><span class="popup-member">${esc(detouristNote(v))}</span>${venueOccasions(v).length ? `<br><span class="popup-occasions">Good for: ${esc(occasionSummary(v))}</span>` : ''}`,
-      { closeButton: false, offset: [0, -6] }
-    );
     const select = () => {
       const deselecting = state.selectedId === v.id;
       state.selectedId = deselecting ? null : v.id;
@@ -493,7 +490,6 @@ function mountMap(root: HTMLElement, list: Venue[]): void {
         });
       }
     }
-    if (selected) marker.openPopup();
   }
 
   // User location — shown only when the browser granted a real position that
@@ -908,6 +904,14 @@ function syncDocumentMeta(destinationName: string | null, account = false): void
 }
 
 function bindRouteLinks(root: HTMLElement): void {
+  // Theme switching is pure CSS on a root attribute — update in place, no
+  // re-render needed. Bound here because every view calls bindRouteLinks.
+  root.querySelector<HTMLButtonElement>('[data-tape-theme-toggle]')?.addEventListener('click', (event) => {
+    tapeTheme = tapeTheme === 'auto' ? 'light' : tapeTheme === 'light' ? 'dark' : 'auto';
+    localStorage.setItem(TAPE_THEME_KEY, tapeTheme);
+    applyTapeTheme(root);
+    (event.currentTarget as HTMLButtonElement).textContent = tapeThemeLabel();
+  });
   root.querySelectorAll<HTMLAnchorElement>('[data-community-route]').forEach((link) => {
     link.addEventListener('click', (event) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -984,6 +988,7 @@ function renderAccount(root: HTMLElement): void {
     ${communityPanel(state.venues)}
     <footer class="footer account-footer">
       <p>Members appear by pseudo. Direct shares and replies stay private, while recommendations are discoverable across the invite-only circle.</p>
+      ${tapeThemeToggleMarkup()}
     </footer>
   `;
 
@@ -1060,8 +1065,32 @@ function resolveNetworkPlace(venueName: string, city: string): { venueId: string
   };
 }
 
+// Manual override for the restyle's light/dark tokens; 'auto' follows the OS
+// via the prefers-color-scheme block in restyle-home.css.
+type TapeTheme = 'auto' | 'light' | 'dark';
+const TAPE_THEME_KEY = 'detour-tape-theme';
+let tapeTheme: TapeTheme = ((): TapeTheme => {
+  const stored = localStorage.getItem(TAPE_THEME_KEY);
+  return stored === 'light' || stored === 'dark' ? stored : 'auto';
+})();
+
+function applyTapeTheme(root: HTMLElement): void {
+  if (tapeTheme === 'auto') delete root.dataset.tapeTheme;
+  else root.dataset.tapeTheme = tapeTheme;
+}
+
+function tapeThemeLabel(): string {
+  return `Theme: ${tapeTheme}`;
+}
+
+function tapeThemeToggleMarkup(): string {
+  return `<button type="button" class="tape-theme-toggle" data-tape-theme-toggle aria-label="Switch color theme (auto, light, dark)">${tapeThemeLabel()}</button>`;
+}
+
 function renderHome(root: HTMLElement): void {
   destroyMap();
+  root.dataset.restyle = 'home';
+  applyTapeTheme(root);
   syncDocumentMeta(null);
   const covered = destinations();
   const catalogueStatus =
@@ -1114,6 +1143,7 @@ function renderHome(root: HTMLElement): void {
     </section>
     <footer class="footer network-footer">
       <p>Recommendations stay within the invite-only Detour circle. Direct shares and replies remain private.</p>
+      ${tapeThemeToggleMarkup()}
     </footer>
   `;
 
@@ -1165,6 +1195,17 @@ function renderHome(root: HTMLElement): void {
 }
 
 function render(root: HTMLElement) {
+  // Mixtape design scope: every view opts in with its own tag so restyle.css
+  // can target views individually; the theme attribute rides along app-wide.
+  applyTapeTheme(root);
+  root.dataset.restyle =
+    state.view === 'survey'
+      ? 'survey'
+      : state.view === 'account'
+        ? 'account'
+        : state.mode === 'loading' || state.view === 'home' || !state.destination
+          ? 'home'
+          : 'destination';
   if (state.view === 'survey') {
     destroyMap();
     document.title = 'Founding feedback — Detour';
@@ -1209,6 +1250,7 @@ function render(root: HTMLElement) {
       </section>
       <footer class="footer city-chooser-footer">
         <p>Built from recommendations by Detour members. Take a detour.</p>
+        ${tapeThemeToggleMarkup()}
       </footer>
     `;
     bindRouteLinks(root);
@@ -1272,6 +1314,7 @@ function render(root: HTMLElement) {
     ${destinationContent}
     <footer class="footer">
       <p>Recommended by members. Ready for your next detour.</p>
+      ${tapeThemeToggleMarkup()}
     </footer>
   `;
 

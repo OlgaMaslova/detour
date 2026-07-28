@@ -1569,6 +1569,7 @@ a.brand:focus-visible {
 .community-shares-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(1rem, 3vw, 2rem); }
 .community-share-column { align-content: start; gap: 0.75rem; }
 .community-share-card { display: grid; gap: 0.75rem; padding: 1rem; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); }
+.community-share-archive { justify-self: start; }
 .community-share-heading > span { color: oklch(0.33 0.06 310); background: var(--violet-soft); }
 .community-share-card-sent .community-share-heading > span { color: oklch(0.34 0.055 158); background: var(--mint-soft); }
 .community-share-card blockquote { margin: 0; padding: 0.75rem; color: var(--ink); background: var(--canvas); border: 0; font-family: var(--serif); font-size: 0.92rem; line-height: 1.5; }
@@ -2895,36 +2896,13 @@ a.brand:focus-visible {
   line-height: 1.5;
   text-wrap: pretty;
 }
+/* Public sample entries render through the same recommendation card as the
+   signed-in feed (recommendationCardMarkup), so the list is just spacing —
+   the cards bring their own chrome. */
 .network-public-list {
   display: grid;
-  background: white;
-  border: 1px solid color-mix(in oklch, var(--line-strong) 78%, var(--oxblood));
+  gap: 1rem;
 }
-.network-public-recommendation {
-  display: grid;
-  gap: 0.8rem;
-  min-width: 0;
-  padding: clamp(0.9rem, 2.5vw, 1.2rem);
-}
-.network-public-recommendation + .network-public-recommendation { border-top: 1px solid var(--line); }
-.network-public-recommendation header h3 {
-  margin: 0;
-  font-family: var(--serif);
-  font-size: 1.2rem;
-  line-height: 1.12;
-  text-wrap: balance;
-}
-.network-public-recommendation blockquote {
-  margin: 0;
-  color: var(--ink);
-  font-family: var(--serif);
-  font-size: clamp(0.98rem, 1.7vw, 1.08rem);
-  line-height: 1.5;
-}
-.network-public-recommendation blockquote p,
-.network-public-recommendation .network-entry-byline { margin: 0; }
-.network-public-recommendation :where(h3, blockquote, .network-entry-byline) { overflow-wrap: anywhere; }
-.network-public-recommendation time { font-variant-numeric: tabular-nums; }
 .network-public-state {
   display: flex;
   min-height: 7rem;
@@ -2987,6 +2965,33 @@ a.brand:focus-visible {
   text-transform: uppercase;
 }
 .network-invite-intro { display: grid; gap: 0.65rem; }
+.network-founding-benefits-title {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.network-founding-benefits {
+  margin: 0.15rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+}
+.network-founding-benefits li {
+  position: relative;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+.network-founding-benefits li::before {
+  content: '—';
+  position: absolute;
+  left: 0;
+  opacity: 0.7;
+}
+.network-founding-benefits strong { font-weight: 800; }
 .network-invite-form,
 .network-invite-form fieldset { display: grid; gap: 1rem; min-width: 0; }
 .network-invite-form fieldset { margin: 0; padding: 0; border: 0; }
@@ -3213,11 +3218,14 @@ a.brand:focus-visible {
   box-shadow: 4px 4px 0 color-mix(in oklch, var(--network-section-accent) 34%, white);
   transition: border-color 220ms cubic-bezier(0.25, 1, 0.5, 1), box-shadow 220ms cubic-bezier(0.25, 1, 0.5, 1);
 }
-.network-entry-with-thumb { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+/* The venue photo is a full-width banner above the text, so a large image
+   never squeezes the title into a narrow column. */
+.network-entry-with-thumb { grid-template-columns: minmax(0, 1fr); }
 .network-entry-main { display: grid; gap: 0.85rem; min-width: 0; }
 .network-entry-thumb {
-  width: 5.25rem;
-  height: 5.25rem;
+  order: -1;
+  width: 100%;
+  height: 13rem;
   margin: 0;
   overflow: hidden;
   background: var(--canvas);
@@ -3289,6 +3297,32 @@ a.brand:focus-visible {
 .network-entry-note-empty { margin: 0; }
 .network-entry-note-empty { color: var(--ink-soft); font-size: 0.84rem; font-style: italic; }
 .network-entry-byline { margin: 0; color: var(--ink-soft); font-size: 0.78rem; }
+/* Archiving is a quiet, reversible tidy-up — an accent text action in the
+   card's top-right corner, not a sticker button, in every theme.
+   --tape-orange only exists inside the restyled home, so the base theme falls
+   back to its member-accent violet. */
+.network-entry-side {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.9rem;
+}
+.network-share-archive {
+  padding: 0;
+  color: var(--tape-orange, var(--violet));
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.network-share-archive:hover { opacity: 0.75; }
+.network-share-archive:disabled { opacity: 0.45; cursor: default; text-decoration: none; }
 .network-pseudo { color: var(--violet); font-weight: 750; }
 .network-entry-byline .network-pseudo,
 .network-reply-byline .network-pseudo,
@@ -3529,7 +3563,7 @@ a.brand:focus-visible {
   .network-first-place .network-primary-link { width: 100%; }
   .network-section-count { align-self: flex-start; }
   .network-section-actions { flex-direction: row-reverse; align-self: stretch; justify-content: flex-end; }
-  .network-entry-thumb { width: 4rem; height: 4rem; }
+  .network-entry-thumb { height: 9rem; }
   .network-entry-kind { order: -1; }
   .network-reply-form-footer { align-items: stretch; flex-direction: column; }
   .network-reply-submit { width: 100%; }

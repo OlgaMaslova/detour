@@ -66,6 +66,8 @@ interface ShareRecord {
   sender_pseudo?: string;
   recipient_pseudo?: string;
   seen?: boolean;
+  archived?: boolean;
+  sender_archived?: boolean;
   personal_note?: string;
   venue_name?: string;
   city?: string;
@@ -122,6 +124,7 @@ let knownVenues: Venue[] = [];
 let waitlistEntries: WaitlistEntry[] = [];
 let recommendations: RecommendationRecord[] = [];
 let shares: ShareRecord[] = [];
+const archivingShares = new Set<string>();
 let communityLoaded = false;
 let loadingCommunity = false;
 let invites: InviteRecord[] = [];
@@ -310,12 +313,12 @@ function signedOutPanel(): string {
 
 function incomingShares(): ShareRecord[] {
   const id = member()?.id;
-  return shares.filter((share) => Boolean(id && share.recipient === id));
+  return shares.filter((share) => Boolean(id && share.recipient === id) && !share.archived);
 }
 
 function outgoingShares(): ShareRecord[] {
   const id = member()?.id;
-  return shares.filter((share) => Boolean(id && share.sender === id));
+  return shares.filter((share) => Boolean(id && share.sender === id) && !share.sender_archived);
 }
 
 function recommendationForEntry(entryId: string): RecommendationRecord | undefined {
@@ -488,6 +491,7 @@ function incomingShareCard(share: ShareRecord): string {
     <p class="community-share-from">${memberIdentityMarkup(share.sender_pseudo)} shared this food-and-drink destination with you.</p>
     <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
     ${share.venue ? '<p class="community-share-state is-success">In the Detour selection.</p>' : ''}
+    <button class="community-secondary community-share-archive" type="button" data-community-archive-share="${esc(share.id)}" ${archivingShares.has(share.id) ? 'disabled' : ''}>${archivingShares.has(share.id) ? 'Archiving…' : 'Archive'}</button>
   </article>`;
 }
 
@@ -496,6 +500,7 @@ function outgoingShareCard(share: ShareRecord): string {
     <div class="community-share-heading"><div><h4>${esc(share.venue_name || 'Shared food-and-drink destination')}</h4><p>${esc([share.address, share.city, share.country].filter(Boolean).join(', '))}</p></div><span>Sent</span></div>
     <p class="community-share-from">Shared with ${memberIdentityMarkup(share.recipient_pseudo, 'a Detour member')}.</p>
     <blockquote><p>${esc(share.personal_note || '')}</p></blockquote>
+    <button class="community-secondary community-share-archive" type="button" data-community-archive-share="${esc(share.id)}" ${archivingShares.has(share.id) ? 'disabled' : ''}>${archivingShares.has(share.id) ? 'Archiving…' : 'Archive'}</button>
   </article>`;
 }
 
@@ -718,6 +723,7 @@ function resetCommunityState(): void {
   waitlistEntries = [];
   recommendations = [];
   shares = [];
+  archivingShares.clear();
   communityLoaded = false;
   loadingCommunity = false;
   invites = [];
@@ -1126,6 +1132,28 @@ export function bindCommunity(
       resetCommunityState();
       notice = { kind: 'info', text: 'You have signed out of Detour.' };
       render();
+    })
+  );
+
+  root.querySelectorAll<HTMLButtonElement>('[data-community-archive-share]').forEach((button) =>
+    button.addEventListener('click', async () => {
+      const shareId = button.dataset.communityArchiveShare || '';
+      const share = shares.find((item) => item.id === shareId);
+      if (!share || archivingShares.has(shareId)) return;
+      // Archive state is per-side: the recipient's button hides the inbox
+      // copy, the sender's button hides the sent copy.
+      const field = share.recipient === member()?.id ? 'archived' : 'sender_archived';
+      archivingShares.add(shareId);
+      render();
+      try {
+        await pb.collection('community_shares').update(shareId, { [field]: true }, { requestKey: null });
+        share[field] = true;
+      } catch (error) {
+        notice = { kind: 'error', text: readableError(error, 'That share could not be archived. Please try again.') };
+      } finally {
+        archivingShares.delete(shareId);
+        render();
+      }
     })
   );
 
