@@ -8,11 +8,11 @@ This README is an operator runbook, not user-facing copy.
 ## Durable managed API URL
 
 The backend's durable API base URL is fixed by the managed Fly app name
-(`fly.toml`: `app = "sn-pb-repo-1297566350-6aebd3"`) and is recorded in
+(`fly.toml`: `app = "sn-pb-repo-1297566350-a88d3c"`) and is recorded in
 `.env.example`:
 
 ```
-https://sn-pb-repo-1297566350-6aebd3.fly.dev
+https://sn-pb-repo-1297566350-a88d3c.fly.dev
 ```
 
 Frontend/browser code must read it from `VITE_POCKETBASE_URL` (see
@@ -33,8 +33,8 @@ the platform.
   `pb_hooks/main.pb.js`; returns `{ "ok": true }` with HTTP 200.
 
 ```
-curl -fsS https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/health
-curl -fsS https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/supernaut/ready
+curl -fsS https://sn-pb-repo-1297566350-a88d3c.fly.dev/api/health
+curl -fsS https://sn-pb-repo-1297566350-a88d3c.fly.dev/api/supernaut/ready
 ```
 
 ## Repository layout
@@ -279,7 +279,7 @@ API rules, so additionally smoke-test the public read path once with a real
 client call:
 
 ```
-curl -fsS "https://sn-pb-repo-1297566350-6aebd3.fly.dev/api/collections/venues/records?perPage=1"
+curl -fsS "https://sn-pb-repo-1297566350-a88d3c.fly.dev/api/collections/venues/records?perPage=1"
 ```
 
 If a write path is ever added, smoke-test it by creating and then deleting one

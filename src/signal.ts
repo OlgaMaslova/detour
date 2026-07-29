@@ -30,8 +30,19 @@ const DETOUR_MARK = `<svg class="signal-mark" viewBox="0 0 42 39" aria-hidden="t
  */
 export type SignalVariant = 'plate' | 'inline';
 
-/** Wording when no aggregate count is known — still member-recommended. */
-const NO_COUNT_LABEL = 'Member recommended';
+/**
+ * Wording when no aggregate count is on file.
+ *
+ * This used to read "Member recommended", which stated the one thing a zero
+ * count cannot support. It was written for an "unknown count" case, but in
+ * production zero meant *nobody*, so a leftover catalogue row with no
+ * recommender behind it was badged as recommended. Visibility is now derived
+ * from the member signal (see isPubliclyVisible in main.ts), so a zero-count
+ * place is not rendered at all and this branch should be unreachable on a public
+ * surface. It stays as a neutral fallback rather than a claim: if it ever renders
+ * again, it must not assert something no member said.
+ */
+const NO_COUNT_LABEL = 'On Detour';
 
 function clampCount(count: number | undefined): number {
   return typeof count === 'number' && Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;

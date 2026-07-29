@@ -1,5 +1,5 @@
 import { pb } from './pocketbase';
-import { bindMemberShares, markNetworkSharesSeen, memberSharesMarkup } from './network';
+import { bindMemberShares, markNetworkSharesSeen, memberSharesMarkup, resetNetworkDiscovery } from './network';
 import { venueCitySlug, venuePlaceSlug } from './data';
 import type { Venue } from './data';
 import { OCCASION_OPTIONS } from './occasions';
@@ -112,7 +112,12 @@ const MEMBER_TAB_LABELS: Record<MemberTab, string> = {
   invitations: 'Invitations',
   settings: 'Settings',
 };
-const INVITATION_LIMIT = 10;
+// The invitation allowance is server policy: founding members keep more codes
+// open at once than regular members. The server reports the member's computed
+// limit (the founding markers themselves are hidden fields), so the panel shows
+// the baseline until that arrives and never invents a larger allowance.
+const BASELINE_INVITATION_LIMIT = 10;
+let invitationLimit = BASELINE_INVITATION_LIMIT;
 // Your recommendations reads as a ledger of lines, so it opens on the five
 // most recently touched entries and expands from there.
 const QUEUE_PREVIEW_LIMIT = 5;
@@ -137,6 +142,8 @@ let invitationCodePrefill = '';
 let routedInvitationCode: string | null = null;
 let memberTab: MemberTab = 'invitations';
 let detourTab: DetourTab = 'recommendations';
+let recommendationDraft: Venue | null = null;
+let recommendationIntent: 'add' | 'edit' = 'add';
 let notice: Notice | null = null;
 let knownVenues: Venue[] = [];
 let waitlistEntries: WaitlistEntry[] = [];
@@ -374,6 +381,16 @@ function publishedVenueForEntry(entry: WaitlistEntry): Venue | undefined {
   return matches.length === 1 ? matches[0] : undefined;
 }
 
+function entryForVenue(venue: Venue): WaitlistEntry | undefined {
+  const direct = waitlistEntries.find((entry) => entry.published_venue?.trim() === venue.id);
+  if (direct) return direct;
+  const identity = placeIdentity(venue.name, venue.city);
+  const matches = waitlistEntries.filter(
+    (entry) => placeIdentity(entry.venue_name, entry.city) === identity
+  );
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 /** Canonical URL of a published place's own page — the same route the cards use. */
 function discoveryHref(venue: Venue): string {
   const url = new URL(window.location.href);
@@ -495,13 +512,44 @@ function waitlistRow(entry: WaitlistEntry): string {
 }
 
 function recommendationPanel(): string {
-  return `<section class="community-ledger-section" aria-labelledby="community-waitlist-title">
-    <div class="community-section-heading">
-      <div><h3 id="community-waitlist-title">Recommend a destination</h3></div>
-      <p>As a verified member, you can recommend a restaurant, café, bar, or other food-and-drink destination anywhere in the world. It will be published on the Detourist List.</p>
-    </div>
-    <div class="community-action-grid community-recommend-action">
-      <form class="community-form" data-community-recommendation>
+  const draft = recommendationDraft;
+  if (draft && recommendationIntent === 'edit') {
+    const entry = entryForVenue(draft);
+    const recommendation = entry ? recommendationForEntry(entry.id) : undefined;
+    const editor =
+      loadingCommunity || !communityLoaded
+        ? '<p class="community-loading" role="status">Loading your recommendation…</p>'
+        : entry && recommendation
+          ? `<div class="community-direct-editor" id="waitlist-${esc(entry.id)}" tabindex="-1">
+              ${entryEditMarkup(entry)}
+            </div>`
+          : '<p class="community-empty">Your recommendation could not be matched to this place. Open all recommendations to find it.</p>';
+    return `<section class="community-ledger-section community-direct-edit" aria-labelledby="community-waitlist-title">
+      <div class="community-section-heading">
+        <div><h3 id="community-waitlist-title">Edit your recommendation for ${esc(draft.name)}</h3></div>
+        <p>Update your note or correct the place details. Saved changes appear on the place page.</p>
+      </div>
+      ${editor}
+      <button class="secondary-button community-view-all-recommendations" type="button" data-view-all-recommendations>View all recommendations</button>
+    </section>`;
+  }
+  const placeSummary = draft
+    ? [draft.address, draft.city, draft.country].filter(Boolean).join(', ')
+    : '';
+  const form = draft
+    ? `<form class="community-form community-same-place-form" data-community-recommendation>
+        <div class="community-prefilled-place" aria-label="Place being recommended">
+          <strong>${esc(draft.name)}</strong>
+          ${placeSummary ? `<span>${esc(placeSummary)}</span>` : ''}
+        </div>
+        <input type="hidden" name="venue_name" value="${esc(draft.name)}">
+        <input type="hidden" name="address" value="${esc(draft.address)}">
+        <input type="hidden" name="city" value="${esc(draft.city)}">
+        <input type="hidden" name="country" value="${esc(draft.country)}">
+        <label>Your recommendation<textarea id="recommendation-note" name="note" rows="5" maxlength="2400" minlength="24" required autofocus placeholder="What should another Detourist know about this place?"></textarea></label>
+        <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend this place'}</button>
+      </form>`
+    : `<form class="community-form" data-community-recommendation>
         <label>Food-and-drink destination name<input name="venue_name" maxlength="200" required placeholder="A restaurant, café, bar, or other food-and-drink destination"></label>
         <label>Address <span class="community-optional">Optional — we can look it up</span><input name="address" maxlength="300" placeholder="Street and number"></label>
         <div class="community-form-grid community-place-grid">
@@ -515,7 +563,18 @@ function recommendationPanel(): string {
         </fieldset>
         <label>Your recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?"></textarea></label>
         <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend'}</button>
-      </form>
+      </form>`;
+  return `<section class="community-ledger-section" aria-labelledby="community-waitlist-title">
+    <div class="community-section-heading">
+      <div><h3 id="community-waitlist-title">${draft ? `Recommend ${esc(draft.name)}` : 'Recommend a destination'}</h3></div>
+      <p>${
+        draft
+          ? 'You are recommending this exact place. Add your own note; its existing details stay attached.'
+          : 'As a verified member, you can recommend a restaurant, café, bar, or other food-and-drink destination anywhere in the world. It will be published on the Detourist List.'
+      }</p>
+    </div>
+    <div class="community-action-grid community-recommend-action">
+      ${form}
     </div>
     <div class="community-queue" aria-labelledby="your-community-queue-title">
       <div class="community-subheading">
@@ -600,7 +659,7 @@ function sharesPanel(): string {
 function invitesPanel(): string {
   const unclaimed = openInvites();
   const claimed = invites.filter((invite) => invite.claimed_by);
-  const available = Math.max(0, INVITATION_LIMIT - unclaimed.length);
+  const available = Math.max(0, invitationLimit - unclaimed.length);
   const allowanceKnown = invitesLoaded && !loadingInvites;
   const atLimit = allowanceKnown && available === 0;
   return `<section class="community-tab-panel community-invitation-panel" id="member-panel-invitations" role="tabpanel" aria-labelledby="member-tab-invitations" tabindex="0">
@@ -736,10 +795,20 @@ export function openSharePlace(): void {
   detourTab = 'shares';
 }
 
-/** Point the member area at the Recommend a place form (My detours → Recommendations) before it renders. */
-export function openRecommendPlace(): void {
+/** Point the member area at the Recommend form, optionally fixed to one published place. */
+export function openRecommendPlace(venue?: Venue): void {
   memberTab = 'detours';
   detourTab = 'recommendations';
+  recommendationDraft = venue || null;
+  recommendationIntent = 'add';
+}
+
+/** Open the current member's editor for one published place. */
+export function openEditRecommendation(venue: Venue): void {
+  memberTab = 'detours';
+  detourTab = 'recommendations';
+  recommendationDraft = venue;
+  recommendationIntent = 'edit';
 }
 
 export function communityControl(href: string, current = false): string {
@@ -788,6 +857,8 @@ export function communityPanel(venues: Venue[]): string {
 function resetCommunityState(): void {
   memberTab = 'invitations';
   detourTab = 'recommendations';
+  recommendationDraft = null;
+  recommendationIntent = 'add';
   waitlistEntries = [];
   recommendations = [];
   shares = [];
@@ -796,6 +867,8 @@ function resetCommunityState(): void {
   invites = [];
   invitesLoaded = false;
   loadingInvites = false;
+  // A signed-out shell must not keep the previous member's allowance.
+  invitationLimit = BASELINE_INVITATION_LIMIT;
   deletingRecommendationId = '';
   pendingRecommendationDeletion = null;
   highlightedWaitlistId = '';
@@ -838,7 +911,22 @@ async function loadInvites(render: () => void): Promise<void> {
   loadingInvites = true;
   render();
   try {
-    invites = await pb.collection('invites').getFullList<InviteRecord>({ sort: '-created', requestKey: null });
+    // The allowance travels with the invitations it governs, so the count and
+    // the limit it is measured against are always read in the same pass.
+    const [list, me] = await Promise.all([
+      pb.collection('invites').getFullList<InviteRecord>({ sort: '-created', requestKey: null }),
+      pb
+        .send<{ member?: { invitation_limit?: unknown } }>('/api/detour/community/me', { requestKey: null })
+        .catch(() => null),
+    ]);
+    invites = list;
+    const reported = Number(me?.member?.invitation_limit);
+    // A backend without the field, or a nonsense value, leaves the baseline in
+    // place rather than granting or removing an allowance the server did not state.
+    invitationLimit =
+      Number.isFinite(reported) && reported >= BASELINE_INVITATION_LIMIT
+        ? Math.floor(reported)
+        : BASELINE_INVITATION_LIMIT;
     invitesLoaded = true;
   } catch (error) {
     notice = { kind: 'error', text: readableError(error, 'Your invitations could not be loaded. Please try again.') };
@@ -1022,6 +1110,12 @@ export function bindCommunity(
       notice = null;
       render();
     });
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-view-all-recommendations]')?.addEventListener('click', () => {
+    recommendationDraft = null;
+    recommendationIntent = 'add';
+    render();
   });
 
   const activateDetourTab = (nextTab: DetourTab, focusTab: boolean) => {
@@ -1244,7 +1338,7 @@ export function bindCommunity(
   });
 
   root.querySelector<HTMLButtonElement>('[data-community-invite]')?.addEventListener('click', async () => {
-    if (!member() || !invitesLoaded || loadingInvites || openInvites().length >= INVITATION_LIMIT) return;
+    if (!member() || !invitesLoaded || loadingInvites || openInvites().length >= invitationLimit) return;
     submitting = true;
     notice = null;
     render();
@@ -1303,6 +1397,7 @@ export function bindCommunity(
       if (category) payload.category = category;
       if (occasions.length) payload.occasions = occasions;
       const created = await pb.collection('community_recommendations').create<RecommendationRecord>(payload);
+      recommendationDraft = null;
       highlightedWaitlistId = created.waitlist || '';
       notice = { kind: 'success', text: 'Recommendation saved.' };
       onPlaceContributed();
@@ -1364,6 +1459,7 @@ export function bindCommunity(
           });
         }
         highlightedWaitlistId = entryId;
+        resetNetworkDiscovery();
         notice = { kind: 'success', text: 'Recommendation updated.' };
         communityLoaded = false;
         await loadCommunity(render);
@@ -1530,6 +1626,10 @@ export function bindCommunity(
   if (member() && !communityLoaded && !loadingCommunity) {
     void loadCommunity(render).then(() => {
       if (memberTab === 'detours' && detourTab === 'shares') void markIncomingSharesSeen();
+      if (recommendationIntent === 'edit' && recommendationDraft) {
+        const entry = entryForVenue(recommendationDraft);
+        if (entry) focusWaitlistEntry(entry.id);
+      }
     });
   }
   if (member() && !invitesLoaded && !loadingInvites) void loadInvites(render);

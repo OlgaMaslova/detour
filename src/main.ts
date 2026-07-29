@@ -10,6 +10,7 @@ import {
   bindCommunity,
   communityControl,
   communityPanel,
+  openEditRecommendation,
   openMemberArea,
   openRecommendPlace,
   openSharePlace,
@@ -19,6 +20,7 @@ import { pb } from './pocketbase';
 import {
   bindNetworkDiscovery,
   ensureNetworkDiscovery,
+  groupedRecommendationCardMarkup,
   markFirstPlaceContributed,
   networkDiscoveryMarkup,
   networkPlaceNotes,
@@ -26,6 +28,7 @@ import {
   resetNetworkDiscovery,
   retryNetworkPlaceNotes,
 } from './network';
+import type { DiscoveryRecommendation } from './network';
 import { renderFoundingSurvey } from './survey';
 import { PLACE_MAP_ID, placeIsLocated, placePageMarkup } from './place';
 import { detouristSignalBadge, detouristSignalText } from './signal';
@@ -200,8 +203,15 @@ interface DestinationCountry {
 // exploration-first flow.
 const SHORT_LIST_DESTINATION_MAX = 6;
 
+/**
+ * Every place the public may see: those a real member recommended, minus curator
+ * takedowns. The rule itself is derived in `loadLiveCatalogue` (see
+ * `publiclyVisible` in data.ts), which is the only place that knows whether the
+ * member-signal route answered — so this filter is the single gate and never a
+ * second opinion about what counts as published.
+ */
 function allVenues(): Venue[] {
-  return state.mode === 'live' ? state.venues : [];
+  return state.mode === 'live' ? state.venues.filter((v) => v.publiclyVisible === true) : [];
 }
 
 /** Every destination with at least one published place, largest selection first. */
@@ -352,6 +362,8 @@ function routeHref(
     url.searchParams.delete('view');
     url.searchParams.delete('invite');
   }
+  url.searchParams.delete('recommend');
+  url.searchParams.delete('edit-recommendation');
   if (view === 'survey') url.hash = '';
   return `${url.pathname}${url.search}${url.hash}`;
 }
@@ -379,6 +391,18 @@ function accountHref(): string {
 /** Canonical URL of one place's own page. */
 function placeHref(v: Venue): string {
   return routeHref('place', venueRouteSlug(v), venuePageSlug(v));
+}
+
+function recommendHref(v: Venue): string {
+  const url = new URL(accountHref(), window.location.origin);
+  url.searchParams.set('recommend', v.id);
+  return `${url.pathname}${url.search}`;
+}
+
+function editRecommendationHref(v: Venue): string {
+  const url = new URL(accountHref(), window.location.origin);
+  url.searchParams.set('edit-recommendation', v.id);
+  return `${url.pathname}${url.search}`;
 }
 
 function updateRoute(
@@ -509,8 +533,23 @@ function applyRouteFromUrl(root: HTMLElement): void {
   const requestedPlace = surveyPath || !requested
     ? null
     : (url.searchParams.get('p') || '').trim().toLowerCase() || null;
+  const requestedRecommendationId =
+    !surveyPath && nextView === 'account' ? (url.searchParams.get('recommend') || '').trim() : '';
+  const requestedEditRecommendationId =
+    !surveyPath && nextView === 'account'
+      ? (url.searchParams.get('edit-recommendation') || '').trim()
+      : '';
 
   applyInvitationRoute(invitationCode);
+  if (requestedEditRecommendationId || requestedRecommendationId) {
+    const requestedVenue = state.venues.find(
+      (venue) => venue.id === (requestedEditRecommendationId || requestedRecommendationId)
+    );
+    if (requestedVenue) {
+      if (requestedEditRecommendationId) openEditRecommendation(requestedVenue);
+      else openRecommendPlace(requestedVenue);
+    }
+  }
   if (state.destination !== requested) resetDestinationState();
   state.destination = requested;
   state.country = requested ? null : requestedCountry;
@@ -928,16 +967,13 @@ function cityViewSwitch(hasMap: boolean): string {
 }
 
 function cityListStage(destination: Destination, list: Venue[], emptyState: string): string {
-  const shortList = isShortListDestination(destination);
   // No heading: the hero already says whose list this is and how long it is.
   return `<section class="trusted-list" aria-label="${esc(`Places members recommend in ${destination.name}`)}">
     ${recommendationLoadStatus(destination.name)}
     <div class="results trusted-list-results" id="selection-results" tabindex="-1">
       ${
         list.length
-          ? shortList
-            ? `<ul class="card-list trusted-card-list network-recommendation-grid">${list.map((venue) => venueCard(venue, true)).join('')}</ul>`
-            : `<ul class="card-list">${list.map((venue) => venueCard(venue)).join('')}</ul>`
+          ? `<ul class="card-list trusted-card-list network-recommendation-grid">${list.map(trustedVenueCard).join('')}</ul>`
           : emptyState
       }
     </div>
@@ -1016,87 +1052,34 @@ function recommendationNotesForVenue(v: Venue) {
   });
 }
 
-function recommendationAttribution(item: ReturnType<typeof recommendationNotesForVenue>[number]): string {
-  const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
-  const label = item.is_own ? 'You' : recommender || '';
-  if (!label || !item.note?.trim()) return '';
-  return `<blockquote class="card-member-note">
-    <p>${esc(item.note)}</p>
-    <footer>Recommended by <strong class="network-pseudo">${esc(label)}</strong></footer>
-  </blockquote>`;
-}
-
 /**
- * Short-list card — the landing page's recommendation cassette, so a place
- * reads the same wherever a member recommended it: cover, display title, the
- * member's note, the byline, the barcode strip. The title links to the place's
- * own page, where practical detail (address, directions, occasions, every
- * member note) lives rather than being repeated here.
+ * Destination-list wrapper for the shared grouped recommendation card.
+ * Practical detail and the complete note history remain on the place page.
  */
 function trustedVenueCard(v: Venue): string {
   const selected = v.id === state.selectedId;
-  const initial = coverInitial(v);
-  const image = safeExternalHref(v.imageUrl);
-  const usable = image && !failedCoverUrls.has(image);
-  const thumb = `<figure class="network-entry-thumb${usable ? '' : ' cover-placeholder network-entry-thumb-placeholder'}" data-cover-initial="${esc(initial)}" aria-hidden="true">${
-    usable
-      ? `<img src="${esc(image)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-cover-image>`
-      : `<span aria-hidden="true">${esc(initial)}</span>`
-  }</figure>`;
-  const meta = [v.category, v.neighborhood].filter(Boolean).join(' · ');
-  const notes = recommendationNotesForVenue(v)
-    .map((item) => {
-      const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
-      const label = item.is_own ? 'You' : recommender || '';
-      if (!label || !item.note?.trim()) return '';
-      return `<blockquote><p>${esc(item.note)}</p></blockquote>
-        <p class="network-entry-byline">Recommended by <strong class="network-pseudo">${esc(label)}</strong></p>`;
-    })
-    .filter(Boolean)
-    .join('');
-  return `<li>
-    <article class="network-entry network-recommendation network-entry-with-thumb trusted-entry${selected ? ' is-selected' : ''}">
-      <div class="network-entry-main">
-        <header class="network-entry-head">
-          <div>
-            <h3><a class="network-entry-place" href="${esc(placeHref(v))}" data-place="${esc(v.id)}" aria-current="${selected ? 'page' : 'false'}">${esc(v.name)}</a></h3>
-            ${meta ? `<p class="network-place-meta">${esc(meta)}</p>` : ''}
-          </div>
-          ${venueSignalBadge(v)}
-        </header>
-        ${notes || '<p class="network-entry-note-empty">No note was included with this recommendation.</p>'}
-      </div>
-      ${thumb}
-    </article>
-  </li>`;
-}
-
-function venueCard(v: Venue, trustedList = false): string {
-  if (trustedList) return trustedVenueCard(v);
-  const selected = v.id === state.selectedId;
-  const recommendations = recommendationNotesForVenue(v)
-    .map(recommendationAttribution)
-    .filter(Boolean)
-    .join('');
-  return `<li>
-    <article class="card card-detourist${selected ? ' card-selected' : ''}">
-      <a class="card-main" href="${esc(placeHref(v))}" data-place="${esc(v.id)}" aria-current="${selected ? 'page' : 'false'}">
-        ${venueCover(v)}
-        <span class="card-place-copy">
-          <h3>${esc(v.name)}</h3>
-          <p class="card-meta">${esc([v.category, v.neighborhood].filter(Boolean).join(' · '))}</p>
-          <p class="card-address">${
-            v.address
-              ? esc(v.address)
-              : '<span class="approx">Map position being refined</span>'
-          }</p>
-          ${venueOccasions(v).length ? `<span class="card-occasions" aria-label="Good for ${esc(occasionSummary(v))}"><span class="card-occasions-label">Good for</span>${venueOccasions(v).map((occasion) => `<span>${esc(occasionLabel(occasion))}</span>`).join('')}</span>` : ''}
-        </span>
-      </a>
-      ${venueSignalBadge(v)}
-      ${recommendations ? `<div class="card-member-notes" aria-label="Member recommendation notes">${recommendations}</div>` : ''}
-    </article>
-  </li>`;
+  let recommendations: DiscoveryRecommendation[] = recommendationNotesForVenue(v).map((item) => ({
+    ...item,
+    venue_name: item.venue_name || v.name,
+    venue_id: item.venue_id || v.id,
+    city: item.city || v.city,
+    country: item.country || v.country,
+  }));
+  if (recommendations.length === 0) {
+    recommendations = [{
+      venue_name: v.name,
+      venue_id: v.id,
+      city: v.city,
+      country: v.country,
+      founding_member: v.foundingRecommended,
+    }];
+  } else if (v.foundingRecommended && !recommendations.some((item) => item.founding_member)) {
+    recommendations[0] = { ...recommendations[0], founding_member: true };
+  }
+  return `<li>${groupedRecommendationCardMarkup(recommendations, resolveNetworkPlace, {
+    trustedEntry: true,
+    selected,
+  })}</li>`;
 }
 
 function shortDate(value: string | undefined): string {
@@ -1169,6 +1152,36 @@ function detailPanel(): string {
 
 /* ---------- place page ---------- */
 
+function bindPlaceNoteCarousel(root: HTMLElement): void {
+  const carousel = root.querySelector<HTMLElement>('[data-place-note-carousel]');
+  if (!carousel) return;
+  const previous = root.querySelector<HTMLButtonElement>('[data-place-notes-prev]');
+  const next = root.querySelector<HTMLButtonElement>('[data-place-notes-next]');
+  if (!previous || !next) return;
+
+  const updateControls = () => {
+    const maximum = Math.max(0, carousel.scrollWidth - carousel.clientWidth);
+    previous.disabled = carousel.scrollLeft <= 2;
+    next.disabled = carousel.scrollLeft >= maximum - 2;
+  };
+  const move = (direction: -1 | 1) => {
+    carousel.scrollBy({
+      left: direction * carousel.clientWidth,
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+    });
+  };
+
+  previous.addEventListener('click', () => move(-1));
+  next.addEventListener('click', () => move(1));
+  carousel.addEventListener('scroll', updateControls, { passive: true });
+  carousel.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    move(event.key === 'ArrowLeft' ? -1 : 1);
+  });
+  window.requestAnimationFrame(updateControls);
+}
+
 /**
  * One place, one page. The markup lives in place.ts; this wires it to the
  * app's routing, chrome and shared venue formatting, then mounts the locator.
@@ -1191,6 +1204,8 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
     canExplore: memberCanExplore(),
     homeHref: homeHref(),
     accountHref: accountHref(),
+    recommendHref,
+    editRecommendationHref,
     brandMark: brandMark(),
     communityControl: communityControl(accountHref()),
     footerTagline: FOOTER_TAGLINE,
@@ -1211,6 +1226,7 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
   root.innerHTML = placePageMarkup(v, chrome, helpers);
 
   bindRouteLinks(root);
+  bindPlaceNoteCarousel(root);
   // Member notes render here, so a direct place link has to load the circle
   // feed itself rather than relying on the destination view having done it.
   ensureNetworkDiscovery(() => render(root), destination.name);
@@ -1347,7 +1363,7 @@ function bindRouteLinks(root: HTMLElement): void {
   root.querySelectorAll<HTMLButtonElement>('[data-community-sign-out]').forEach((button) => {
     button.addEventListener('click', () => {
       signOutMember();
-      render(root);
+      showHome(root);
     });
   });
   root.querySelectorAll<HTMLAnchorElement>('[data-community-route]').forEach((link) => {
@@ -1355,7 +1371,17 @@ function bindRouteLinks(root: HTMLElement): void {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
       const target = link.getAttribute('data-community-route');
-      const preset = target === 'share-place' ? openSharePlace : target === 'recommend-place' ? openRecommendPlace : null;
+      const recommendationVenue = link.dataset.recommendVenue
+        ? allVenues().find((venue) => venue.id === link.dataset.recommendVenue)
+        : undefined;
+      const preset =
+        target === 'share-place'
+          ? () => openSharePlace()
+          : target === 'edit-recommendation' && recommendationVenue
+            ? () => openEditRecommendation(recommendationVenue)
+          : target === 'recommend-place'
+            ? () => openRecommendPlace(recommendationVenue)
+            : null;
       preset?.();
       // Menu entries name the member-area tab they open.
       const openedTab = !preset && target ? openMemberArea(target) : false;
@@ -1381,6 +1407,23 @@ function bindRouteLinks(root: HTMLElement): void {
       if (!venue) return;
       event.preventDefault();
       openPlace(root, venue);
+    });
+  });
+  // Recommendation cards use their title's real place-page anchor as the
+  // canonical navigation target, while making the rest of the physical card
+  // answer the same click. Nested controls keep their own behavior.
+  root.querySelectorAll<HTMLElement>('[data-place-card]').forEach((card) => {
+    card.addEventListener('click', (event) => {
+      if (!(event instanceof MouseEvent) || event.button !== 0) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('a, button, input, select, textarea, [role="button"]')) return;
+      const link = card.querySelector<HTMLAnchorElement>('.network-entry-place[data-place]');
+      if (!link) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        window.open(link.href, '_blank', 'noopener');
+        return;
+      }
+      link.click();
     });
   });
   root.querySelectorAll<HTMLElement>('[data-open-destination]').forEach((el) => {

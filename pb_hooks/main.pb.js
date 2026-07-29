@@ -139,12 +139,16 @@ routerAdd(
   "GET",
   "/api/detour/community/me",
   (e) => {
+    // invitation_limit is the member's computed allowance, not their tier: the
+    // founding markers it derives from are hidden fields and stay server-side.
+    const founding = require(__hooks + "/founding_cap.js");
     return e.json(200, {
       member: {
         id: e.auth.id,
         display_name: e.auth.getString("display_name"),
         pseudo: e.auth.getString("pseudo"),
         community_status: e.auth.getString("community_status"),
+        invitation_limit: founding.invitationLimitFor(e.auth),
       },
     });
   },
@@ -184,6 +188,7 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
       country: country,
       note: note,
       recommender_pseudo: recommenderPseudo,
+      founding_member: Boolean(row.founding_member),
       venue_id: venueId,
     };
   }
@@ -211,6 +216,7 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
       country: "",
       note: "",
       recommender_pseudo: "",
+      founding_member: false,
       venue_id: "",
     })
   );
@@ -222,6 +228,9 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
       "COALESCE(TRIM(v.country), '') AS country, " +
       "COALESCE(TRIM(r.note), '') AS note, " +
       "COALESCE(TRIM(m.pseudo), '') AS recommender_pseudo, " +
+      "CASE WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
+      "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE " +
+      "THEN TRUE ELSE FALSE END AS founding_member, " +
       "COALESCE(v.id, '') AS venue_id ";
     const joinsAndFilters =
       "FROM community_recommendations r " +
@@ -266,7 +275,7 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
         "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE" +
         ")" +
         ") " +
-        "SELECT venue_name, city, country, note, recommender_pseudo, venue_id " +
+        "SELECT venue_name, city, country, note, recommender_pseudo, founding_member, venue_id " +
         "FROM ranked WHERE city_rank = 1 " +
         "ORDER BY recommendation_created DESC, recommendation_id DESC LIMIT 3";
     }
@@ -323,6 +332,7 @@ routerAdd(
         venue_name: row.venue_name,
         recommender_pseudo: row.recommender_pseudo,
         is_own: row.member_id === callerId,
+        founding_member: Boolean(row.founding_member),
         note: row.note,
         city: row.city,
         country: row.country,
@@ -342,6 +352,7 @@ routerAdd(
           new DynamicModel({
             recommender_pseudo: "",
             member_id: "",
+            founding_member: false,
             note: "",
             venue_name: "",
             city: "",
@@ -354,6 +365,9 @@ routerAdd(
           .db()
           .newQuery(
             "SELECT m.pseudo AS recommender_pseudo, m.id AS member_id, " +
+              "CASE WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
+              "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE " +
+              "THEN TRUE ELSE FALSE END AS founding_member, " +
               "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
               "FROM community_recommendations r " +
               "JOIN members m ON m.id = r.member " +
@@ -467,6 +481,7 @@ routerAdd(
       new DynamicModel({
         recommender_pseudo: "",
         member_id: "",
+        founding_member: false,
         note: "",
         venue_name: "",
         city: "",
@@ -479,6 +494,9 @@ routerAdd(
       .db()
       .newQuery(
         "SELECT m.pseudo AS recommender_pseudo, m.id AS member_id, " +
+          "CASE WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
+          "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE " +
+          "THEN TRUE ELSE FALSE END AS founding_member, " +
           "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
           "FROM community_recommendations r " +
           "JOIN members m ON m.id = r.member " +
@@ -554,16 +572,23 @@ routerAdd("GET", "/api/detour/place-detourists", (e) => {
   // Distinct (venue, member) pairs from recommendation signals only. Waiting-
   // list entries resolve to their published venue first, then to the canonical
   // catalogue venue they were matched to before publication.
-  const pairs = arrayOf(new DynamicModel({ venue_id: "", member_id: "" }));
+  const pairs = arrayOf(
+    new DynamicModel({ venue_id: "", member_id: "", founding_member: false })
+  );
   e.app
     .db()
     .newQuery(
-      "SELECT venue_id, member_id FROM (" +
-        "SELECT COALESCE(NULLIF(w.published_venue, ''), w.canonical_venue) AS venue_id, r.member AS member_id " +
+      "SELECT venue_id, member_id, founding_member FROM (" +
+        "SELECT COALESCE(NULLIF(w.published_venue, ''), w.canonical_venue) AS venue_id, " +
+        "r.member AS member_id, " +
+        "CASE WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
+        "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE " +
+        "THEN TRUE ELSE FALSE END AS founding_member " +
         "FROM community_recommendations r " +
-        "JOIN community_waitlist_entries w ON w.id = r.waitlist" +
-        ") WHERE venue_id IS NOT NULL AND venue_id != '' AND member_id != '' " +
-        "AND member_id NOT IN (SELECT id FROM members WHERE email LIKE '%.invalid')"
+        "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+        "JOIN members m ON m.id = r.member " +
+        "WHERE LOWER(TRIM(m.email)) NOT LIKE '%.invalid'" +
+        ") WHERE venue_id IS NOT NULL AND venue_id != '' AND member_id != ''"
     )
     .all(pairs);
 
@@ -572,22 +597,36 @@ routerAdd("GET", "/api/detour/place-detourists", (e) => {
   // waiting-list loop uses.
   const contributionPairs = [];
   const contributions = arrayOf(
-    new DynamicModel({ member_id: "", normalized_name: "", normalized_city: "" })
+    new DynamicModel({
+      contribution_id: "",
+      member_id: "",
+      normalized_name: "",
+      normalized_city: "",
+      founding_member: false,
+    })
   );
   e.app
     .db()
     .newQuery(
-      "SELECT member AS member_id, normalized_name, normalized_city " +
-        "FROM member_place_contributions WHERE status = 'approved' " +
-        "AND member NOT IN (SELECT id FROM members WHERE email LIKE '%.invalid')"
+      "SELECT c.id AS contribution_id, c.member AS member_id, " +
+        "c.normalized_name, c.normalized_city, " +
+        "CASE WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
+        "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE " +
+        "THEN TRUE ELSE FALSE END AS founding_member " +
+        "FROM member_place_contributions c " +
+        "JOIN members m ON m.id = c.member " +
+        "WHERE c.status = 'approved' " +
+        "AND LOWER(TRIM(m.email)) NOT LIKE '%.invalid'"
     )
     .all(contributions);
   const contributionRows = [];
   for (const row of contributions) {
     contributionRows.push({
+      contribution_id: row.contribution_id,
       member_id: row.member_id,
       normalized_name: row.normalized_name,
       normalized_city: row.normalized_city,
+      founding_member: Boolean(row.founding_member),
     });
   }
   if (contributionRows.length) {
@@ -604,24 +643,36 @@ routerAdd("GET", "/api/detour/place-detourists", (e) => {
     for (const row of contributionRows) {
       const venueId =
         venueByIdentity[row.normalized_name + "::" + row.normalized_city];
-      if (venueId && row.member_id) {
-        contributionPairs.push({ venue_id: venueId, member_id: row.member_id });
+      const resolvedVenueId =
+        venueId || (row.contribution_id ? "member-contribution-" + row.contribution_id : "");
+      if (resolvedVenueId && row.member_id) {
+        contributionPairs.push({
+          venue_id: resolvedVenueId,
+          member_id: row.member_id,
+          founding_member: row.founding_member,
+        });
       }
     }
   }
 
   const seen = {};
   const counts = {};
-  function addPair(venueId, memberId) {
+  const founding = {};
+  function addPair(venueId, memberId, foundingMember) {
     const key = venueId + "::" + memberId;
     if (seen[key]) return;
     seen[key] = true;
     counts[venueId] = (counts[venueId] || 0) + 1;
+    if (foundingMember) founding[venueId] = true;
   }
-  for (const row of pairs) addPair(row.venue_id, row.member_id);
-  for (const pair of contributionPairs) addPair(pair.venue_id, pair.member_id);
+  for (const row of pairs) {
+    addPair(row.venue_id, row.member_id, Boolean(row.founding_member));
+  }
+  for (const pair of contributionPairs) {
+    addPair(pair.venue_id, pair.member_id, pair.founding_member);
+  }
 
-  return e.json(200, { counts: counts });
+  return e.json(200, { counts: counts, founding: founding });
 });
 
 routerAdd(
@@ -928,8 +979,9 @@ onRecordUpdateRequest((e) => {
 }, "members");
 
 // Invitation codes are generated server-side and are always assigned to the
-// authenticated member who created the invite. Each member may keep up to
-// ten invitations open at once; redeeming one frees a slot.
+// authenticated member who created the invite. The allowance is the number of
+// invitations a member may keep *open* at once — founding members get a larger
+// one (see founding_cap.js) — and redeeming one frees a slot.
 onRecordCreateRequest((e) => {
   if (!e.auth || e.hasSuperuserAuth()) {
     if (e.hasSuperuserAuth()) {
@@ -938,13 +990,16 @@ onRecordCreateRequest((e) => {
     throw new BadRequestError("Sign in to issue an invitation.");
   }
 
+  const founding = require(__hooks + "/founding_cap.js");
+  const limit = founding.invitationLimitFor(e.auth);
   const openInviteCount = e.app.countRecords(
     "invites",
     $dbx.hashExp({ issued_by: e.auth.id, claimed_by: "" })
   );
-  if (openInviteCount >= 10) {
+  if (openInviteCount >= limit) {
     throw new BadRequestError(
-      "You already have ten unclaimed invitations. An invitation slot becomes available once someone redeems a code."
+      "You already have " + limit +
+        " unclaimed invitations. An invitation slot becomes available once someone redeems a code."
     );
   }
 
@@ -971,32 +1026,6 @@ onRecordCreateRequest((e) => {
   e.next();
 }, "visit_evidence");
 
-// PocketBase select fields do not have a schema-level default. Normalize every
-// public recommendation to pending before validation, regardless of any status
-// supplied by the caller. Superusers retain explicit moderation-state control.
-onRecordCreateRequest((e) => {
-  if (!e.hasSuperuserAuth()) {
-    e.record.set("status", "pending");
-  }
-  e.next();
-}, "recommendations");
-
-// Every server-side Detour community award creation carries the catalogue lane
-// marker, including automatic waiting-list publication and the legacy curator
-// route below. Other award sources keep their explicitly supplied provenance.
-onRecordCreate((e) => {
-  if (!e.record.getString("provenance")) {
-    const sourceId = e.record.getString("source");
-    if (sourceId) {
-      const source = e.app.findRecordById("guide_sources", sourceId);
-      if (source.getString("slug") === "detour-community") {
-        e.record.set("provenance", "community_selection");
-      }
-    }
-  }
-  e.next();
-}, "venue_awards");
-
 // A verified member recommendation is one independent signal on the shared,
 // normalized waiting-list entry. All attribution, place resolution, private
 // participant state, and publication state are server-owned.
@@ -1019,8 +1048,6 @@ onRecordCreateRequest((e) => {
     country: e.record.getString("country"),
     address: e.record.getString("address"),
   });
-  community.ensureEntryPending(resolved.entry, "recommended again");
-  community.mergePlaceFacts(e.app, resolved.entry, category, occasions);
 
   const duplicate = community.findMemberRecommendation(
     e.app,
@@ -1034,6 +1061,10 @@ onRecordCreateRequest((e) => {
     throw new BadRequestError("You have already recommended this place.");
   }
 
+  // Published places remain open to one recommendation from each member.
+  // The shared entry and canonical venue stay the same; this request only adds
+  // the caller's note and increments the distinct-member signal count.
+  community.mergePlaceFacts(e.app, resolved.entry, category, occasions);
   community.addParticipants(e.app, resolved.entry, [e.auth.id]);
   e.record.set("member", e.auth.id);
   e.record.set("waitlist", resolved.entry.id);
@@ -1308,26 +1339,37 @@ cronAdd("detour_daily_launch_numbers", "15 5 * * *", () => {
   launchMetrics.emitLaunchNumbers($app);
 });
 
+// The work-list every enrichment sweep runs over: published, un-suppressed
+// places, newest first.
+//
+// This used to be derived from `venue_awards` rows and each sweep swallowed a
+// failed lookup with `catch { return }` — so anything that broke the award query
+// silently stopped all enrichment, with no error and no signal that newly
+// published places were never getting coordinates, cover images, or discovered
+// links. Keying on the venue's own marker removes both the indirection and the
+// silent-failure mode; a genuine failure here still returns an empty list, but
+// there is no longer a second collection that can independently disappear.
+function publishedVenuesForSweep(limit) {
+  try {
+    return $app.findRecordsByFilter(
+      "venues",
+      "published = true && suppressed != true",
+      "-published_at",
+      limit || 50,
+      0
+    );
+  } catch {
+    return [];
+  }
+}
+
 // Nightly retry for published community venues that still lack verified
 // coordinates (geocoder outage, no-match addresses corrected later, …).
 // geocodeVenue exits early for venues that already have coordinates.
 cronAdd("community_geocode_sweep", "0 4 * * *", () => {
   const community = require(__hooks + "/community_waitlist.js");
-  let awards = [];
-  try {
-    awards = $app.findRecordsByFilter(
-      "venue_awards",
-      "level = 'Detour community selection' && current = true",
-      "-created",
-      50,
-      0
-    );
-  } catch {
-    return;
-  }
-  for (const award of awards) {
-    const venueId = award.getString("venue");
-    if (venueId) community.geocodeVenue($app, venueId);
+  for (const venue of publishedVenuesForSweep()) {
+    community.geocodeVenue($app, venue.id);
   }
 });
 
@@ -1337,24 +1379,9 @@ cronAdd("community_geocode_sweep", "0 4 * * *", () => {
 // already have everything.
 cronAdd("community_cover_sweep", "30 4 * * *", () => {
   const community = require(__hooks + "/community_waitlist.js");
-  let awards = [];
-  try {
-    awards = $app.findRecordsByFilter(
-      "venue_awards",
-      "level = 'Detour community selection' && current = true",
-      "-created",
-      50,
-      0
-    );
-  } catch {
-    return;
-  }
-  for (const award of awards) {
-    const venueId = award.getString("venue");
-    if (venueId) {
-      community.enrichVenueFromOsm($app, venueId);
-      community.resolveCoverImage($app, venueId);
-    }
+  for (const venue of publishedVenuesForSweep()) {
+    community.enrichVenueFromOsm($app, venue.id);
+    community.resolveCoverImage($app, venue.id);
   }
 });
 
@@ -1369,26 +1396,12 @@ cronAdd("community_cover_sweep", "30 4 * * *", () => {
 // pin, and photo within the hour after publishing, with no manual step.
 cronAdd("community_web_discovery_sweep", "0 * * * *", () => {
   const community = require(__hooks + "/community_waitlist.js");
-  let awards = [];
-  try {
-    awards = $app.findRecordsByFilter(
-      "venue_awards",
-      "level = 'Detour community selection' && current = true",
-      "-created",
-      50,
-      0
-    );
-  } catch {
-    return;
-  }
   let attempts = 0;
-  for (const award of awards) {
+  for (const venue of publishedVenuesForSweep()) {
     if (attempts >= 2) break;
-    const venueId = award.getString("venue");
-    if (!venueId) continue;
-    if (community.enrichVenueFromWebSearch($app, venueId)) {
+    if (community.enrichVenueFromWebSearch($app, venue.id)) {
       attempts += 1;
-      community.resolveCoverImage($app, venueId);
+      community.resolveCoverImage($app, venue.id);
     }
   }
 });
@@ -1869,14 +1882,14 @@ routerAdd(
       }
       if (status === "published") {
         const publishedVenueId = submission.getString("published_venue");
-        const publishedAwardId = submission.getString("published_award");
-        if (!publishedVenueId || !publishedAwardId) {
+        // The audit link is the published venue plus `publication_audit_id`;
+        // there is no award record to point at any more.
+        if (!publishedVenueId || !submission.getString("publication_audit_id")) {
           throw new BadRequestError("This published submission is missing its private publication audit link.");
         }
         result = {
           submission_id: submission.id,
           venue_id: publishedVenueId,
-          award_id: publishedAwardId,
           status: "published",
           attribution: "Detour community selection",
           idempotent: true,
@@ -1947,55 +1960,22 @@ routerAdd(
         throw new BadRequestError("The canonical venue country does not match the curator-verified country.");
       }
 
-      let source;
-      try {
-        source = txApp.findFirstRecordByFilter(
-          "guide_sources",
-          "slug = 'detour-community'"
-        );
-      } catch {
-        const sources = txApp.findCollectionByNameOrId("guide_sources");
-        source = new Record(sources);
-        source.set("name", "Detour community");
-        source.set("slug", "detour-community");
-        source.set("official_url", "");
-        source.set("current_year", new Date().getUTCFullYear());
-        txApp.save(source);
+      // A curator publishing is the deliberate reversal of a curator takedown.
+      // Without clearing it here, re-publishing a suppressed venue would report
+      // success and change nothing a visitor can see, because visibility is
+      // derived and suppression overrides it.
+      if (venue.getBool("suppressed") || !venue.getBool("published")) {
+        venue.set("suppressed", false);
+        venue.set("published", true);
+        if (!venue.getString("published_at")) {
+          venue.set("published_at", new Date().toISOString());
+        }
+        txApp.save(venue);
       }
 
-      const year = new Date().getUTCFullYear();
-      let award;
-      try {
-        award = txApp.findFirstRecordByFilter(
-          "venue_awards",
-          "source = {:source} && venue = {:venue} && year = {:year} && level = {:level}",
-          {
-            source: source.id,
-            venue: venue.id,
-            year: year,
-            level: "Detour community selection",
-          }
-        );
-      } catch {
-        // The unique source/venue/year/level index makes this creation path
-        // converge if a retry follows a failed transaction.
-      }
-      if (award) {
-        award.set("current", true);
-        txApp.save(award);
-      } else {
-        const awards = txApp.findCollectionByNameOrId("venue_awards");
-        award = new Record(awards);
-        award.set("source", source.id);
-        award.set("venue", venue.id);
-        award.set("year", year);
-        award.set("level", "Detour community selection");
-        award.set("current", true);
-        txApp.save(award);
-      }
-
+      // No award record: the venue's own marker above is the publication, and
+      // `publication_audit_id` is the audit link.
       submission.set("published_venue", venue.id);
-      submission.set("published_award", award.id);
       submission.set("published_at", new Date().toISOString());
       submission.set("publication_audit_id", "dc-" + $security.randomString(32));
       submission.set("status", "published");
@@ -2004,7 +1984,6 @@ routerAdd(
       result = {
         submission_id: submission.id,
         venue_id: venue.id,
-        award_id: award.id,
         status: "published",
         attribution: "Detour community selection",
         idempotent: false,
@@ -2036,21 +2015,30 @@ routerAdd(
         return;
       }
 
-      const awardId = submission.getString("published_award");
-      if (awardId) {
-        const award = txApp.findRecordById("venue_awards", awardId);
-        const source = txApp.findRecordById("guide_sources", award.getString("source"));
-        if (source.getString("slug") !== "detour-community") {
-          throw new BadRequestError("The submission publication audit link is not a Detour community selection.");
-        }
-        if (award.getBool("current")) {
-          award.set("current", false);
-          txApp.save(award);
+      // Public visibility is a derived fact — a place is public because a real
+      // member recommended it. That recommendation still stands after a takedown,
+      // so clearing a publication record would not hide the place on its own.
+      // Suppression is therefore the actual lever, and only a curator can set or
+      // clear it (a later member recommendation must never silently undo a
+      // takedown). This replaces demoting a `venue_awards` row to current = false.
+      const suppressedVenueId = submission.getString("published_venue");
+      if (suppressedVenueId) {
+        try {
+          const venue = txApp.findRecordById("venues", suppressedVenueId);
+          if (!venue.getBool("suppressed") || venue.getBool("published")) {
+            venue.set("suppressed", true);
+            // Clear the marker too, so the enrichment sweeps stop spending
+            // OSM/LLM calls on a place that is no longer public. `published_at`
+            // is deliberately kept as history.
+            venue.set("published", false);
+            txApp.save(venue);
+          }
+        } catch {
+          // A venue already deleted outright needs no suppression.
         }
       }
 
       submission.set("published_venue", "");
-      submission.set("published_award", "");
       submission.set("published_at", "");
       submission.set("publication_audit_id", "");
       submission.set("status", "approved");

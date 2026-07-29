@@ -11,7 +11,7 @@
  * helpers it already owns — the same split network.ts uses.
  */
 
-import type { Venue, VenueAward } from './data';
+import type { Venue } from './data';
 import { detouristSignalBadge } from './signal';
 
 /** One member's note about this place, as the circle feed reports it. */
@@ -19,6 +19,7 @@ export interface PlaceNote {
   note?: string;
   recommender_pseudo?: string;
   is_own?: boolean;
+  founding_member?: boolean;
   created?: string;
 }
 
@@ -34,6 +35,8 @@ export interface PlaceChrome {
   canExplore: boolean;
   homeHref: string;
   accountHref: string;
+  recommendHref(v: Venue): string;
+  editRecommendationHref(v: Venue): string;
   brandMark: string;
   communityControl: string;
   footerTagline: string;
@@ -60,7 +63,7 @@ export interface PlaceHelpers {
 }
 
 /** Every note members attached to this place, attribution and date intact. */
-function notesSection(v: Venue, h: PlaceHelpers): string {
+function notesSection(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
   const notes = h.notes(v).filter((item) => {
     const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
     return Boolean(item.note?.trim() && (item.is_own || recommender));
@@ -73,9 +76,19 @@ function notesSection(v: Venue, h: PlaceHelpers): string {
     </section>`;
   }
   return `<section class="place-section place-notes" aria-labelledby="place-notes-title">
-    ${heading}
+    <div class="place-notes-heading">
+      ${heading}
+      ${
+        notes.length > 2
+          ? `<div class="place-note-controls" aria-label="Recommendation carousel controls">
+              <button type="button" class="secondary-button place-note-control" data-place-notes-prev aria-label="Previous recommendations">←</button>
+              <button type="button" class="secondary-button place-note-control" data-place-notes-next aria-label="Next recommendations">→</button>
+            </div>`
+          : ''
+      }
+    </div>
     ${h.notesStatus}
-    <div class="place-note-list">
+    <div class="place-note-carousel" data-place-note-carousel tabindex="0" aria-label="Member recommendations">
       ${notes
         .map((item) => {
           const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
@@ -83,52 +96,24 @@ function notesSection(v: Venue, h: PlaceHelpers): string {
           const when = h.shortDate(item.created);
           return `<blockquote class="detail-network-note place-note">
             <p>${h.esc(item.note || '')}</p>
-            <footer>Recommended by <strong class="network-pseudo">${h.esc(memberLabel)}</strong>${
+            <footer>
+              <span class="place-note-author">Recommended by <strong class="network-pseudo">${h.esc(memberLabel)}</strong></span>${
+              item.founding_member
+                ? '<span class="place-founding-note"><span aria-hidden="true">★</span> Founding member</span>'
+                : ''
+            }${
               when
-                ? `<span aria-hidden="true"> · </span><time datetime="${h.esc(item.created || '')}">${h.esc(when)}</time>`
+                ? `<time datetime="${h.esc(item.created || '')}">${h.esc(when)}</time>`
+                : ''
+            }${
+              item.is_own
+                ? `<a class="place-note-edit" href="${h.esc(chrome.editRecommendationHref(v))}" data-community-route="edit-recommendation" data-recommend-venue="${h.esc(v.id)}" aria-label="${h.esc(`Edit your recommendation for ${v.name}`)}">Edit</a>`
                 : ''
             }</footer>
           </blockquote>`;
         })
         .join('')}
     </div>
-  </section>`;
-}
-
-/**
- * Guide recognition carried on the venue record. Kept last and quiet: the list
- * is member-recommended, and an outside award is context, never the reason a
- * place is here.
- */
-function recognitionSection(v: Venue, h: PlaceHelpers): string {
-  const awards: VenueAward[] = v.awards ?? [];
-  const badges = (v.sourceBadges ?? []).filter(Boolean);
-  if (awards.length === 0 && badges.length === 0) return '';
-  const rows = awards
-    .map((award) => {
-      const level = award.listRank ? `No. ${award.listRank}` : award.awardLevel;
-      const source = [award.edition || award.sourceName, award.awardYear || '']
-        .filter(Boolean)
-        .join(' · ');
-      const href = h.safeExternalHref(award.sourceUrl);
-      return `<li class="place-award">
-        <p class="place-award-level">${h.esc(level || 'Recognised')}</p>
-        ${
-          source
-            ? `<p class="place-award-source">${
-                href
-                  ? `<a href="${h.esc(href)}" target="_blank" rel="noopener noreferrer">${h.esc(source)} <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
-                  : h.esc(source)
-              }</p>`
-            : ''
-        }
-      </li>`;
-    })
-    .join('');
-  return `<section class="place-section place-recognition" aria-labelledby="place-recognition-title">
-    <h2 id="place-recognition-title">Also recognised elsewhere</h2>
-    ${rows ? `<ul class="place-awards">${rows}</ul>` : ''}
-    ${badges.length ? `<p class="place-badges">${h.esc(badges.join(' · '))}</p>` : ''}
   </section>`;
 }
 
@@ -184,6 +169,7 @@ export function placeIsLocated(v: Venue): boolean {
 export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
   const meta = [v.category, v.neighborhood].filter(Boolean).join(' · ');
   const occasions = h.occasionLabels(v);
+  const alreadyRecommended = h.notes(v).some((item) => item.is_own && Boolean(item.note?.trim()));
   return `
     <a class="skip-link" href="#place-title">Skip to this place</a>
     <header class="network-masthead">
@@ -229,7 +215,14 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
                 ? `<p class="place-good-for">${h.esc(occasions.join(' · '))}</p>`
                 : ''
             }
-            ${detouristSignalBadge(v.detouristCount, 'plate')}
+            <div class="place-signal-row">
+              ${detouristSignalBadge(v.detouristCount, 'plate')}
+              ${
+                v.foundingRecommended
+                  ? '<span class="place-founding-star" title="Recommended by a founding member"><span aria-hidden="true">★</span> Founder’s choice</span>'
+                  : ''
+              }
+            </div>
           </div>
         </div>
         ${h.cover(v)}
@@ -242,17 +235,16 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
             </section>`
           : ''
       }
-      ${notesSection(v, h)}
+      ${notesSection(v, chrome, h)}
       ${whereSection(v, h)}
-      ${recognitionSection(v, h)}
       ${
-        chrome.canExplore
+        chrome.canExplore && !alreadyRecommended
           ? `<aside class="place-cta" aria-labelledby="place-cta-title">
               <div>
                 <h2 id="place-cta-title">Been here too?</h2>
-                <p>Add your own note so the next Detourist knows what to order.</p>
+                <p>Add your own note for ${h.esc(v.name)} so the next Detourist knows what to order.</p>
               </div>
-              <a class="network-primary-link" href="${h.esc(chrome.accountHref)}" data-community-route="recommend-place">Recommend a place <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
+              <a class="network-primary-link" href="${h.esc(chrome.recommendHref(v))}" data-community-route="recommend-place" data-recommend-venue="${h.esc(v.id)}">Recommend this place <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
             </aside>`
           : ''
       }

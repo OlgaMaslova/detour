@@ -112,6 +112,27 @@ function mergePlaceFacts(app, entry, category, occasions) {
   if (changed) app.save(entry);
 }
 
+// Occasion tags are place facts, so publication copies them onto the venue
+// itself rather than onto the publication record — a place has outdoor seating
+// whether or not a selection was published for it this calendar year. Union-only
+// with the same rule as mergePlaceFacts: a later recommender adds tags and can
+// never overwrite or remove another member's read of the place.
+function mergeEntryOccasionsIntoVenue(app, entry, venue) {
+  const incoming = entry.getStringSlice("occasions");
+  if (!incoming.length) return;
+  const existing = venue.getStringSlice("occasions");
+  const seen = {};
+  const merged = [];
+  for (const occasion of existing.concat(incoming)) {
+    if (!occasion || seen[occasion]) continue;
+    seen[occasion] = true;
+    merged.push(occasion);
+  }
+  if (merged.length === existing.length) return;
+  venue.set("occasions", merged);
+  app.save(venue);
+}
+
 // Host guard for member-supplied place links and for every URL the cover
 // resolver fetches. Blocks non-http(s) schemes, credentials, and hosts that
 // could point the server at itself or its private network (literal IPs,
@@ -388,12 +409,6 @@ function findMemberRecommendation(app, memberId, entryId) {
   }
 }
 
-function ensureEntryPending(entry, action) {
-  if (entry.getString("status") === "published") {
-    throw new BadRequestError("Published places cannot be " + action + ".");
-  }
-}
-
 function publishEntry(app, entry) {
   const normalizedName = entry.getString("normalized_name");
   const normalizedCity = entry.getString("normalized_city");
@@ -458,73 +473,36 @@ function publishEntry(app, entry) {
   // Member-supplied place links ride along with publication; the automatic
   // OSM/metadata discovery afterwards only fills whatever is still missing.
   mergeEntryLinksIntoVenue(app, entry, venue);
+  // The venue owns its occasion tags.
+  mergeEntryOccasionsIntoVenue(app, entry, venue);
 
-  let source;
-  try {
-    source = app.findFirstRecordByFilter(
-      "guide_sources",
-      "slug = 'detour-community'"
-    );
-  } catch {
-    source = new Record(app.findCollectionByNameOrId("guide_sources"));
-    source.set("slug", "detour-community");
-  }
-  const year = new Date().getUTCFullYear();
-  source.set("name", "Detour community");
-  source.set("official_url", "");
-  source.set("current_year", year);
-  app.save(source);
-
-  let award;
-  try {
-    award = app.findFirstRecordByFilter(
-      "venue_awards",
-      "source = {:source} && venue = {:venue} && year = {:year} && level = {:level}",
-      {
-        source: source.id,
-        venue: venue.id,
-        year,
-        level: "Detour community selection",
-      }
-    );
-  } catch {
-    award = new Record(app.findCollectionByNameOrId("venue_awards"));
-    award.set("source", source.id);
-    award.set("venue", venue.id);
-    award.set("year", year);
-    award.set("level", "Detour community selection");
-  }
-  award.set("current", true);
-  // Occasion tags are factual place facts; the public catalogue aggregates
-  // them from recognition records.
-  award.set("occasions", entry.getStringSlice("occasions"));
-  app.save(award);
-
-  // Keep exactly one current community-selection event for this venue while
-  // retaining older events as public history.
-  const otherCurrentAwards = app.findRecordsByFilter(
-    "venue_awards",
-    "source = {:source} && venue = {:venue} && level = {:level} && current = true && id != {:award}",
-    "",
-    1000,
-    0,
-    {
-      source: source.id,
-      venue: venue.id,
-      level: "Detour community selection",
-      award: award.id,
+  // The venue also owns its publication marker. Written before the award record
+  // below, which is now a duplicate of this fact and on its way out: every
+  // server path that needs a work-list of published places (the geocode, cover
+  // and web-discovery sweeps) keys on this, not on an award row.
+  //
+  // `published_at` is stamped once, on first publication, so re-publishing after
+  // a takedown does not rewrite the place's history. A curator takedown clears
+  // `published` via the unpublish route; it is never cleared here.
+  if (!venue.getBool("published")) {
+    venue.set("published", true);
+    if (!venue.getString("published_at")) {
+      venue.set("published_at", new Date().toISOString());
     }
-  );
-  for (const otherAward of otherCurrentAwards) {
-    otherAward.set("current", false);
-    app.save(otherAward);
+    app.save(venue);
   }
 
   // Publication state is the final write. No member identity, recommendation
   // prose, share prose, or source lead is copied to any public collection.
+  //
+  // There is no award record any more: a place is public because a real member
+  // recommended it, and the venue carries that fact itself (above). The old
+  // guide-shaped chain here — find-or-create a `detour-community` guide source,
+  // find-or-create a `venue_awards` row keyed by source/venue/year/level, then
+  // demote every other "current" row for the same venue — described an annual
+  // guide edition, not a recommendation, and is gone with the collections.
   entry.set("canonical_venue", venue.id);
   entry.set("published_venue", venue.id);
-  entry.set("published_award", award.id);
   entry.set("published_at", new Date().toISOString());
   entry.set("publication_audit_id", "community-" + $security.randomString(32));
   entry.set("status", "published");
@@ -684,24 +662,9 @@ function withdrawUnbackedEntry(app, entryId) {
       return;
     }
 
-    // Raw per-source assertions hold a required, non-cascading venue relation;
-    // remove them first so the venue delete cannot be blocked (same order the
-    // 1768019000 sweep uses).
-    try {
-      const sourceEntries = txApp.findRecordsByFilter(
-        "venue_source_entries",
-        "venue = {:venue}",
-        "id",
-        1000,
-        0,
-        { venue: venueId }
-      );
-      for (const sourceEntry of sourceEntries) txApp.delete(sourceEntry);
-    } catch {
-      // No such collection on this backend, or nothing to remove.
-    }
-
-    // Deleting the venue cascades its venue_awards rows.
+    // Nothing else holds a blocking relation on a venue any more: the raw
+    // per-source assertion table and the award lane that used to sit in front of
+    // this delete are both gone, so the venue can be removed directly.
     txApp.delete(venue);
     result.deletedVenue = venueId;
   });
@@ -1289,26 +1252,20 @@ function validateMemberPlaceLinks(input, options) {
   return links;
 }
 
-// True when the venue carries recognition from any source other than the
-// Detour community lane — editorial catalogue data that member-supplied links
-// must never overwrite. Fails closed: unknown provenance counts as editorial.
-function venueHasEditorialRecognition(app, venueId) {
-  let awards = [];
-  try {
-    awards = app.findRecordsByFilter("venue_awards", "venue = {:venue}", "", 200, 0, {
-      venue: venueId,
-    });
-  } catch {
-    return true;
-  }
-  for (const award of awards) {
-    try {
-      const source = app.findRecordById("guide_sources", award.getString("source"));
-      if (source.getString("slug") !== "detour-community") return true;
-    } catch {
-      return true;
-    }
-  }
+// True when member-supplied links must never overwrite an existing venue link.
+//
+// This used to mean "the venue carries recognition from a guide rather than the
+// Detour community lane", read off `venue_awards`, and it failed CLOSED: any
+// failed lookup counted as editorial. With the guide catalogue removed there is
+// no editorial lane left — every published place is member-recommended — so the
+// answer is now uniformly false and members can always correct poor automatic
+// discovery on their own places.
+//
+// Kept as a named predicate rather than inlined, because the fail-closed version
+// would have silently locked link editing on every place the moment
+// `venue_awards` went away, and that failure mode should stay documented at the
+// point where the decision is made.
+function venueHasEditorialRecognition() {
   return false;
 }
 
@@ -1490,7 +1447,6 @@ module.exports = {
   claimPublicationNotification,
   cleanText,
   createOrResolveEntry,
-  ensureEntryPending,
   enrichVenueFromOsm,
   enrichVenueFromWebSearch,
   findMemberRecommendation,

@@ -10,7 +10,7 @@
 import { chromium } from "playwright";
 
 const APP_URL = "https://detour.supernaut.to/?city=madrid";
-const API_BASE = "https://sn-pb-repo-1297566350-6aebd3.fly.dev";
+const API_BASE = "https://sn-pb-repo-1297566350-a88d3c.fly.dev";
 const COMMUNITY_LABEL = "Detour community selection";
 
 const VENUE_ID = "venuepizza00001";

@@ -117,6 +117,12 @@ A change is not done until the real data path works on the deployed backend.
 
 Add future project-specific rules to this file.
 
+## Recommendation card consistency
+
+- Render recommendation cards on home, destination, and Explore surfaces through `groupedRecommendationCardMarkup` in `src/network.ts`.
+- One published place must render as one card with one representative recommendation note and a combined member/date byline. The place page owns the complete list of recommendation notes.
+- Do not add another recommendation-card renderer or expand multiple notes inside a card. Extend the shared renderer when the card treatment changes.
+
 ## Frontend hosting
 
 - Production frontend assets are deployed with Supernaut's Cloudflare static Worker/custom-domain flow.

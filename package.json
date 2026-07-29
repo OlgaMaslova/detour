@@ -17,6 +17,7 @@
     "validate:sf-catalogue-expansion": "node scripts/validate-san-francisco-catalogue-expansion.mjs",
     "validate:community-selection-live": "node scripts/validate-community-selection-live.mjs",
     "validate:community-waitlist": "node scripts/validate-community-waitlist-loop.mjs",
+    "validate:recommend-same-place": "node scripts/validate-recommend-same-place.mjs",
     "covers:fetch": "node scripts/fetch-venue-cover-images.mjs"
   },
   "dependencies": {

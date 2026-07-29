@@ -10,6 +10,7 @@ type InviteRequestField = 'name' | 'email' | 'city' | 'why';
 export interface DiscoveryRecommendation {
   recommender_pseudo?: string;
   is_own?: boolean;
+  founding_member?: boolean;
   note?: string;
   venue_name?: string;
   venue_id?: string;
@@ -25,6 +26,7 @@ interface PublicRecommendation {
   country?: string;
   note: string;
   recommender_pseudo: string;
+  founding_member?: boolean;
   created?: string;
   venue_id?: string;
 }
@@ -167,6 +169,7 @@ function cleanRecommendation(value: unknown): DiscoveryRecommendation | null {
     venue_id: cleanText(item.venue_id),
     recommender_pseudo: cleanText(item.recommender_pseudo),
     is_own: item.is_own === true,
+    founding_member: item.founding_member === true,
     note: cleanText(item.note),
     city: cleanText(item.city),
     country: cleanText(item.country),
@@ -189,6 +192,7 @@ function cleanPublicRecommendation(value: unknown): PublicRecommendation | null 
     country: cleanText(item.country),
     note,
     recommender_pseudo: recommenderPseudo,
+    founding_member: item.founding_member === true,
     created: cleanDate(item.created),
     venue_id: cleanText(item.venue_id),
   };
@@ -337,12 +341,13 @@ function inviteRequestFormMarkup(accountHref: string): string {
       <p class="network-membership-label">Founding membership</p>
       <h2 id="network-membership-title">Ask to join the Detour circle.</h2>
       <p>Tell us a little about yourself. The Detour team reads every request and replies personally; submitting does not grant immediate access.</p>
-      <p class="network-founding-benefits-title">What you get by joining now</p>
+      <p class="network-founding-benefits-title">What founding membership gives you</p>
       <ul class="network-founding-benefits">
-        <li><strong>Publish instantly.</strong> Places you recommend go live right away — no approval queue.</li>
-        <li><strong>Reach the whole circle.</strong> Every member sees what you recommend.</li>
-        <li><strong>Membership for life.</strong> Your place is permanent, however Detour evolves.</li>
-        <li><strong>More invitations.</strong> A bigger allowance of invites to bring in people whose taste you trust.</li>
+        <li><strong>One of few.</strong> Founding membership is capped. Once the seats are taken an invitation still admits you, as a regular member.</li>
+        <li><strong>Whole circle visibility.</strong> All members will see your recommended places. You are the face shaping the early-growing community. That recognition carries a responsibility — we are in your hands.</li>
+        <li><strong>Recommend whenever you want to.</strong> Add a place and it publishes instantly to the circle — no approval queue, and no minimum. We trust you.</li>
+        <li><strong>A larger invitation allowance.</strong> Enough to bring in the people whose taste you trust.</li>
+        <li><strong>Free membership for life.</strong> Your place is permanent, however Detour evolves.</li>
       </ul>
     </div>
     <form class="network-invite-form" data-invite-request-form novalidate aria-labelledby="network-membership-title">
@@ -590,6 +595,10 @@ function recommendationCardMarkup(
     note?: string;
     created?: string;
     bylineHtml: string;
+    recommendationCount?: number;
+    foundingChoice?: boolean;
+    trustedEntry?: boolean;
+    selected?: boolean;
   },
   resolvePlace?: NetworkPlaceResolver
 ): string {
@@ -609,19 +618,101 @@ function recommendationCardMarkup(
   const thumb = place?.imageUrl
     ? `<figure class="network-entry-thumb" data-cover-initial="${esc(initial)}" aria-hidden="true"><img src="${esc(place.imageUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-network-thumb></figure>`
     : `<figure class="network-entry-thumb cover-placeholder network-entry-thumb-placeholder" data-cover-initial="${esc(initial)}" aria-hidden="true"><span aria-hidden="true">${esc(initial)}</span></figure>`;
-  return `<article class="network-entry network-recommendation network-entry-with-thumb" data-network-recommendation>
+  return `<article class="network-entry network-recommendation network-entry-with-thumb${view.trustedEntry ? ' trusted-entry' : ''}${view.selected ? ' is-selected' : ''}" data-network-recommendation${place ? ' data-place-card' : ''}>
     <div class="network-entry-main">
       <header class="network-entry-head">
         <div>
           <h3>${title}</h3>
           ${whereabouts ? `<p class="network-place-meta">${esc(whereabouts)}</p>` : ''}
+          ${
+            view.foundingChoice
+              ? '<p class="network-place-recommendation-count"><span aria-hidden="true">★</span> Founder’s choice</p>'
+              : view.recommendationCount && view.recommendationCount > 1
+                ? `<p class="network-place-recommendation-count">${view.recommendationCount} members recommend</p>`
+                : ''
+          }
         </div>
       </header>
       ${view.note ? `<blockquote><p>${esc(view.note)}</p></blockquote>` : '<p class="network-entry-note-empty">No note was included with this recommendation.</p>'}
-      <p class="network-entry-byline">${view.bylineHtml}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(view.created)}">${esc(when)}</time>` : ''}</p>
+      ${
+        view.bylineHtml || when
+          ? `<p class="network-entry-byline">${view.bylineHtml}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(view.created)}">${esc(when)}</time>` : ''}</p>`
+          : ''
+      }
     </div>
     ${thumb}
   </article>`;
+}
+
+interface RecommendationGroup {
+  items: DiscoveryRecommendation[];
+}
+
+function recommendationPlaceKey(
+  item: DiscoveryRecommendation,
+  resolvePlace?: NetworkPlaceResolver
+): string {
+  const venueName = item.venue_name?.trim() || '';
+  const resolved = venueName && resolvePlace ? resolvePlace(venueName, item.city || '') : null;
+  if (resolved) return `venue:${resolved.venueId}`;
+  const normalize = (value: string | undefined) =>
+    (value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+  return `place:${normalize(venueName)}\u0000${normalize(item.city)}\u0000${normalize(item.country)}`;
+}
+
+function groupRecommendations(
+  items: DiscoveryRecommendation[],
+  resolvePlace?: NetworkPlaceResolver
+): RecommendationGroup[] {
+  const groups = new Map<string, DiscoveryRecommendation[]>();
+  for (const item of [...items].sort((a, b) => recencyValue(b) - recencyValue(a))) {
+    const key = recommendationPlaceKey(item, resolvePlace);
+    const group = groups.get(key);
+    if (group) group.push(item);
+    else groups.set(key, [item]);
+  }
+  return Array.from(groups.values())
+    .map((groupItems) => ({ items: groupItems }))
+    .sort((a, b) => recencyValue(b.items[0]) - recencyValue(a.items[0]));
+}
+
+/**
+ * The one grouped place-card renderer used by home and destination/Explore
+ * lists. A place gets one card, one representative note and one combined
+ * byline; its place page is where every recommendation is shown in full.
+ */
+export function groupedRecommendationCardMarkup(
+  items: DiscoveryRecommendation[],
+  resolvePlace?: NetworkPlaceResolver,
+  options: { trustedEntry?: boolean; selected?: boolean } = {}
+): string {
+  const latest = items[0];
+  if (!latest) return '';
+  const memberLabels = items
+    .map((item) => {
+      if (item.is_own) return '<strong class="network-pseudo">You</strong>';
+      return item.recommender_pseudo?.trim() ? pseudo(item.recommender_pseudo) : '';
+    })
+    .filter(Boolean);
+  const bylineHtml =
+    memberLabels.length <= 2
+      ? memberLabels.join('<span aria-hidden="true"> + </span>')
+      : `${memberLabels[0]}<span> + ${memberLabels.length - 1} others</span>`;
+  return recommendationCardMarkup(
+    {
+      venueName: latest.venue_name || 'Recommended food-and-drink destination',
+      city: latest.city,
+      country: latest.country,
+      note: latest.note,
+      created: latest.created,
+      bylineHtml,
+      recommendationCount: items.length,
+      foundingChoice: items.some((item) => item.founding_member),
+      trustedEntry: options.trustedEntry,
+      selected: options.selected,
+    },
+    resolvePlace
+  );
 }
 
 function recommendationMarkup(item: DiscoveryRecommendation, resolvePlace?: NetworkPlaceResolver): string {
@@ -633,6 +724,7 @@ function recommendationMarkup(item: DiscoveryRecommendation, resolvePlace?: Netw
       note: item.note,
       created: item.created,
       bylineHtml: item.is_own ? '<strong class="network-pseudo">You</strong>' : pseudo(item.recommender_pseudo),
+      foundingChoice: item.founding_member,
     },
     resolvePlace
   );
@@ -746,19 +838,19 @@ function memberFeedMarkup(
     </div>`;
   }
 
-  const sorted = [...recommendations].sort((a, b) => recencyValue(b) - recencyValue(a));
+  const grouped = groupRecommendations(recommendations, resolvePlace);
   const previewLimit = recommendationColumns * 2;
-  const latest = recommendationsExpanded ? sorted : sorted.slice(0, previewLimit);
-  const hiddenCount = recommendations.length - latest.length;
-  const recentCount = recommendations.filter(
-    (item) => recencyValue(item) >= Date.now() - 24 * 60 * 60 * 1000
+  const latest = recommendationsExpanded ? grouped : grouped.slice(0, previewLimit);
+  const hiddenCount = grouped.length - latest.length;
+  const recentCount = grouped.filter(
+    (group) => recencyValue(group.items[0]) >= Date.now() - 24 * 60 * 60 * 1000
   ).length;
   const recentLabel = recentCount
-    ? `${recentCount} new ${recentCount === 1 ? 'recommendation' : 'recommendations'}`
-    : 'No new recommendations';
+    ? `${recentCount} new ${recentCount === 1 ? 'place' : 'places'}`
+    : 'No new places';
 
   return `<div class="network-member-content">
-    <section class="network-stream" aria-label="Recommendations from the circle">
+    <section class="network-stream" aria-label="Places recommended by the circle">
       <div class="network-section-heading network-section-toolbar">
         <p class="network-recency-status">${recentLabel}<span>Last 24 hours</span></p>
         <div class="network-layout-picker" role="group" aria-label="Cards per row">
@@ -781,14 +873,14 @@ function memberFeedMarkup(
       </div>
       ${
         latest.length
-          ? `<div class="network-entry-list network-recommendation-grid network-recommendation-grid-${recommendationColumns}">${latest.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div>${
+          ? `<div class="network-entry-list network-recommendation-grid network-recommendation-grid-${recommendationColumns}">${latest.map((group) => groupedRecommendationCardMarkup(group.items, resolvePlace)).join('')}</div>${
               hiddenCount > 0
-                ? `<button type="button" class="secondary-button network-retry network-show-more" data-network-show-more>Show ${hiddenCount} more</button>`
-                : recommendationsExpanded && recommendations.length > previewLimit
+                ? `<button type="button" class="secondary-button network-retry network-show-more" data-network-show-more>Show ${hiddenCount} more ${hiddenCount === 1 ? 'place' : 'places'}</button>`
+                : recommendationsExpanded && grouped.length > previewLimit
                   ? '<button type="button" class="secondary-button network-retry network-show-more" data-network-show-more>Show fewer</button>'
                   : ''
             }`
-          : `<div class="network-empty"><h3>No circle recommendations yet</h3><p>Recommendations will appear here as members add them, unless they choose to keep theirs private.</p></div>`
+          : `<div class="network-empty"><h3>No places from the circle yet</h3><p>Places will appear here as members recommend them, unless they choose to keep their notes private.</p></div>`
       }
     </section>
   </div>`;
@@ -799,7 +891,7 @@ function memberFeedMarkup(
 function publicRecommendationSampleMarkup(resolvePlace?: NetworkPlaceResolver): string {
   const feed = publicRecommendationFeed();
   const heading = `<div class="network-public-sample-heading">
-    <div><p class="network-membership-label">From the circle</p><h2 id="network-public-recommendations-title">Places members would send you.</h2></div>
+    <div><p class="network-membership-label">From the circle</p><h2 id="network-public-recommendations-title">What the circle recommends.</h2></div>
   </div>`;
 
   if (feed.status === 'loading' || feed.status === 'idle') {
@@ -837,8 +929,8 @@ export function networkDiscoveryMarkup(
     return `<section class="network-invitation" aria-labelledby="network-home-title">
       <div class="network-invitation-copy">
         <p class="network-kicker">An invite-only circle shaped by member taste</p>
-        <h1 id="network-home-title">See the places your network would actually recommend.</h1>
-        <p class="network-invitation-lead">Every place on Detour is here because a member loves it and took the time to say why. No ads, no paid listings, no anonymous stars — only recommendations from people whose taste you trust.</p>
+        <h1 id="network-home-title">Detours from people you trust.</h1>
+        <p class="network-invitation-lead">It is not a restaurant directory. Every place here is one a member put their name behind and said why — no ads, no paid listings, no anonymous stars. Read what the circle recommends, and add your own places whenever you have one.</p>
       </div>
       ${publicRecommendationSampleMarkup(resolvePlace)}
       <aside class="network-invitation-action" aria-label="Founding membership and member sign-in">
@@ -852,8 +944,8 @@ export function networkDiscoveryMarkup(
   return `<section class="network-home" aria-labelledby="network-home-title">
     <div class="network-home-heading">
       <p class="network-kicker">Your Detour circle</p>
-      <h1 id="network-home-title">What the circle recommends.</h1>
-      <p>Welcome back, ${esc(memberLabel)}. Every place here comes from a member who said why. Your private shares stay in My detours.</p>
+      <h1 id="network-home-title">Places the circle recommends.</h1>
+      <p>Welcome back, ${esc(memberLabel)}. Each place appears once, with the members who recommend it and why. Your private shares stay in My detours.</p>
     </div>
     ${firstPlaceInvitationMarkup(accountHref)}
     ${memberFeedMarkup(accountHref, resolvePlace)}
