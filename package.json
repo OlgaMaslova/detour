@@ -1,6 +1,7 @@
 {
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "dev:api": "sh scripts/run-local-pocketbase.sh",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "deploy": "npm run build && wrangler deploy",

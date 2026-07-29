@@ -24,6 +24,28 @@ Worker (built into `public/`, configured by `wrangler.toml`) — see
 No credentials live in this repository; superuser/admin access is managed by
 the platform.
 
+## Local backend and OpenAI image screening
+
+The browser environment and backend environment are separate:
+
+- `.env.local` contains `VITE_POCKETBASE_URL=http://127.0.0.1:8090`.
+- `.env.backend.local` contains backend-only secrets such as
+  `OPENAI_API_KEY`. This file is gitignored and must never use a `VITE_`
+  prefix.
+
+Copy `.env.backend.local.example` to `.env.backend.local`, add the key after
+`OPENAI_API_KEY=`, then run the API and frontend in separate terminals:
+
+```sh
+npm run dev:api
+npm run dev
+```
+
+When OpenAI screening succeeds, founders see a safety-passed result with an
+advisory relevance classification. When OpenAI is unavailable, the submission
+still enters the founder queue as **Unscreened — manual safety review
+required**. Images explicitly flagged by OpenAI remain excluded.
+
 ## Health and readiness endpoints
 
 - `GET /api/health` — PocketBase's built-in health endpoint; also the Fly

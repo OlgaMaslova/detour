@@ -26,10 +26,25 @@ const MEMBER_INVITATION_LIMIT = 10;
 // members they seat.
 function invitationLimitFor(member) {
   if (!member) return MEMBER_INVITATION_LIMIT;
-  const founding =
-    member.getBool("direct_founder_invited") ||
-    member.getBool("founder_invitation_issuer");
+  const founding = isFoundingMember(member);
   return founding ? FOUNDING_INVITATION_LIMIT : MEMBER_INVITATION_LIMIT;
+}
+
+function isFoundingMember(member) {
+  return Boolean(
+    member &&
+      (member.getBool("direct_founder_invited") ||
+        member.getBool("founder_invitation_issuer"))
+  );
+}
+
+function requireFoundingMember(member, action) {
+  if (!isFoundingMember(member)) {
+    throw new ForbiddenError(
+      "Founding membership is required before " + (action || "curating Detour") + "."
+    );
+  }
+  return member;
 }
 
 function countFoundingMembers(app) {
@@ -52,4 +67,6 @@ module.exports = {
   MEMBER_INVITATION_LIMIT,
   countFoundingMembers,
   invitationLimitFor,
+  isFoundingMember,
+  requireFoundingMember,
 };

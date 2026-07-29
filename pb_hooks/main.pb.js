@@ -142,6 +142,16 @@ routerAdd(
     // invitation_limit is the member's computed allowance, not their tier: the
     // founding markers it derives from are hidden fields and stay server-side.
     const founding = require(__hooks + "/founding_cap.js");
+    const foundingMember = founding.isFoundingMember(e.auth);
+    const imageCurationCount = foundingMember
+      ? e.app.findRecordsByFilter(
+          "community_place_images",
+          "(status = 'pending' || status = 'screening_failed') && safety_flagged = false",
+          "",
+          10000,
+          0
+        ).length
+      : 0;
     return e.json(200, {
       member: {
         id: e.auth.id,
@@ -149,8 +159,43 @@ routerAdd(
         pseudo: e.auth.getString("pseudo"),
         community_status: e.auth.getString("community_status"),
         invitation_limit: founding.invitationLimitFor(e.auth),
+        founding_member: foundingMember,
+        image_curation_count: imageCurationCount,
       },
     });
+  },
+  $apis.requireAuth("members")
+);
+
+// The verification note is private provenance, but members editing their own
+// recommendations still need the exact lock state. Return only entry ids whose
+// linked public venue has confirmed coordinates.
+routerAdd(
+  "GET",
+  "/api/detour/community/place-locks",
+  (e) => {
+    const community = require(__hooks + "/community_waitlist.js");
+    const entries = e.app.findRecordsByFilter(
+      "community_waitlist_entries",
+      "published_venue != ''",
+      "-updated",
+      5000,
+      0
+    );
+    const ids = [];
+    for (const entry of entries) {
+      if (!community.isParticipant(entry, e.auth.id)) continue;
+      try {
+        const venue = e.app.findRecordById(
+          "venues",
+          entry.getString("published_venue")
+        );
+        if (community.hasConfirmedCoordinates(venue)) ids.push(entry.id);
+      } catch {
+        // A missing publication target cannot be considered confirmed.
+      }
+    }
+    return e.json(200, { ids });
   },
   $apis.requireAuth("members")
 );
@@ -1042,6 +1087,11 @@ onRecordCreateRequest((e) => {
   const note = community.validateRecommendationNote(e.record.getString("note"));
   const category = community.validateCategory(e.record.getString("category"));
   const occasions = community.validateOccasions(e.record.getStringSlice("occasions"));
+  const requestBody = e.requestInfo().body || {};
+  const links = community.validateMemberPlaceLinks({
+    officialUrl: requestBody.official_url,
+    instagram: requestBody.instagram_url,
+  });
   const resolved = community.resolveEntry(e.app, e.record.getString("waitlist"), {
     venueName: e.record.getString("venue_name"),
     city: e.record.getString("city"),
@@ -1065,6 +1115,7 @@ onRecordCreateRequest((e) => {
   // The shared entry and canonical venue stay the same; this request only adds
   // the caller's note and increments the distinct-member signal count.
   community.mergePlaceFacts(e.app, resolved.entry, category, occasions);
+  community.mergePlaceLinks(e.app, resolved.entry, links);
   community.addParticipants(e.app, resolved.entry, [e.auth.id]);
   e.record.set("member", e.auth.id);
   e.record.set("waitlist", resolved.entry.id);
@@ -1406,6 +1457,13 @@ cronAdd("community_web_discovery_sweep", "0 * * * *", () => {
   }
 });
 
+// Safety screening fails closed. Retry a small number of transport/configuration
+// failures every fifteen minutes; founders never see an unscreened image.
+cronAdd("community_image_screening_retry", "*/15 * * * *", () => {
+  const curation = require(__hooks + "/image_curation.js");
+  curation.retryFailedScreens($app, 3);
+});
+
 // A member may correct their own recommendation: the personal note and its
 // category/occasions classification. The identity fields (member, waitlist)
 // are server-owned and frozen. The place-detail mirrors (venue_name, city,
@@ -1479,9 +1537,256 @@ onRecordAfterDeleteSuccess((e) => {
   e.next();
 }, "community_recommendations");
 
+// Member-supplied images never update a place directly. Public collection
+// creation is disabled; the custom route below accepts the candidate URL,
+// creates a stable PocketBase snapshot, and initializes every server-owned
+// moderation field. Only a founding-member approval route can attach the
+// snapshot to a public venue.
+onRecordCreateRequest((e) => {
+  if (e.hasSuperuserAuth()) {
+    return e.next();
+  }
+  throw new ForbiddenError("Use the place-image submission route.");
+}, "community_place_images");
+
+onRecordAfterCreateSuccess((e) => {
+  const curation = require(__hooks + "/image_curation.js");
+  curation.screenImageSubmission(e.app, e.record.id);
+  e.next();
+}, "community_place_images");
+
+routerAdd(
+  "POST",
+  "/api/detour/curation/images",
+  (e) => {
+    const community = require(__hooks + "/community_waitlist.js");
+    community.requireVerifiedMember(e.auth, "submitting a place image");
+    const body = e.requestInfo().body || {};
+    const waitlistId =
+      typeof body.waitlist === "string" ? body.waitlist.trim() : "";
+    const entry = e.app.findRecordById(
+      "community_waitlist_entries",
+      waitlistId
+    );
+    if (!community.isParticipant(entry, e.auth.id)) {
+      throw new BadRequestError(
+        "Recommend this place before submitting an image for it."
+      );
+    }
+
+    let existing = null;
+    try {
+      existing = e.app.findFirstRecordByFilter(
+        "community_place_images",
+        "submitted_by = {:member} && waitlist = {:waitlist} && " +
+          "(status = 'screening' || status = 'pending' || status = 'screening_failed')",
+        { member: e.auth.id, waitlist: entry.id }
+      );
+    } catch {
+      existing = null;
+    }
+    if (existing) {
+      throw new BadRequestError(
+        "You already have an image for this place awaiting review."
+      );
+    }
+
+    const links = community.validateMemberPlaceLinks({
+      imageUrl: body.source_url,
+    });
+    if (!links.image_url) {
+      throw new BadRequestError("Add a direct public link to an image.");
+    }
+
+    let snapshot;
+    try {
+      snapshot = $filesystem.fileFromURL(links.image_url);
+    } catch {
+      throw new BadRequestError(
+        "That image could not be copied for private review."
+      );
+    }
+
+    const collection = e.app.findCollectionByNameOrId(
+      "community_place_images"
+    );
+    const image = new Record(collection);
+    image.set("waitlist", entry.id);
+    image.set("submitted_by", e.auth.id);
+    image.set("source_url", links.image_url);
+    image.set("snapshot", snapshot);
+    image.set("status", "screening");
+    image.set("safety_flagged", false);
+    image.set("safety_categories", {});
+    image.set("relevance", "");
+    image.set("ai_note", "");
+    image.set("moderated_at", "");
+    image.set("reviewed_by", "");
+    image.set("reviewed_at", "");
+    image.set("curator_note", "");
+    e.app.save(image);
+
+    // Model success hooks normally screen this save. Calling the idempotent
+    // helper here also covers direct route saves on PocketBase versions where
+    // request success hooks are not dispatched for app.save().
+    const curation = require(__hooks + "/image_curation.js");
+    curation.screenImageSubmission(e.app, image.id);
+    const saved = e.app.findRecordById("community_place_images", image.id);
+    return e.json(201, {
+      id: saved.id,
+      waitlist: saved.getString("waitlist"),
+      status: saved.getString("status"),
+    });
+  },
+  $apis.requireAuth("members")
+);
+
+routerAdd(
+  "GET",
+  "/api/detour/curation/images",
+  (e) => {
+    const founding = require(__hooks + "/founding_cap.js");
+    founding.requireFoundingMember(e.auth, "reviewing place images");
+    const records = e.app.findRecordsByFilter(
+      "community_place_images",
+      "(status = 'pending' || status = 'screening_failed') && safety_flagged = false",
+      "created",
+      50,
+      0
+    );
+    const collection = e.app.findCollectionByNameOrId("community_place_images");
+    const items = [];
+    for (const record of records) {
+      let entry;
+      let submitter;
+      try {
+        entry = e.app.findRecordById(
+          "community_waitlist_entries",
+          record.getString("waitlist")
+        );
+        submitter = e.app.findRecordById(
+          "members",
+          record.getString("submitted_by")
+        );
+      } catch {
+        continue;
+      }
+      items.push({
+        id: record.id,
+        collection_id: collection.id,
+        snapshot: record.getString("snapshot"),
+        place_name: entry.getString("venue_name"),
+        city: entry.getString("city"),
+        country: entry.getString("country"),
+        submitted_by: submitter.getString("pseudo"),
+        screening_status: record.getString("status"),
+        relevance: record.getString("relevance") || "uncertain",
+        ai_note: record.getString("ai_note"),
+        created: record.getString("created"),
+      });
+    }
+    return e.json(200, { items });
+  },
+  $apis.requireAuth("members")
+);
+
+routerAdd(
+  "POST",
+  "/api/detour/curation/images/{id}/approve",
+  (e) => {
+    const founding = require(__hooks + "/founding_cap.js");
+    founding.requireFoundingMember(e.auth, "approving a place image");
+    const imageId = e.request.pathValue("id");
+    const body = e.requestInfo().body || {};
+    const curatorNote =
+      typeof body.note === "string" ? body.note.trim().slice(0, 1200) : "";
+    let result;
+
+    e.app.runInTransaction((txApp) => {
+      const image = txApp.findRecordById("community_place_images", imageId);
+      const imageStatus = image.getString("status");
+      if (
+        (imageStatus !== "pending" && imageStatus !== "screening_failed") ||
+        image.getBool("safety_flagged")
+      ) {
+        throw new BadRequestError(
+          "Only an unflagged image awaiting founder review can be approved."
+        );
+      }
+      const entry = txApp.findRecordById(
+        "community_waitlist_entries",
+        image.getString("waitlist")
+      );
+      const venueId = entry.getString("published_venue");
+      if (!venueId) {
+        throw new BadRequestError(
+          "This place must be published before its image can be approved."
+        );
+      }
+      const venue = txApp.findRecordById("venues", venueId);
+      const previousImageId = venue.getString("curated_image");
+      if (previousImageId && previousImageId !== image.id) {
+        try {
+          const previous = txApp.findRecordById(
+            "community_place_images",
+            previousImageId
+          );
+          if (previous.getString("status") === "approved") {
+            previous.set("status", "superseded");
+            txApp.save(previous);
+          }
+        } catch {
+          // A missing prior image must not block a valid replacement.
+        }
+      }
+      image.set("status", "approved");
+      image.set("reviewed_by", e.auth.id);
+      image.set("reviewed_at", new Date().toISOString());
+      image.set("curator_note", curatorNote);
+      txApp.save(image);
+      venue.set("curated_image", image.id);
+      txApp.save(venue);
+      result = { id: image.id, status: "approved", venue_id: venue.id };
+    });
+
+    return e.json(200, result);
+  },
+  $apis.requireAuth("members")
+);
+
+routerAdd(
+  "POST",
+  "/api/detour/curation/images/{id}/reject",
+  (e) => {
+    const founding = require(__hooks + "/founding_cap.js");
+    founding.requireFoundingMember(e.auth, "rejecting a place image");
+    const image = e.app.findRecordById(
+      "community_place_images",
+      e.request.pathValue("id")
+    );
+    const imageStatus = image.getString("status");
+    if (imageStatus !== "pending" && imageStatus !== "screening_failed") {
+      throw new BadRequestError(
+        "Only an image awaiting founder review can be rejected."
+      );
+    }
+    const body = e.requestInfo().body || {};
+    const curatorNote =
+      typeof body.note === "string" ? body.note.trim().slice(0, 1200) : "";
+    image.set("status", "rejected");
+    image.set("reviewed_by", e.auth.id);
+    image.set("reviewed_at", new Date().toISOString());
+    image.set("curator_note", curatorNote);
+    e.app.save(image);
+    return e.json(200, { id: image.id, status: "rejected" });
+  },
+  $apis.requireAuth("members")
+);
+
 // Participants may correct a shared waiting-list entry's place details (name,
-// address, city, country, category, occasions) and its public links (website,
-// Instagram, cover image). Publication and bookkeeping state — status,
+// address, city, country, category, occasions) and its public links (website
+// and Instagram). Photos use the screened curation workflow above. Publication
+// and bookkeeping state — status,
 // signal_count, participants, the normalized dedup keys, and every venue/audit
 // relation — stays server-owned and frozen. Published entries stay editable:
 // that is when a wrong name or a poor auto-discovered link becomes visible, and
@@ -1497,6 +1802,30 @@ onRecordUpdateRequest((e) => {
   if (!community.isParticipant(original, e.auth.id)) {
     throw new BadRequestError(
       "Only members who recommended or shared this place can edit it."
+    );
+  }
+
+  const publishedVenueId = original.getString("published_venue");
+  if (publishedVenueId) {
+    try {
+      const publishedVenue = e.app.findRecordById("venues", publishedVenueId);
+      if (community.hasConfirmedCoordinates(publishedVenue)) {
+        for (const field of ["venue_name", "address", "city", "country"]) {
+          if (e.record.getString(field) !== original.getString(field)) {
+            throw new BadRequestError(
+              "This place has confirmed coordinates. Its name and location are locked."
+            );
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof BadRequestError) throw error;
+    }
+  }
+
+  if (e.record.getString("image_url") !== original.getString("image_url")) {
+    throw new BadRequestError(
+      "Place photos must go through safety screening and founding-member review."
     );
   }
 

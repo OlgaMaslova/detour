@@ -930,7 +930,7 @@ export function networkDiscoveryMarkup(
       <div class="network-invitation-copy">
         <p class="network-kicker">An invite-only circle shaped by member taste</p>
         <h1 id="network-home-title">Detours from people you trust.</h1>
-        <p class="network-invitation-lead">It is not a restaurant directory. Every place here is one a member put their name behind and said why — no ads, no paid listings, no anonymous stars. Read what the circle recommends, and add your own places whenever you have one.</p>
+        <p class="network-invitation-lead">This isn't a restaurant directory. Every place here is one a member put their name behind and said why — no ads, no paid listings, no anonymous stars. Add one of yours — someone needs it.</p>
       </div>
       ${publicRecommendationSampleMarkup(resolvePlace)}
       <aside class="network-invitation-action" aria-label="Founding membership and member sign-in">

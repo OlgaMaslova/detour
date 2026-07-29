@@ -4,14 +4,14 @@ import { venueCitySlug, venuePlaceSlug } from './data';
 import type { Venue } from './data';
 import { OCCASION_OPTIONS } from './occasions';
 import { countryOptions } from './countries';
+import type { RecordModel } from 'pocketbase';
 
 type CommunityMode = 'sign-in' | 'join';
-type MemberTab = 'invitations' | 'detours' | 'settings';
+type MemberTab = 'invitations' | 'detours' | 'settings' | 'curation';
 type DetourTab = 'recommendations' | 'shares';
 type NoticeKind = 'success' | 'error' | 'info';
 
-interface MemberRecord {
-  id: string;
+interface MemberRecord extends RecordModel {
   email?: string;
   display_name?: string;
   pseudo?: string;
@@ -105,12 +105,26 @@ interface PendingRecommendationDeletion {
   published: boolean;
 }
 
+interface ImageCurationItem {
+  id: string;
+  collection_id: string;
+  snapshot: string;
+  place_name: string;
+  city: string;
+  country: string;
+  submitted_by: string;
+  screening_status: 'pending' | 'screening_failed';
+  relevance: 'relevant' | 'uncertain' | 'irrelevant';
+  ai_note: string;
+  created: string;
+}
+
 // One order, used by both the member-area tab strip and the masthead menu.
-const MEMBER_TABS: MemberTab[] = ['detours', 'invitations', 'settings'];
 const MEMBER_TAB_LABELS: Record<MemberTab, string> = {
   detours: 'My detours',
   invitations: 'Invitations',
   settings: 'Settings',
+  curation: 'Curation',
 };
 // The invitation allowance is server policy: founding members keep more codes
 // open at once than regular members. The server reports the member's computed
@@ -140,7 +154,7 @@ const CATEGORY_OPTIONS = [
 let mode: CommunityMode = 'sign-in';
 let invitationCodePrefill = '';
 let routedInvitationCode: string | null = null;
-let memberTab: MemberTab = 'invitations';
+let memberTab: MemberTab = 'detours';
 let detourTab: DetourTab = 'recommendations';
 let recommendationDraft: Venue | null = null;
 let recommendationIntent: 'add' | 'edit' = 'add';
@@ -149,6 +163,7 @@ let knownVenues: Venue[] = [];
 let waitlistEntries: WaitlistEntry[] = [];
 let recommendations: RecommendationRecord[] = [];
 let shares: ShareRecord[] = [];
+let lockedEntryIds = new Set<string>();
 let communityLoaded = false;
 let loadingCommunity = false;
 let invites: InviteRecord[] = [];
@@ -163,7 +178,19 @@ let visibilitySaving = false;
 let visibilityPending: boolean | null = null;
 let memberRefreshed = false;
 let refreshingMember = false;
+let foundingMember = false;
+let imageCurationCount = 0;
+let curationItems: ImageCurationItem[] = [];
+let curationLoaded = false;
+let loadingCuration = false;
+let curationSavingId = '';
 const directories = new Map<string, DirectoryState>();
+
+function memberTabs(): MemberTab[] {
+  return foundingMember
+    ? ['detours', 'invitations', 'curation', 'settings']
+    : ['detours', 'invitations', 'settings'];
+}
 
 function esc(value: string | undefined | null): string {
   return (value ?? '')
@@ -176,6 +203,15 @@ function esc(value: string | undefined | null): string {
 function member(): MemberRecord | null {
   if (!pb.authStore.isValid || !pb.authStore.record) return null;
   return pb.authStore.record as unknown as MemberRecord;
+}
+
+/** Persist a profile update in the auth store as well as in PocketBase.
+ * Record updates return the new member but do not refresh the SDK auth cache,
+ * and member() reads that cache on every render. */
+function syncMemberRecord(original: MemberRecord, updated: MemberRecord): boolean {
+  if (member()?.id !== original.id) return false;
+  pb.authStore.save(pb.authStore.token, { ...original, ...updated });
+  return true;
 }
 
 function memberName(record: MemberRecord): string {
@@ -211,10 +247,21 @@ function meaningfulRecommendation(note: string): boolean {
   return cleaned.length >= 24 && words.length >= 5;
 }
 
+function placeLinkFields(values?: {
+  officialUrl?: string;
+  instagramUrl?: string;
+  imageUrl?: string;
+}, options?: { proposeImage?: boolean }): string {
+  const proposedImage = options?.proposeImage === true;
+  return `<label>Website<input name="official_url" value="${esc(values?.officialUrl)}" maxlength="300" inputmode="url" autocomplete="off" spellcheck="false" placeholder="restaurant.example"></label>
+    <label>Instagram<input name="instagram_url" value="${esc(values?.instagramUrl)}" maxlength="300" autocomplete="off" spellcheck="false" placeholder="@restaurant or instagram.com/restaurant"></label>
+    <label>${proposedImage ? 'Propose a replacement photo' : 'Photo link'} <span class="community-optional">Founder reviewed</span><input name="image_url" value="${proposedImage ? '' : esc(values?.imageUrl)}" maxlength="2048" inputmode="url" autocomplete="off" spellcheck="false" placeholder="${proposedImage ? 'Paste a direct image link for review' : 'Direct link to a photo of the destination'}"></label>`;
+}
+
 function noticeMarkup(): string {
   if (!notice) return '';
   const role = notice.kind === 'error' ? 'alert' : 'status';
-  return `<p class="community-notice community-notice-${notice.kind}" role="${role}">${esc(notice.text)}</p>`;
+  return `<p class="community-notice community-notice-${notice.kind}" role="${role}" tabindex="-1">${esc(notice.text)}</p>`;
 }
 
 function deleteRecommendationDialogMarkup(): string {
@@ -404,6 +451,10 @@ function discoveryHref(venue: Venue): string {
   return `${url.pathname}${url.search}`;
 }
 
+function entryPlaceLocked(entry: WaitlistEntry): boolean {
+  return lockedEntryIds.has(entry.id);
+}
+
 function entryEditMarkup(entry: WaitlistEntry): string {
   const links = [
     entry.official_url ? `<a href="${esc(entry.official_url)}" target="_blank" rel="noopener noreferrer">Website</a>` : '',
@@ -414,6 +465,8 @@ function entryEditMarkup(entry: WaitlistEntry): string {
   const rec = recommendationForEntry(entry.id);
   const selectedCategory = entry.category || '';
   const selectedOccasions = entry.occasions || [];
+  const placeLocked = entryPlaceLocked(entry);
+  const lockedAttribute = placeLocked ? ' readonly aria-readonly="true"' : '';
   const editPromise = entry.status === 'published'
     ? 'Your edits carry through to the public page right away.'
     : rec
@@ -421,11 +474,11 @@ function entryEditMarkup(entry: WaitlistEntry): string {
       : 'These details stay with this private entry until it has a recommendation note.';
   return `${hasLinks ? `<p class="community-place-links" aria-label="Destination links">${links.join('<span aria-hidden="true"> · </span>')}</p>` : ''}
       <form class="community-form community-links-form" data-community-edit data-waitlist="${esc(entry.id)}"${rec ? ` data-recommendation="${esc(rec.id)}"` : ''}>
-        <label>Food-and-drink destination name<input name="venue_name" value="${esc(entry.venue_name || '')}" maxlength="200" required placeholder="A restaurant, café, bar, or other food-and-drink destination"></label>
-        <label>Address <span class="community-optional">Optional</span><input name="address" value="${esc(entry.address || '')}" maxlength="300" placeholder="Street and number"></label>
+        <label>Food-and-drink destination name<input name="venue_name" value="${esc(entry.venue_name || '')}" maxlength="200" required placeholder="A restaurant, café, bar, or other food-and-drink destination"${lockedAttribute}></label>
+        <label>Address <span class="community-optional">${placeLocked ? 'Verified and locked' : 'Optional'}</span><input name="address" value="${esc(entry.address || '')}" maxlength="300" placeholder="Street and number"${lockedAttribute}></label>
         <div class="community-form-grid community-place-grid">
-          <label>City or locality<input name="city" value="${esc(entry.city || '')}" maxlength="120" required placeholder="City or locality"></label>
-          <label>Country<input name="country" value="${esc(entry.country || '')}" maxlength="120" required placeholder="Country"></label>
+          <label>City or locality<input name="city" value="${esc(entry.city || '')}" maxlength="120" required placeholder="City or locality"${lockedAttribute}></label>
+          <label>Country<input name="country" value="${esc(entry.country || '')}" maxlength="120" required placeholder="Country"${lockedAttribute}></label>
         </div>
         <label>Category <span class="community-optional">Optional</span><select name="category"><option value=""${selectedCategory ? '' : ' selected'}>Choose one</option>${CATEGORY_OPTIONS.map(([value, label]) => `<option value="${value}"${value === selectedCategory ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
         <fieldset class="community-choice-fieldset">
@@ -433,9 +486,12 @@ function entryEditMarkup(entry: WaitlistEntry): string {
           <div class="community-choice-grid">${OCCASION_OPTIONS.map(([value, label]) => `<label><input type="checkbox" name="occasions" value="${value}"${selectedOccasions.indexOf(value) !== -1 ? ' checked' : ''}><span>${label}</span></label>`).join('')}</div>
         </fieldset>
         ${rec ? `<label>Your recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?">${esc(rec.note || '')}</textarea></label>` : ''}
-        <label>Website<input name="official_url" value="${esc(entry.official_url || '')}" maxlength="300" inputmode="url" autocomplete="off" spellcheck="false" placeholder="restaurant.example"></label>
-        <label>Instagram<input name="instagram_url" value="${esc(entry.instagram_url || '')}" maxlength="300" autocomplete="off" spellcheck="false" placeholder="@restaurant or instagram.com/restaurant"></label>
-        <label>Photo link<input name="image_url" value="${esc(entry.image_url || '')}" maxlength="2048" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Direct link to a photo of the destination"></label>
+        ${placeLinkFields({
+          officialUrl: entry.official_url,
+          instagramUrl: entry.instagram_url,
+          imageUrl: entry.image_url,
+        }, { proposeImage: true })}
+        ${placeLocked ? '<p class="community-form-note">This place has confirmed coordinates. Its identity and address are locked; contact Detour for an exceptional correction.</p>' : ''}
         <p class="community-form-note">${esc(editPromise)}</p>
         <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting && !deletingRecommendationId ? 'Saving…' : 'Save changes'}</button>
       </form>`;
@@ -547,6 +603,11 @@ function recommendationPanel(): string {
         <input type="hidden" name="city" value="${esc(draft.city)}">
         <input type="hidden" name="country" value="${esc(draft.country)}">
         <label>Your recommendation<textarea id="recommendation-note" name="note" rows="5" maxlength="2400" minlength="24" required autofocus placeholder="What should another Detourist know about this place?"></textarea></label>
+        ${placeLinkFields({
+          officialUrl: draft.officialUrl,
+          instagramUrl: draft.instagramUrl,
+          imageUrl: draft.imageUrl,
+        }, { proposeImage: true })}
         <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend this place'}</button>
       </form>`
     : `<form class="community-form" data-community-recommendation>
@@ -562,6 +623,7 @@ function recommendationPanel(): string {
           <div class="community-choice-grid">${OCCASION_OPTIONS.map(([value, label]) => `<label><input type="checkbox" name="occasions" value="${value}"><span>${label}</span></label>`).join('')}</div>
         </fieldset>
         <label>Your recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?"></textarea></label>
+        ${placeLinkFields()}
         <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend'}</button>
       </form>`;
   return `<section class="community-ledger-section" aria-labelledby="community-waitlist-title">
@@ -695,6 +757,55 @@ function invitesPanel(): string {
   </section>`;
 }
 
+function curationImageUrl(item: ImageCurationItem): string {
+  return pb.files.getURL(
+    {
+      id: item.id,
+      collectionId: item.collection_id,
+      collectionName: 'community_place_images',
+    } as RecordModel,
+    item.snapshot,
+    { thumb: '480x360' }
+  );
+}
+
+function curationPanel(): string {
+  return `<section class="community-tab-panel community-curation-panel" id="member-panel-curation" role="tabpanel" aria-labelledby="member-tab-curation" tabindex="0">
+    <div class="community-section-heading">
+      <div><p class="community-kicker">Founding circle</p><h3>Image curation</h3></div>
+    </div>
+    ${
+      loadingCuration || !curationLoaded
+        ? '<p class="community-loading" role="status">Loading the review queue…</p>'
+        : curationItems.length
+          ? `<div class="community-curation-grid">${curationItems.map((item) => {
+              const where = [item.city, item.country].filter(Boolean).join(', ');
+              const submitter = item.submitted_by ? `@${item.submitted_by.replace(/^@+/, '')}` : 'a member';
+              const screeningUnavailable = item.screening_status === 'screening_failed';
+              return `<article class="community-curation-card">
+                <img src="${esc(curationImageUrl(item))}" alt="Submitted image for ${esc(item.place_name)}" loading="lazy" decoding="async">
+                <div class="community-curation-copy">
+                  <p class="community-curation-status${screeningUnavailable ? ' is-unscreened' : ''}">${screeningUnavailable
+                    ? 'Unscreened · Manual safety review required'
+                    : `Safety passed · Relevance: ${esc(item.relevance)}`}</p>
+                  <h4>${esc(item.place_name)}</h4>
+                  ${where ? `<p>${esc(where)}</p>` : ''}
+                  <p class="community-form-note">Submitted by ${esc(submitter)}. ${esc(item.ai_note || 'Founder judgment required.')}</p>
+                  <form class="community-curation-form" data-image-curation="${esc(item.id)}">
+                    <label>Review note <span class="community-optional">Optional</span><textarea name="note" rows="2" maxlength="1200" placeholder="Reason for approving or rejecting"></textarea></label>
+                    <div class="community-curation-actions">
+                      <button class="secondary-button" type="submit" name="decision" value="reject" ${curationSavingId ? 'disabled' : ''}>${curationSavingId === item.id ? 'Saving…' : 'Reject'}</button>
+                      <button class="primary-button" type="submit" name="decision" value="approve" ${curationSavingId ? 'disabled' : ''}>${curationSavingId === item.id ? 'Saving…' : 'Approve image'}</button>
+                    </div>
+                  </form>
+                </div>
+              </article>`;
+            }).join('')}</div>`
+          : '<p class="community-empty">No images are waiting for review.</p>'
+    }
+  </section>`;
+}
+
 function detoursPanel(): string {
   const unseen = unseenShareCount();
   const tabs: { id: DetourTab; label: string }[] = [
@@ -753,23 +864,31 @@ function unseenShareCount(): number {
 
 function memberTabsMarkup(): string {
   const unseen = unseenShareCount();
+  const tabs = memberTabs();
   return `<div class="community-member-bar">
     <div class="community-member-tabs" role="tablist" aria-label="Member areas">
-      ${MEMBER_TABS.map(
+      ${tabs.map(
         (tab) =>
           `<button class="community-member-tab${memberTab === tab ? ' is-active' : ''}" type="button" role="tab" id="member-tab-${tab}" aria-selected="${memberTab === tab}" aria-controls="member-panel-${tab}" tabindex="${memberTab === tab ? '0' : '-1'}" data-member-tab="${tab}">${MEMBER_TAB_LABELS[tab]}${
             tab === 'detours' && unseen ? `<span class="community-tab-badge" aria-label="${unseen} new shares">${unseen}</span>` : ''
-          }</button>`
+          }${tab === 'curation' && imageCurationCount ? `<span class="community-tab-badge" aria-label="${imageCurationCount} images awaiting review">${imageCurationCount}</span>` : ''}</button>`
       ).join('')}
     </div>
-    <button class="secondary-button community-tab-signout" type="button" data-community-sign-out>Sign out</button>
+    <div class="community-member-status">${foundingMember ? '<span class="community-founder-badge">Founding member</span>' : ''}<button class="secondary-button community-tab-signout" type="button" data-community-sign-out>Sign out</button></div>
   </div>`;
 }
 
 function signedInPanel(): string {
   const record = member();
   if (!record) return signedOutPanel();
-  const panel = memberTab === 'invitations' ? invitesPanel() : memberTab === 'detours' ? detoursPanel() : settingsPanel(record);
+  const panel =
+    memberTab === 'invitations'
+      ? invitesPanel()
+      : memberTab === 'detours'
+        ? detoursPanel()
+        : memberTab === 'curation' && foundingMember
+          ? curationPanel()
+          : settingsPanel(record);
   return `<section class="community-panel community-panel-member" aria-label="Detour member area">
     ${memberTabsMarkup()}
     ${noticeMarkup()}
@@ -817,7 +936,7 @@ export function communityControl(href: string, current = false): string {
   if (!record) {
     return `<a class="community-toggle${current ? ' is-current' : ''}" href="${esc(href)}" data-community-route${current ? ' aria-current="page"' : ''}>Members<span${current ? '' : ' class="nav-arrow nav-arrow-external"'} aria-hidden="true">${current ? '•' : '&#x2197;&#xFE0E;'}</span></a>`;
   }
-  const items = MEMBER_TABS.map((tab) => {
+  const items = memberTabs().map((tab) => {
     const active = current && memberTab === tab;
     return `<a class="community-menu-item${active ? ' is-current' : ''}" role="menuitem" href="${esc(href)}" data-community-route="${tab}"${
       active ? ' aria-current="true"' : ''
@@ -837,7 +956,7 @@ export function communityControl(href: string, current = false): string {
 
 /** Point the member area at one of its tabs (used by the masthead member menu). */
 export function openMemberArea(tab: string): boolean {
-  if (!MEMBER_TABS.includes(tab as MemberTab)) return false;
+  if (!memberTabs().includes(tab as MemberTab)) return false;
   memberTab = tab as MemberTab;
   return true;
 }
@@ -855,13 +974,14 @@ export function communityPanel(venues: Venue[]): string {
 }
 
 function resetCommunityState(): void {
-  memberTab = 'invitations';
+  memberTab = 'detours';
   detourTab = 'recommendations';
   recommendationDraft = null;
   recommendationIntent = 'add';
   waitlistEntries = [];
   recommendations = [];
   shares = [];
+  lockedEntryIds = new Set<string>();
   communityLoaded = false;
   loadingCommunity = false;
   invites = [];
@@ -877,6 +997,12 @@ function resetCommunityState(): void {
   visibilityPending = null;
   memberRefreshed = false;
   refreshingMember = false;
+  foundingMember = false;
+  imageCurationCount = 0;
+  curationItems = [];
+  curationLoaded = false;
+  loadingCuration = false;
+  curationSavingId = '';
   directories.forEach((state) => {
     if (state.timer !== null) window.clearTimeout(state.timer);
   });
@@ -891,11 +1017,19 @@ async function loadCommunity(render: () => void): Promise<void> {
     pb.collection('community_waitlist_entries').getFullList<WaitlistEntry>({ sort: '-updated', requestKey: null }),
     pb.collection('community_shares').getFullList<ShareRecord>({ sort: '-created', requestKey: null }),
     pb.collection('community_recommendations').getFullList<RecommendationRecord>({ sort: '-created', requestKey: null }),
+    pb.send<{ ids?: string[] }>('/api/detour/community/place-locks', { requestKey: null }),
   ]);
 
   if (results[0].status === 'fulfilled') waitlistEntries = results[0].value;
   if (results[1].status === 'fulfilled') shares = results[1].value;
   if (results[2].status === 'fulfilled') recommendations = results[2].value;
+  if (results[3].status === 'fulfilled') {
+    lockedEntryIds = new Set(
+      Array.isArray(results[3].value.ids)
+        ? results[3].value.ids.filter((id): id is string => typeof id === 'string')
+        : []
+    );
+  }
 
   const failure = results.find((result) => result.status === 'rejected');
   if (failure?.status === 'rejected') {
@@ -916,7 +1050,10 @@ async function loadInvites(render: () => void): Promise<void> {
     const [list, me] = await Promise.all([
       pb.collection('invites').getFullList<InviteRecord>({ sort: '-created', requestKey: null }),
       pb
-        .send<{ member?: { invitation_limit?: unknown } }>('/api/detour/community/me', { requestKey: null })
+        .send<{ member?: { invitation_limit?: unknown; founding_member?: unknown; image_curation_count?: unknown } }>(
+          '/api/detour/community/me',
+          { requestKey: null }
+        )
         .catch(() => null),
     ]);
     invites = list;
@@ -927,11 +1064,37 @@ async function loadInvites(render: () => void): Promise<void> {
       Number.isFinite(reported) && reported >= BASELINE_INVITATION_LIMIT
         ? Math.floor(reported)
         : BASELINE_INVITATION_LIMIT;
+    foundingMember = me?.member?.founding_member === true;
+    imageCurationCount = foundingMember ? cleanCount(me?.member?.image_curation_count) : 0;
+    if (!foundingMember && memberTab === 'curation') memberTab = 'settings';
     invitesLoaded = true;
   } catch (error) {
     notice = { kind: 'error', text: readableError(error, 'Your invitations could not be loaded. Please try again.') };
   } finally {
     loadingInvites = false;
+    render();
+  }
+}
+
+async function loadCuration(render: () => void): Promise<void> {
+  if (!member() || !foundingMember || loadingCuration) return;
+  loadingCuration = true;
+  render();
+  try {
+    const response = await pb.send<{ items?: ImageCurationItem[] }>(
+      '/api/detour/curation/images',
+      { requestKey: null }
+    );
+    curationItems = Array.isArray(response.items) ? response.items : [];
+    imageCurationCount = curationItems.length;
+    curationLoaded = true;
+  } catch (error) {
+    notice = {
+      kind: 'error',
+      text: readableError(error, 'The image review queue could not be loaded. Please try again.'),
+    };
+  } finally {
+    loadingCuration = false;
     render();
   }
 }
@@ -1054,6 +1217,32 @@ function focusWaitlistEntry(id: string): void {
   });
 }
 
+function focusNotice(root: HTMLElement): void {
+  window.requestAnimationFrame(() => {
+    const target = root.querySelector<HTMLElement>('.community-notice');
+    target?.scrollIntoView({
+      block: 'start',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    });
+    target?.focus({ preventScroll: true });
+  });
+}
+
+async function submitImageForReview(waitlistId: string, imageUrl: string): Promise<void> {
+  if (!waitlistId || !imageUrl.trim()) return;
+  await pb.send(
+    '/api/detour/curation/images',
+    {
+      method: 'POST',
+      body: {
+        waitlist: waitlistId,
+        source_url: imageUrl.trim(),
+      },
+      requestKey: null,
+    }
+  );
+}
+
 // Marks the recipient's new shares as seen once the inbox is on screen. Local
 // state is updated without re-rendering so the "New" markers stay visible
 // until the next render; the tab badge clears then too.
@@ -1170,6 +1359,10 @@ export function bindCommunity(
     if (memberTab === nextTab) return;
     memberTab = nextTab;
     if (nextTab === 'detours' && detourTab === 'shares' && communityLoaded) void markIncomingSharesSeen();
+    if (nextTab === 'curation') {
+      curationLoaded = false;
+      void loadCuration(render);
+    }
     render();
     if (focusTab) {
       window.requestAnimationFrame(() => {
@@ -1181,20 +1374,66 @@ export function bindCommunity(
   root.querySelectorAll<HTMLButtonElement>('[data-member-tab]').forEach((button) => {
     button.addEventListener('click', () => {
       const nextTab = button.dataset.memberTab as MemberTab | undefined;
-      if (nextTab && MEMBER_TABS.includes(nextTab)) activateMemberTab(nextTab, true);
+      if (nextTab && memberTabs().includes(nextTab)) activateMemberTab(nextTab, true);
     });
     button.addEventListener('keydown', (event) => {
       const currentTab = button.dataset.memberTab as MemberTab | undefined;
-      const currentIndex = currentTab ? MEMBER_TABS.indexOf(currentTab) : -1;
+      const tabs = memberTabs();
+      const currentIndex = currentTab ? tabs.indexOf(currentTab) : -1;
       if (currentIndex < 0) return;
       let nextIndex = currentIndex;
-      if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % MEMBER_TABS.length;
-      else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + MEMBER_TABS.length) % MEMBER_TABS.length;
+      if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabs.length;
+      else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
       else if (event.key === 'Home') nextIndex = 0;
-      else if (event.key === 'End') nextIndex = MEMBER_TABS.length - 1;
+      else if (event.key === 'End') nextIndex = tabs.length - 1;
       else return;
       event.preventDefault();
-      activateMemberTab(MEMBER_TABS[nextIndex], true);
+      activateMemberTab(tabs[nextIndex], true);
+    });
+  });
+
+  root.querySelectorAll<HTMLFormElement>('[data-image-curation]').forEach((form) => {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const imageId = form.dataset.imageCuration || '';
+      const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null;
+      const decision = submitter?.value === 'approve' ? 'approve' : 'reject';
+      if (!imageId || !foundingMember || curationSavingId) return;
+      const values = new FormData(form);
+      curationSavingId = imageId;
+      notice = null;
+      render();
+      try {
+        await pb.send(`/api/detour/curation/images/${encodeURIComponent(imageId)}/${decision}`, {
+          method: 'POST',
+          body: { note: String(values.get('note') || '').trim() },
+          requestKey: null,
+        });
+        curationItems = curationItems.filter((item) => item.id !== imageId);
+        imageCurationCount = curationItems.length;
+        notice = {
+          kind: 'success',
+          text: decision === 'approve' ? 'Image approved and published.' : 'Image rejected.',
+        };
+        if (decision === 'approve') {
+          resetNetworkDiscovery();
+          void refreshCatalogue()
+            .then((venues) => {
+              knownVenues = venues;
+              render();
+            })
+            .catch(() => {});
+        }
+      } catch (error) {
+        notice = {
+          kind: 'error',
+          text: readableError(error, `The image could not be ${decision === 'approve' ? 'approved' : 'rejected'}.`),
+        };
+      } finally {
+        curationSavingId = '';
+        render();
+        focusNotice(root);
+      }
     });
   });
 
@@ -1274,7 +1513,8 @@ export function bindCommunity(
     notice = null;
     render();
     try {
-      await pb.collection('members').update(record.id, { pseudo });
+      const updated = await pb.collection('members').update<MemberRecord>(record.id, { pseudo }, { requestKey: null });
+      if (!syncMemberRecord(record, updated)) return;
       notice = { kind: 'success', text: `Your pseudo is now ${pseudo}.` };
     } catch (error) {
       notice = { kind: 'error', text: readableError(error, 'Your pseudo could not be updated. Please try again.') };
@@ -1296,8 +1536,7 @@ export function bindCommunity(
     render();
     try {
       const updated = await pb.collection('members').update<MemberRecord>(record.id, { discovery_visible: discoveryVisible }, { requestKey: null });
-      if (member()?.id !== record.id) return;
-      Object.assign(record, updated);
+      if (!syncMemberRecord(record, updated)) return;
       notice = {
         kind: 'success',
         text: keepPrivate
@@ -1387,16 +1626,32 @@ export function bindCommunity(
     try {
       const category = String(values.get('category') || '').trim();
       const occasions = values.getAll('occasions').map((value) => String(value));
+      const proposedImage = String(values.get('image_url') || '').trim();
       const payload: Record<string, string | string[]> = {
         venue_name: String(values.get('venue_name') || '').trim(),
         address: String(values.get('address') || '').trim(),
         city: String(values.get('city') || '').trim(),
         country: String(values.get('country') || '').trim(),
         note,
+        official_url: String(values.get('official_url') || '').trim(),
+        instagram_url: String(values.get('instagram_url') || '').trim(),
       };
       if (category) payload.category = category;
       if (occasions.length) payload.occasions = occasions;
       const created = await pb.collection('community_recommendations').create<RecommendationRecord>(payload);
+      let imageQueued = false;
+      let imageQueueError = '';
+      if (proposedImage && created.waitlist) {
+        try {
+          await submitImageForReview(created.waitlist, proposedImage);
+          imageQueued = true;
+        } catch (error) {
+          imageQueueError = readableError(
+            error,
+            'The recommendation was saved, but its photo could not be submitted for review.'
+          );
+        }
+      }
       recommendationDraft = null;
       highlightedWaitlistId = created.waitlist || '';
       notice = { kind: 'success', text: 'Recommendation saved.' };
@@ -1416,6 +1671,11 @@ export function bindCommunity(
         : createdEntry
           ? { kind: 'info', text: 'Your recommendation is saved. Its line shows whether the place is live.' }
           : notice;
+      if (notice && imageQueued) {
+        notice.text += ' The photo is awaiting founding-member review.';
+      } else if (imageQueueError) {
+        notice = { kind: 'info', text: `${notice?.text || 'Recommendation saved.'} ${imageQueueError}` };
+      }
       focusWaitlistEntry(highlightedWaitlistId);
     } catch (error) {
       notice = { kind: 'error', text: readableError(error, 'That recommendation could not be added. Check the food-and-drink destination details and note, then try again.') };
@@ -1434,9 +1694,11 @@ export function bindCommunity(
       const recommendationId = form.dataset.recommendation || '';
       const category = String(values.get('category') || '').trim();
       const occasions = values.getAll('occasions').map((value) => String(value));
+      const proposedImage = String(values.get('image_url') || '').trim();
       submitting = true;
       notice = null;
       render();
+      let saved = false;
       try {
         // The shared place first, so the recommendation hook re-syncs its
         // display mirrors from the freshly corrected entry.
@@ -1449,7 +1711,6 @@ export function bindCommunity(
           occasions,
           official_url: String(values.get('official_url') || '').trim(),
           instagram_url: String(values.get('instagram_url') || '').trim(),
-          image_url: String(values.get('image_url') || '').trim(),
         });
         if (recommendationId) {
           await pb.collection('community_recommendations').update(recommendationId, {
@@ -1458,17 +1719,34 @@ export function bindCommunity(
             occasions,
           });
         }
-        highlightedWaitlistId = entryId;
         resetNetworkDiscovery();
         notice = { kind: 'success', text: 'Recommendation updated.' };
+        if (proposedImage) {
+          try {
+            await submitImageForReview(entryId, proposedImage);
+            notice.text += ' The photo is awaiting founding-member review.';
+          } catch (error) {
+            notice = {
+              kind: 'info',
+              text: `Recommendation updated. ${readableError(
+                error,
+                'The photo could not be submitted for review.'
+              )}`,
+            };
+          }
+        }
         communityLoaded = false;
         await loadCommunity(render);
-        focusWaitlistEntry(entryId);
+        highlightedWaitlistId = '';
+        recommendationDraft = null;
+        recommendationIntent = 'add';
+        saved = true;
       } catch (error) {
         notice = { kind: 'error', text: readableError(error, 'Those changes could not be saved. Check the details and try again.') };
       } finally {
         submitting = false;
         render();
+        if (saved) focusNotice(root);
       }
     });
   });
@@ -1633,4 +1911,7 @@ export function bindCommunity(
     });
   }
   if (member() && !invitesLoaded && !loadingInvites) void loadInvites(render);
+  if (member() && foundingMember && memberTab === 'curation' && !curationLoaded && !loadingCuration) {
+    void loadCuration(render);
+  }
 }

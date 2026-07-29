@@ -412,6 +412,7 @@ a.account-brand:hover,
 }
 .nav-arrow.nav-arrow-external {
   position: relative;
+  overflow: hidden;
   width: 0.9rem;
   height: 0.9rem;
   flex: none;
@@ -2999,6 +3000,94 @@ legend { color: var(--tape-text); }
 .community-panel-member { gap: 0; padding: clamp(1.5rem, 4vw, 3rem) 0; border-top: 0; }
 .community-panel-member > .community-notice { margin: 1rem clamp(1rem, 4vw, 2.5rem) 0; }
 
+.community-member-status {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+}
+
+.community-founder-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.8rem;
+  padding: .2rem .55rem;
+  border: 1px solid var(--tape-accent);
+  border-radius: 999px;
+  color: var(--tape-accent);
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .06em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.community-curation-panel {
+  padding: clamp(1.25rem, 4vw, 2.5rem);
+}
+
+.community-curation-grid {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.community-curation-card {
+  display: grid;
+  grid-template-columns: minmax(14rem, .8fr) minmax(18rem, 1.2fr);
+  overflow: hidden;
+  border: 1px solid var(--tape-rule);
+  background: var(--tape-paper);
+}
+
+.community-curation-card > img {
+  width: 100%;
+  height: 100%;
+  min-height: 18rem;
+  object-fit: cover;
+  background: var(--tape-paper-deep);
+}
+
+.community-curation-copy {
+  display: grid;
+  align-content: center;
+  gap: .65rem;
+  padding: clamp(1rem, 3vw, 1.75rem);
+}
+
+.community-curation-copy h4,
+.community-curation-copy p {
+  margin: 0;
+}
+
+.community-curation-status {
+  color: var(--tape-accent-strong);
+  font-size: .75rem;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.community-curation-status.is-unscreened {
+  color: var(--tape-danger, #a33a2b);
+}
+
+.community-curation-form {
+  display: grid;
+  gap: .75rem;
+  margin-top: .35rem;
+}
+
+.community-curation-form label {
+  display: grid;
+  gap: .35rem;
+}
+
+.community-curation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .6rem;
+}
+
 /* ---- tab rows: bordered cassette tabs, the active side takes the orange ---- */
 .community-tabs {
   display: flex;
@@ -3898,6 +3987,12 @@ legend { color: var(--tape-text); }
 @media (max-width: 560px) {
   .network-primary-nav { gap: 0.2rem; }
   .network-explore-link { padding-inline: 7px; letter-spacing: 0.1em; }
+}
+
+@media (max-width: 700px) {
+  .community-curation-card { grid-template-columns: 1fr; }
+  .community-curation-card > img { min-height: 13rem; max-height: 20rem; }
+  .community-member-status { width: 100%; justify-content: space-between; }
 }
 
 @media (max-width: 520px) {

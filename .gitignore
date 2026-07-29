@@ -5,4 +5,5 @@ node_modules/
 public/assets/
 LOCAL_DEV.md
 .env.local
+.env.backend.local
 pocketbase

@@ -112,6 +112,33 @@ function mergePlaceFacts(app, entry, category, occasions) {
   if (changed) app.save(entry);
 }
 
+// A recommendation may include the same place links exposed by the edit form.
+// Non-empty values correct or fill the shared entry; omitted values leave any
+// links already supplied by another member intact.
+function mergePlaceLinks(app, entry, links) {
+  let changed = false;
+  for (const field of ["official_url", "instagram_url"]) {
+    const supplied = cleanText(links && links[field], 2048);
+    if (supplied && supplied !== entry.getString(field)) {
+      entry.set(field, supplied);
+      changed = true;
+    }
+  }
+  if (changed) app.save(entry);
+}
+
+function hasConfirmedCoordinates(venue) {
+  if (!venue) return false;
+  const lat = Number(venue.get("lat"));
+  const lng = Number(venue.get("lng"));
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    !(lat === 0 && lng === 0) &&
+    Boolean(cleanText(venue.getString("coord_verification_note"), 300))
+  );
+}
+
 // Occasion tags are place facts, so publication copies them onto the venue
 // itself rather than onto the publication record — a place has outdoor seating
 // whether or not a selection was published for it this calendar year. Union-only
@@ -1451,10 +1478,12 @@ module.exports = {
   enrichVenueFromWebSearch,
   findMemberRecommendation,
   geocodeVenue,
+  hasConfirmedCoordinates,
   isParticipant,
   mergeEntryLinksIntoVenue,
   mergeEntryPlaceIntoVenue,
   mergePlaceFacts,
+  mergePlaceLinks,
   normalizePlacePart,
   recalculateAndPublish,
   resolveCoverImage,
