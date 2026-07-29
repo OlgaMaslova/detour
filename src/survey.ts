@@ -191,7 +191,7 @@ export function renderFoundingSurvey(root: HTMLElement, options: SurveyRenderOpt
       <a class="skip-link" href="#survey-success-title">Skip to confirmation</a>
       <header class="survey-masthead">
         <a class="survey-brand" href="${esc(options.homeHref)}" data-home>${options.brandMark}<span>Detour</span></a>
-        <a class="survey-home-link" href="${esc(options.homeHref)}" data-home>Back to Detour</a>
+        <a class="secondary-button survey-home-link" href="${esc(options.homeHref)}" data-home>Back to Detour</a>
       </header>
       <main class="survey-success" aria-labelledby="survey-success-title">
         <div class="survey-success-mark" aria-hidden="true">✓</div>
@@ -211,7 +211,7 @@ export function renderFoundingSurvey(root: HTMLElement, options: SurveyRenderOpt
     <a class="skip-link" href="#survey-title">Skip to survey</a>
     <header class="survey-masthead">
       <a class="survey-brand" href="${esc(options.homeHref)}" data-home>${options.brandMark}<span>Detour</span></a>
-      <a class="survey-home-link" href="${esc(options.homeHref)}" data-home>Back to Detour</a>
+      <a class="secondary-button survey-home-link" href="${esc(options.homeHref)}" data-home>Back to Detour</a>
     </header>
     <main class="survey-layout" aria-labelledby="survey-title">
       <section class="survey-intro">

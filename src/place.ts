@@ -2,7 +2,7 @@
  * The place page — one published place, its own route, the whole record.
  *
  * Reached from every card in the app and addressable on its own
- * (`?d=<market>&p=<place>`), so a place can be linked to and read in full: the
+ * (`?d=<city>&p=<place>`), so a place can be linked to and read in full: the
  * cover, why members put it on the list, every note they wrote, where it sits,
  * and how to get there.
  *
@@ -53,9 +53,6 @@ export interface PlaceHelpers {
   visitLinks(v: Venue): string;
   directionsHref(v: Venue): string;
   occasionLabels(v: Venue): string[];
-  hasDistinctLocality(v: Venue): boolean;
-  /** Market name a venue is listed under, for the 'X selection' locality line. */
-  routeName(v: Venue): string;
   notes(v: Venue): PlaceNote[];
   /** Loading/retry markup for the circle feed the notes come from. */
   notesStatus: string;
@@ -138,7 +135,6 @@ function recognitionSection(v: Venue, h: PlaceHelpers): string {
 /** Position, address and the handoff to a maps app. */
 function whereSection(v: Venue, h: PlaceHelpers): string {
   const located = v.lat !== null && v.lng !== null;
-  const distinctLocality = h.hasDistinctLocality(v);
   const directions = h.directionsHref(v);
   const visitLinks = h.visitLinks(v);
   return `<section class="place-section place-where" aria-labelledby="place-where-title">
@@ -157,17 +153,13 @@ function whereSection(v: Venue, h: PlaceHelpers): string {
           <div><dt>Address</dt><dd>${
             v.address ? h.esc(v.address) : '<span class="approx">Map position being refined</span>'
           }</dd></div>
-          ${
-            distinctLocality
-              ? `<div><dt>Locality</dt><dd><span class="detail-locality">${h.esc(v.city)}</span><span class="detail-market">${h.esc(`${h.routeName(v)} selection`)}</span></dd></div>`
-              : `<div><dt>City</dt><dd>${h.esc([v.city, v.country].filter(Boolean).join(', '))}</dd></div>`
-          }
+          <div><dt>City</dt><dd>${h.esc([v.city, v.country].filter(Boolean).join(', '))}</dd></div>
         </dl>
         ${v.approxLocation && located ? '<p class="approx">Position is approximate — confirm before you set off.</p>' : ''}
         ${
           directions || visitLinks
             ? `<div class="detail-visit-links place-visit-links">
-                ${directions ? `<a href="${h.esc(directions)}" target="_blank" rel="noopener noreferrer">Get directions <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>` : ''}
+                ${directions ? `<a class="secondary-button" href="${h.esc(directions)}" target="_blank" rel="noopener noreferrer">Get directions <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>` : ''}
                 ${visitLinks}
               </div>`
             : '<p class="place-empty">No address or links on file yet — ask the member who recommended it.</p>'
@@ -190,9 +182,7 @@ export function placeIsLocated(v: Venue): boolean {
 
 /** The full page, ready to assign to the app root. */
 export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
-  const meta = [v.category, v.neighborhood, h.hasDistinctLocality(v) ? v.city : '']
-    .filter(Boolean)
-    .join(' · ');
+  const meta = [v.category, v.neighborhood].filter(Boolean).join(' · ');
   const occasions = h.occasionLabels(v);
   return `
     <a class="skip-link" href="#place-title">Skip to this place</a>

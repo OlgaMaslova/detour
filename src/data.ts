@@ -1,5 +1,5 @@
 import { pb } from './pocketbase';
-import type { CityBounds, CityEditorialSource } from './cities';
+import type { CityBounds, CityMapSource } from './cities';
 import { knownOccasions } from './occasions';
 import type { Occasion } from './occasions';
 
@@ -36,12 +36,8 @@ export interface VenueAward {
 export interface Venue {
   id: string;
   name: string;
-  /** Physical city/locality as stored on the venue record (e.g. 'Oakland'); always used for display. */
+  /** City the venue is in, and the route it is listed under. */
   city: string;
-  /** Route market name. Falls back to `city` when the backend has no explicit market. */
-  market: string;
-  /** Stable route slug derived from the route market (e.g. 'san-francisco'). */
-  marketSlug: string;
   /** Country as stored on the venue record; '' when unknown. */
   country: string;
   /** Every current recognition for this canonical venue, one entry per attributed source. */
@@ -56,7 +52,6 @@ export interface Venue {
   approxLocation: boolean;
   /** Optional route metadata retained for compatibility with the city-scoped catalogue UI. */
   slug?: string;
-  marketId?: string;
   cityId?: string;
   citySlug?: string;
   /** Validated operator/social links. Only http/https URLs are retained. */
@@ -180,8 +175,6 @@ export const demoVenues: Venue[] = [
       id,
       name,
       city: 'Madrid',
-      market: 'Madrid',
-      marketSlug: 'madrid',
       country: 'Spain',
       awards: [
         {
@@ -207,8 +200,6 @@ export const demoVenues: Venue[] = [
       id,
       name,
       city: 'Madrid',
-      market: 'Madrid',
-      marketSlug: 'madrid',
       country: 'Spain',
       awards: [
         {
@@ -237,8 +228,6 @@ export const demoVenues: Venue[] = [
     id: 'demo-baldoria',
     name: 'Baldoria',
     city: 'Madrid',
-    market: 'Madrid',
-    marketSlug: 'madrid',
     country: 'Spain',
     awards: [
       {
@@ -262,8 +251,6 @@ export const demoVenues: Venue[] = [
     id: 'demo-fratelli-figurato',
     name: 'Fratelli Figurato',
     city: 'Madrid',
-    market: 'Madrid',
-    marketSlug: 'madrid',
     country: 'Spain',
     awards: [
       {
@@ -287,8 +274,6 @@ export const demoVenues: Venue[] = [
     id: 'demo-hola-coffee-lagasca',
     name: 'Hola Coffee Lagasca',
     city: 'Madrid',
-    market: 'Madrid',
-    marketSlug: 'madrid',
     country: 'Spain',
     awards: [
       {
@@ -310,7 +295,7 @@ export const demoVenues: Venue[] = [
   },
 ];
 
-export interface LiveCity extends CityEditorialSource {
+export interface LiveCity extends CityMapSource {
   id: string;
   /**
    * True when this city is backed by a real `cities` record. Cities derived
@@ -329,7 +314,6 @@ type VenueRecord = Record<string, unknown> & {
   id: string;
   name?: string;
   city?: string;
-  market?: string;
   country?: string;
   address?: string;
   lat?: number | string;
@@ -378,11 +362,6 @@ type CityRecord = Record<string, unknown> & {
   name?: string;
   slug?: string;
   country?: string;
-  title?: string;
-  tagline?: string;
-  footer?: string;
-  meta_title?: string;
-  meta_description?: string;
   presentation?: string;
   center_lat?: number | string;
   center_lng?: number | string;
@@ -461,23 +440,23 @@ export function citySlug(name: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-/** Route slug of the market a venue is listed under (e.g. 'san-francisco'). */
-export function venueMarketSlug(v: Venue): string {
-  return v.marketSlug || citySlug(v.market || v.city);
+/** Route slug of the city a venue is listed under (e.g. 'san-francisco'). */
+export function venueCitySlug(v: Venue): string {
+  return v.citySlug || citySlug(v.city);
 }
 
 /**
- * Readable slug identifying one place inside its market route, so every place
- * page has a shareable URL. Two places in the same market can normalise to the
+ * Readable slug identifying one place inside its city route, so every place
+ * page has a shareable URL. Two places in the same city can normalise to the
  * same name slug (two 'Bar Basque'); the venue id disambiguates only those, and
  * a place whose name yields no slug at all falls back to the id outright.
  */
 export function venuePlaceSlug(v: Venue, all: Venue[]): string {
   const base = citySlug(v.name);
   if (!base) return v.id;
-  const market = venueMarketSlug(v);
+  const city = venueCitySlug(v);
   const clash = all.some(
-    (other) => other.id !== v.id && venueMarketSlug(other) === market && citySlug(other.name) === base
+    (other) => other.id !== v.id && venueCitySlug(other) === city && citySlug(other.name) === base
   );
   return clash ? `${base}-${v.id}` : base;
 }
@@ -540,9 +519,7 @@ function sortAwards(awards: VenueAward[]): VenueAward[] {
 export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
   const [venueRecords, awardRecords, sourceRecords, cityRecords, contributionRecords, detouristCounts] = await Promise.all([
     pb.collection('venues').getFullList<VenueRecord>({
-      fields: 'id,name,city,market,country,address,lat,lng,category,official_url,instagram_url,image_url,approx_location',
-      // Keep the request compatible with pre-migration backends; final route
-      // ordering is applied client-side after optional market values load.
+      fields: 'id,name,city,country,address,lat,lng,category,official_url,instagram_url,image_url,approx_location',
       sort: 'city,name',
       requestKey: null,
     }),
@@ -618,11 +595,6 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       name,
       slug,
       country: cleanString(record.country),
-      title: cleanString(record.title),
-      tagline: cleanString(record.tagline),
-      footer: cleanString(record.footer),
-      metaTitle: cleanString(record.meta_title),
-      metaDescription: cleanString(record.meta_description),
       presentation: cleanString(record.presentation),
       center,
       zoom,
@@ -632,9 +604,8 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
 
   for (const record of [...venueRecords, ...contributionRecords]) {
     if ('status' in record && cleanString(record.status) !== 'approved') continue;
-    // A venue's explicit market owns its route; contributions and older venue
-    // records continue to route by their physical city.
-    const name = cleanString('market' in record ? record.market : '') || cleanString(record.city);
+    // Every place routes by its own city — venues and contributions alike.
+    const name = cleanString(record.city);
     if (!name) continue;
     const key = name.toLowerCase();
     const country = cleanString(record.country);
@@ -658,10 +629,9 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
   for (const record of venueRecords) {
     const id = cleanString(record.id);
     const name = cleanString(record.name);
-    const physicalCity = cleanString(record.city);
-    const marketName = cleanString(record.market) || physicalCity;
-    const market = citiesByName.get(marketName.toLowerCase());
-    if (!id || !name || !physicalCity || !market) continue;
+    const cityName = cleanString(record.city);
+    const city = citiesByName.get(cityName.toLowerCase());
+    if (!id || !name || !cityName || !city) continue;
 
     const rawLat = cleanNumber(record.lat);
     const rawLng = cleanNumber(record.lng);
@@ -671,14 +641,10 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     venuesById.set(id, {
       id,
       name,
-      marketId: market.id,
-      market: market.name,
-      marketSlug: market.slug,
-      // Keep the legacy route aliases aligned with the explicit market route.
-      cityId: market.id,
-      citySlug: market.slug,
-      city: physicalCity,
-      country: cleanString(record.country) || market.country,
+      cityId: city.id,
+      citySlug: city.slug,
+      city: cityName,
+      country: cleanString(record.country) || city.country,
       awards: [],
       category: cleanString(record.category),
       neighborhood: '',
@@ -757,9 +723,6 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     const venue: Venue = {
       id: `member-contribution-${id}`,
       name,
-      marketId: city.id,
-      market: city.name,
-      marketSlug: city.slug,
       cityId: city.id,
       citySlug: city.slug,
       city: city.name,
@@ -793,7 +756,6 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     .map((venue) => ({ ...venue, awards: sortAwards(venue.awards) }))
     .sort(
       (a, b) =>
-        a.market.localeCompare(b.market) ||
         a.city.localeCompare(b.city) ||
         a.name.localeCompare(b.name)
     );

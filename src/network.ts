@@ -679,9 +679,9 @@ function shareColumnMarkup(items: DiscoveryShare[], emptyText: string): string {
   const hidden = sorted.length - shown.length;
   const toggle =
     hidden > 0
-      ? `<button type="button" class="network-retry network-show-more" data-shares-toggle>Show ${hidden} more</button>`
+      ? `<button type="button" class="secondary-button network-retry network-show-more" data-shares-toggle>Show ${hidden} more</button>`
       : sharesExpanded && sorted.length > SHARE_PREVIEW_LIMIT
-        ? '<button type="button" class="network-retry network-show-more" data-shares-toggle>Show fewer</button>'
+        ? '<button type="button" class="secondary-button network-retry network-show-more" data-shares-toggle>Show fewer</button>'
         : '';
   return `<div class="network-entry-list">${shown.map(shareMarkup).join('')}</div>${toggle}`;
 }
@@ -707,7 +707,7 @@ export function memberSharesMarkup(): string {
   if (status === 'error') {
     return `<div class="network-state network-state-error" role="alert">
       <div><h2>Your private shares could not be loaded</h2><p>${esc(errorMessage || 'Please try again. Your private shares have not been shown.')}</p></div>
-      <button type="button" class="network-retry" data-network-shares-retry>Try again</button>
+      <button type="button" class="secondary-button network-retry" data-network-shares-retry>Try again</button>
     </div>`;
   }
 
@@ -716,7 +716,7 @@ export function memberSharesMarkup(): string {
       <div><h2 id="network-shares-title">Your private shares</h2><p>Private incoming and outgoing destination shares, kept together.</p></div>
       <div class="network-section-actions">
         <p class="network-section-count">${shareCount} ${shareCount === 1 ? 'share' : 'shares'}</p>
-        ${shareCount ? `<button type="button" class="network-retry network-cassette-flip" data-cassette-flip>${cassetteFlipLabel()}</button>` : ''}
+        ${shareCount ? `<button type="button" class="secondary-button network-retry network-cassette-flip" data-cassette-flip>${cassetteFlipLabel()}</button>` : ''}
       </div>
     </div>
     ${shareCount ? `<div class="network-share-columns${sharesSide === 'b' ? ' is-side-b' : ''}">
@@ -742,7 +742,7 @@ function memberFeedMarkup(
   if (status === 'error') {
     return `<div class="network-state network-state-error" role="alert">
       <div><h2>The Detour circle could not be loaded</h2><p>${esc(errorMessage || 'Please try again. Circle recommendations have not been shown.')}</p></div>
-      <button type="button" class="network-retry" data-network-retry>Try again</button>
+      <button type="button" class="secondary-button network-retry" data-network-retry>Try again</button>
     </div>`;
   }
 
@@ -783,9 +783,9 @@ function memberFeedMarkup(
         latest.length
           ? `<div class="network-entry-list network-recommendation-grid network-recommendation-grid-${recommendationColumns}">${latest.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div>${
               hiddenCount > 0
-                ? `<button type="button" class="network-retry network-show-more" data-network-show-more>Show ${hiddenCount} more</button>`
+                ? `<button type="button" class="secondary-button network-retry network-show-more" data-network-show-more>Show ${hiddenCount} more</button>`
                 : recommendationsExpanded && recommendations.length > previewLimit
-                  ? '<button type="button" class="network-retry network-show-more" data-network-show-more>Show fewer</button>'
+                  ? '<button type="button" class="secondary-button network-retry network-show-more" data-network-show-more>Show fewer</button>'
                   : ''
             }`
           : `<div class="network-empty"><h3>No circle recommendations yet</h3><p>Recommendations will appear here as members add them, unless they choose to keep theirs private.</p></div>`
@@ -814,7 +814,7 @@ function publicRecommendationSampleMarkup(resolvePlace?: NetworkPlaceResolver): 
       ${heading}
       <div class="network-public-state is-unavailable" role="status">
         <p>${esc(feed.error || 'The live recommendation sample is unavailable right now. Membership requests and sign-in still work.')}</p>
-        <button type="button" class="network-public-retry" data-public-recommendations-retry>Try the sample again</button>
+        <button type="button" class="secondary-button network-public-retry" data-public-recommendations-retry>Try the sample again</button>
       </div>
     </section>`;
   }

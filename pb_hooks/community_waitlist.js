@@ -494,10 +494,7 @@ function publishEntry(app, entry) {
     award.set("year", year);
     award.set("level", "Detour community selection");
   }
-  award.set("rank", 0);
-  award.set("source_url", "");
   award.set("current", true);
-  award.set("verification_status", "verified");
   // Occasion tags are factual place facts; the public catalogue aggregates
   // them from recognition records.
   award.set("occasions", entry.getStringSlice("occasions"));
@@ -577,6 +574,136 @@ function recalculateAndPublish(app, entryId) {
       result.publishedNow = true;
     }
     result.publishedVenue = entry.getString("published_venue");
+  });
+
+  return result;
+}
+
+/**
+ * Removes a place once its last member recommendation is gone.
+ *
+ * Every place in the catalogue is there because a member put their name behind
+ * it (enforced as a one-time sweep by migrations 1768019000 and 1768019200).
+ * This is the delete-time half of that rule: when the final recommendation for
+ * an entry is removed, nobody stands behind the place any more, so it does not
+ * stay listed. The venue, its recognition rows (relation cascade), and the
+ * shared entry itself are deleted outright.
+ *
+ * Private correspondence is deliberately preserved. A member's share note and
+ * its replies are not catalogue data, and both the `venue` and `waitlist`
+ * relations on community_shares cascade on delete — so shares are detached
+ * first. They keep their denormalized venue_name/address and still read
+ * correctly after the place is gone.
+ *
+ * Safe to call for any entry: it is a no-op while any recommendation remains,
+ * and it never removes a venue another entry still publishes.
+ */
+function withdrawUnbackedEntry(app, entryId) {
+  const result = {
+    entryId: entryId || "",
+    withdrawn: false,
+    deletedVenue: "",
+    detachedShares: 0,
+  };
+  if (!entryId) return result;
+
+  app.runInTransaction((txApp) => {
+    let entry;
+    try {
+      entry = txApp.findRecordById("community_waitlist_entries", entryId);
+    } catch {
+      // Already gone (a concurrent withdrawal, or a cascading member delete).
+      return;
+    }
+
+    // Any surviving recommendation means a member still stands behind it.
+    const remaining = new DynamicModel({ total: 0 });
+    txApp
+      .db()
+      .newQuery(
+        "SELECT COUNT(*) AS total FROM community_recommendations " +
+          "WHERE waitlist = {:waitlist}"
+      )
+      .bind({ waitlist: entry.id })
+      .one(remaining);
+    if (Number(remaining.total || 0) > 0) return;
+
+    const venueId =
+      entry.getString("published_venue") || entry.getString("canonical_venue");
+
+    // Detach private shares from both cascading relations before the deletes.
+    const detached = new DynamicModel({ total: 0 });
+    txApp
+      .db()
+      .newQuery(
+        "SELECT COUNT(*) AS total FROM community_shares " +
+          "WHERE waitlist = {:waitlist} OR (venue != '' AND venue = {:venue})"
+      )
+      .bind({ waitlist: entry.id, venue: venueId })
+      .one(detached);
+    result.detachedShares = Number(detached.total || 0);
+    if (result.detachedShares > 0) {
+      txApp
+        .db()
+        .newQuery(
+          "UPDATE community_shares SET waitlist = '' WHERE waitlist = {:waitlist}"
+        )
+        .bind({ waitlist: entry.id })
+        .execute();
+      if (venueId) {
+        txApp
+          .db()
+          .newQuery("UPDATE community_shares SET venue = '' WHERE venue = {:venue}")
+          .bind({ venue: venueId })
+          .execute();
+      }
+    }
+
+    txApp.delete(entry);
+    result.withdrawn = true;
+
+    if (!venueId) return;
+
+    // Another shared entry may legitimately still publish this venue; only the
+    // last one takes the catalogue row with it.
+    const otherEntries = new DynamicModel({ total: 0 });
+    txApp
+      .db()
+      .newQuery(
+        "SELECT COUNT(*) AS total FROM community_waitlist_entries " +
+          "WHERE published_venue = {:venue} OR canonical_venue = {:venue}"
+      )
+      .bind({ venue: venueId })
+      .one(otherEntries);
+    if (Number(otherEntries.total || 0) > 0) return;
+
+    let venue;
+    try {
+      venue = txApp.findRecordById("venues", venueId);
+    } catch {
+      return;
+    }
+
+    // Raw per-source assertions hold a required, non-cascading venue relation;
+    // remove them first so the venue delete cannot be blocked (same order the
+    // 1768019000 sweep uses).
+    try {
+      const sourceEntries = txApp.findRecordsByFilter(
+        "venue_source_entries",
+        "venue = {:venue}",
+        "id",
+        1000,
+        0,
+        { venue: venueId }
+      );
+      for (const sourceEntry of sourceEntries) txApp.delete(sourceEntry);
+    } catch {
+      // No such collection on this backend, or nothing to remove.
+    }
+
+    // Deleting the venue cascades its venue_awards rows.
+    txApp.delete(venue);
+    result.deletedVenue = venueId;
   });
 
   return result;
@@ -1382,4 +1509,5 @@ module.exports = {
   resolveEntry,
   validateRecommendationNote,
   validateShareNote,
+  withdrawUnbackedEntry,
 };

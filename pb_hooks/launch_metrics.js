@@ -19,12 +19,21 @@ function collectLaunchNumbers(app) {
     total_recommendations: 0,
     new_published_places_24h: 0,
     total_published_places: 0,
+    new_contributors_24h: 0,
+    total_contributors: 0,
   });
 
   // A real member is neither explicitly internal nor on the reserved .invalid
   // fixture domain. Published-place counts use distinct venue ids and require a
   // recommendation from such a member, so repeated recommendations never
   // double-count the same place and synthetic publications never qualify.
+  //
+  // Contributors are real members with at least one recommendation, counted
+  // against total_members. That ratio is the claim Detour rests on — places are
+  // here because members put their name behind them — so a period where members
+  // arrive and the contributor count does not move is the signal to act on.
+  // A "new contributor" is a member whose *first* recommendation lands in the
+  // period, so someone adding a second place is never counted twice.
   app
     .db()
     .newQuery(
@@ -33,9 +42,12 @@ function collectLaunchNumbers(app) {
         "WHERE COALESCE(internal_member, FALSE) = FALSE " +
         "AND LOWER(TRIM(email)) NOT LIKE '%.invalid'" +
         "), real_recommendations AS (" +
-        "SELECT r.id, r.waitlist, r.created " +
+        "SELECT r.id, r.member, r.waitlist, r.created " +
         "FROM community_recommendations r " +
         "JOIN real_members m ON m.id = r.member" +
+        "), first_recommendations AS (" +
+        "SELECT member, MIN(created) AS first_created " +
+        "FROM real_recommendations GROUP BY member" +
         "), real_published_places AS (" +
         "SELECT DISTINCT w.published_venue AS venue_id, w.published_at " +
         "FROM community_waitlist_entries w " +
@@ -61,7 +73,10 @@ function collectLaunchNumbers(app) {
         "(SELECT COUNT(*) FROM real_recommendations) AS total_recommendations, " +
         "(SELECT COUNT(DISTINCT venue_id) FROM real_published_places p " +
         " WHERE p.published_at >= {:periodStart} AND p.published_at < {:periodEnd}) AS new_published_places_24h, " +
-        "(SELECT COUNT(DISTINCT venue_id) FROM real_published_places) AS total_published_places"
+        "(SELECT COUNT(DISTINCT venue_id) FROM real_published_places) AS total_published_places, " +
+        "(SELECT COUNT(*) FROM first_recommendations f " +
+        " WHERE f.first_created >= {:periodStart} AND f.first_created < {:periodEnd}) AS new_contributors_24h, " +
+        "(SELECT COUNT(*) FROM first_recommendations) AS total_contributors"
     )
     .bind({ periodStart: periodStartSql, periodEnd: periodEndSql })
     .one(metrics);
@@ -77,6 +92,8 @@ function collectLaunchNumbers(app) {
     totalRecommendations: Number(metrics.total_recommendations || 0),
     newPublishedPlaces24h: Number(metrics.new_published_places_24h || 0),
     totalPublishedPlaces: Number(metrics.total_published_places || 0),
+    newContributors24h: Number(metrics.new_contributors_24h || 0),
+    totalContributors: Number(metrics.total_contributors || 0),
   };
 }
 
@@ -119,7 +136,23 @@ function formatLaunchNumbers(metrics) {
     plural(metrics.newPublishedPlaces24h, "place", "places") +
     " newly published (" +
     metrics.totalPublishedPlaces +
-    " total)."
+    " total). " +
+    // Reported as a count against its denominator, never a percentage: at this
+    // size a rate would swing on one person and read as precision we do not
+    // have.
+    metrics.totalContributors +
+    " of " +
+    metrics.totalMembers +
+    " " +
+    plural(metrics.totalMembers, "member", "members") +
+    " " +
+    plural(metrics.totalContributors, "has", "have") +
+    " contributed" +
+    (metrics.newContributors24h > 0
+      ? ", including " +
+        metrics.newContributors24h +
+        " for the first time in the last 24h."
+      : ".")
   );
 }
 

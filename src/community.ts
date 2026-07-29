@@ -1,6 +1,6 @@
 import { pb } from './pocketbase';
 import { bindMemberShares, markNetworkSharesSeen, memberSharesMarkup } from './network';
-import { venueMarketSlug, venuePlaceSlug } from './data';
+import { venueCitySlug, venuePlaceSlug } from './data';
 import type { Venue } from './data';
 import { OCCASION_OPTIONS } from './occasions';
 import { countryOptions } from './countries';
@@ -98,6 +98,13 @@ interface Notice {
   text: string;
 }
 
+interface PendingRecommendationDeletion {
+  recommendationId: string;
+  entryId: string;
+  placeName: string;
+  published: boolean;
+}
+
 // One order, used by both the member-area tab strip and the masthead menu.
 const MEMBER_TABS: MemberTab[] = ['detours', 'invitations', 'settings'];
 const MEMBER_TAB_LABELS: Record<MemberTab, string> = {
@@ -141,6 +148,8 @@ let invites: InviteRecord[] = [];
 let invitesLoaded = false;
 let loadingInvites = false;
 let submitting = false;
+let deletingRecommendationId = '';
+let pendingRecommendationDeletion: PendingRecommendationDeletion | null = null;
 let highlightedWaitlistId = '';
 let queueExpanded = false;
 let visibilitySaving = false;
@@ -199,6 +208,25 @@ function noticeMarkup(): string {
   if (!notice) return '';
   const role = notice.kind === 'error' ? 'alert' : 'status';
   return `<p class="community-notice community-notice-${notice.kind}" role="${role}">${esc(notice.text)}</p>`;
+}
+
+function deleteRecommendationDialogMarkup(): string {
+  const pending = pendingRecommendationDeletion;
+  if (!pending) return '';
+  const consequence = pending.published
+    ? 'The place will stay live, but your note and attribution will be removed.'
+    : 'Your note and attribution will be removed.';
+  return `<dialog class="community-confirm-dialog" data-community-delete-dialog aria-labelledby="delete-recommendation-title" aria-describedby="delete-recommendation-description">
+    <div class="community-confirm-sheet">
+      <p class="community-confirm-kicker">Remove from your detours</p>
+      <h2 id="delete-recommendation-title" tabindex="-1">Delete recommendation?</h2>
+      <p id="delete-recommendation-description">Delete your recommendation for <strong>${esc(pending.placeName)}</strong>? ${esc(consequence)} This cannot be undone.</p>
+      <div class="community-confirm-actions">
+        <button class="secondary-button" type="button" data-community-delete-cancel>Keep it</button>
+        <button class="community-danger" type="button" data-community-delete-confirm>Delete</button>
+      </div>
+    </div>
+  </dialog>`;
 }
 
 function labelForOption(options: readonly (readonly [string, string])[], value: string | undefined): string {
@@ -307,12 +335,12 @@ function signedOutPanel(): string {
               </div>
               <p class="community-form-note">Optional — it helps us understand where the Detour circle is growing.</p>
               <label>Invitation code<input name="invite_code" value="${esc(invitationCodePrefill)}" autocomplete="off" spellcheck="false" maxlength="80" placeholder="DTR-…" required></label>
-              <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Joining…' : 'Join Detour'}</button>
+              <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Joining…' : 'Join Detour'}</button>
             </form>`
           : `<form class="community-form" data-community-sign-in>
               <label>Email address<input name="email" type="email" autocomplete="email" required></label>
               <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
-              <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Signing in…' : 'Sign in'}</button>
+              <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Signing in…' : 'Sign in'}</button>
               <p class="community-form-note">New here? A personal invitation is all you need to join.</p>
             </form>`
       }
@@ -353,7 +381,7 @@ function discoveryHref(venue: Venue): string {
   url.searchParams.delete('city');
   url.searchParams.delete('view');
   url.searchParams.delete('invite');
-  url.searchParams.set('d', venueMarketSlug(venue));
+  url.searchParams.set('d', venueCitySlug(venue));
   url.searchParams.set('p', venuePlaceSlug(venue, knownVenues));
   url.hash = '';
   return `${url.pathname}${url.search}`;
@@ -392,7 +420,7 @@ function entryEditMarkup(entry: WaitlistEntry): string {
         <label>Instagram<input name="instagram_url" value="${esc(entry.instagram_url || '')}" maxlength="300" autocomplete="off" spellcheck="false" placeholder="@restaurant or instagram.com/restaurant"></label>
         <label>Photo link<input name="image_url" value="${esc(entry.image_url || '')}" maxlength="2048" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Direct link to a photo of the destination"></label>
         <p class="community-form-note">${esc(editPromise)}</p>
-        <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Saving…' : 'Save changes'}</button>
+        <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting && !deletingRecommendationId ? 'Saving…' : 'Save changes'}</button>
       </form>`;
 }
 
@@ -422,9 +450,13 @@ function waitlistRow(entry: WaitlistEntry): string {
   const highlighted = highlightedWaitlistId === entry.id;
   // A live place ends its line with Open; anything else ends it with the
   // reason it has no page yet, so the collapsed list still tells the truth.
-  const trailing = publishedVenue
+  const openOrStatus = publishedVenue
     ? `<a class="community-queue-open" href="${esc(discoveryHref(publishedVenue))}" data-place="${esc(publishedVenue.id)}" aria-label="Open the ${esc(publishedVenue.name)} place page">Open</a>`
     : `<span class="community-queue-status is-${statusClass}">${statusLabel}</span>`;
+  const deleteAction = rec
+    ? `<button class="community-queue-delete" type="button" data-community-delete-recommendation="${esc(rec.id)}" data-waitlist="${esc(entry.id)}" data-place-name="${esc(entry.venue_name || '')}" data-published="${published ? 'true' : 'false'}" ${submitting ? 'disabled' : ''}>${deletingRecommendationId === rec.id ? 'Deleting…' : 'Delete'}</button>`
+    : '';
+  const trailing = `<div class="community-queue-actions">${deleteAction}${openOrStatus}</div>`;
   const publicationNote = published
     ? publishedVenue
       ? ''
@@ -451,7 +483,7 @@ function waitlistRow(entry: WaitlistEntry): string {
                 <form class="community-form community-share-form" data-community-share data-waitlist="${esc(entry.id)}">
                   ${directoryMarkup(directoryKey, 'Share with a member')}
                   <label>Personal note<textarea name="personal_note" rows="3" maxlength="1200" minlength="8" required placeholder="Why you thought of them for this food-and-drink destination"></textarea></label>
-                  <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sharing…' : 'Share privately'}</button>
+                  <button class="secondary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sharing…' : 'Share privately'}</button>
                 </form>
               </details>`
             : ''
@@ -482,7 +514,7 @@ function recommendationPanel(): string {
           <div class="community-choice-grid">${OCCASION_OPTIONS.map(([value, label]) => `<label><input type="checkbox" name="occasions" value="${value}"><span>${label}</span></label>`).join('')}</div>
         </fieldset>
         <label>Your recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?"></textarea></label>
-        <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend'}</button>
+        <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend'}</button>
       </form>
     </div>
     <div class="community-queue" aria-labelledby="your-community-queue-title">
@@ -508,7 +540,7 @@ function queueListMarkup(): string {
   const hidden = waitlistEntries.length - shown.length;
   const toggle =
     hidden > 0
-      ? `<button type="button" class="community-secondary community-queue-more" data-queue-toggle aria-expanded="false" aria-controls="community-queue-list">Show ${hidden} more</button>`
+      ? `<button type="button" class="secondary-button community-queue-more" data-queue-toggle aria-expanded="false" aria-controls="community-queue-list">Show ${hidden} more</button>`
       : '';
   return `<ul class="community-queue-list" id="community-queue-list">${shown.map(waitlistRow).join('')}</ul>${toggle}`;
 }
@@ -545,7 +577,7 @@ function sharePlaceForm(): string {
       <label>Country<input name="country" maxlength="120" placeholder="Spain"></label>
     </div>
     <label>Personal note<textarea name="personal_note" rows="3" maxlength="1200" minlength="8" required placeholder="Why you thought of them for this food-and-drink destination"></textarea></label>
-    <button class="community-primary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sharing…' : 'Share destination'}</button>
+    <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sharing…' : 'Share destination'}</button>
   </form>`;
 }
 
@@ -575,7 +607,7 @@ function invitesPanel(): string {
     <div class="community-invite-actions">
       <p class="community-invite-explainer">Detour grows by personal invitation only — create a personal invitation link and send it to someone you trust so they can join as a member.</p>
       <div class="community-invite-bar">
-        <button class="community-secondary" type="button" data-community-invite ${submitting || !allowanceKnown || atLimit ? 'disabled' : ''}>${submitting ? 'Preparing…' : atLimit ? 'Invitation limit reached' : 'New invitation'}</button>
+        <button class="secondary-button" type="button" data-community-invite ${submitting || !allowanceKnown || atLimit ? 'disabled' : ''}>${submitting ? 'Preparing…' : atLimit ? 'Invitation limit reached' : 'New invitation'}</button>
         <p class="community-invite-allowance" aria-live="polite"><strong>${allowanceKnown ? available : '—'}</strong> ${allowanceKnown ? (available === 1 ? 'invitation left' : 'invitations left') : 'checking…'}</p>
       </div>
       ${
@@ -585,7 +617,7 @@ function invitesPanel(): string {
             ? `<div class="community-invite-list"><h4>Unclaimed invitations</h4><ul class="community-invite-codes" aria-label="Your unclaimed invitation links">${unclaimed
                 .map(
                   (invite) =>
-                    `<li><code>${esc(invite.code || '')}</code><button class="community-invite-copy" type="button" data-copy-invite="${esc(invite.code || '')}" aria-live="polite" aria-label="Copy invitation link for ${esc(invite.code || '')}">Copy link</button></li>`
+                    `<li><code>${esc(invite.code || '')}</code><button class="secondary-button community-invite-copy" type="button" data-copy-invite="${esc(invite.code || '')}" aria-live="polite" aria-label="Copy invitation link for ${esc(invite.code || '')}">Copy link</button></li>`
                 )
                 .join('')}</ul></div>`
             : '<p class="community-empty">No unclaimed invitations. Create one to invite someone.</p>'
@@ -634,7 +666,7 @@ function settingsPanel(record: MemberRecord): string {
     <div class="community-pseudo-row">
       <form class="community-form community-pseudo-form" data-community-pseudo>
         <label>Your pseudo<input name="pseudo" value="${esc(record.pseudo || '')}" autocomplete="off" spellcheck="false" minlength="3" maxlength="30" pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens" required></label>
-        <button class="community-secondary" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Saving…' : 'Save pseudo'}</button>
+        <button class="secondary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Saving…' : 'Save pseudo'}</button>
       </form>
       <p class="community-form-note">Your unique handle — other members search for it to share food-and-drink destinations with you.</p>
     </div>
@@ -671,7 +703,7 @@ function memberTabsMarkup(): string {
           }</button>`
       ).join('')}
     </div>
-    <button class="community-tab-signout" type="button" data-community-sign-out>Sign out</button>
+    <button class="secondary-button community-tab-signout" type="button" data-community-sign-out>Sign out</button>
   </div>`;
 }
 
@@ -683,6 +715,7 @@ function signedInPanel(): string {
     ${memberTabsMarkup()}
     ${noticeMarkup()}
     ${panel}
+    ${deleteRecommendationDialogMarkup()}
   </section>`;
 }
 
@@ -763,6 +796,8 @@ function resetCommunityState(): void {
   invites = [];
   invitesLoaded = false;
   loadingInvites = false;
+  deletingRecommendationId = '';
+  pendingRecommendationDeletion = null;
   highlightedWaitlistId = '';
   queueExpanded = false;
   visibilitySaving = false;
@@ -1341,6 +1376,80 @@ export function bindCommunity(
       }
     });
   });
+
+  root.querySelectorAll<HTMLButtonElement>('[data-community-delete-recommendation]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const recommendationId = button.dataset.communityDeleteRecommendation || '';
+      const entryId = button.dataset.waitlist || '';
+      if (!recommendationId || !entryId || submitting) return;
+      pendingRecommendationDeletion = {
+        recommendationId,
+        entryId,
+        placeName: button.dataset.placeName?.trim() || 'this place',
+        published: button.dataset.published === 'true',
+      };
+      render();
+    });
+  });
+
+  const deleteDialog = root.querySelector<HTMLDialogElement>('[data-community-delete-dialog]');
+  if (deleteDialog && pendingRecommendationDeletion) {
+    const cancelDeletion = () => {
+      pendingRecommendationDeletion = null;
+      if (deleteDialog.open) deleteDialog.close();
+      render();
+    };
+    deleteDialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      cancelDeletion();
+    });
+    deleteDialog.addEventListener('click', (event) => {
+      if (event.target === deleteDialog) cancelDeletion();
+    });
+    deleteDialog.querySelector<HTMLButtonElement>('[data-community-delete-cancel]')?.addEventListener('click', cancelDeletion);
+    deleteDialog.querySelector<HTMLButtonElement>('[data-community-delete-confirm]')?.addEventListener('click', async () => {
+      const pending = pendingRecommendationDeletion;
+      if (!pending || submitting) return;
+      const { recommendationId, entryId, published } = pending;
+      pendingRecommendationDeletion = null;
+      submitting = true;
+      deletingRecommendationId = recommendationId;
+      highlightedWaitlistId = entryId;
+      notice = null;
+      render();
+      try {
+        await pb.collection('community_recommendations').delete(recommendationId);
+        recommendations = recommendations.filter((recommendation) => recommendation.id !== recommendationId);
+        communityLoaded = false;
+        const catalogueRefresh = refreshCatalogue()
+          .then((venues) => {
+            knownVenues = venues;
+          })
+          .catch(() => {
+            // The member ledger can still reflect the deletion while discovery
+            // data is temporarily unavailable.
+          });
+        await Promise.all([loadCommunity(render), catalogueRefresh]);
+        notice = {
+          kind: 'success',
+          text: published
+            ? 'Your recommendation was deleted. The place remains live without your note or attribution.'
+            : 'Your recommendation was deleted.',
+        };
+        focusWaitlistEntry(entryId);
+      } catch (error) {
+        notice = { kind: 'error', text: readableError(error, 'Your recommendation could not be deleted. Please try again.') };
+      } finally {
+        submitting = false;
+        deletingRecommendationId = '';
+        render();
+      }
+    });
+    if (!deleteDialog.open) {
+      deleteDialog.showModal();
+      deleteDialog.querySelector<HTMLElement>('#delete-recommendation-title')?.focus({ preventScroll: true });
+    }
+  }
 
   root.querySelectorAll<HTMLFormElement>('[data-community-share]').forEach((form) => {
     form.addEventListener('submit', async (event) => {

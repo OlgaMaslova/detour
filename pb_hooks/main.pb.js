@@ -1449,12 +1449,20 @@ onRecordUpdateRequest((e) => {
   e.next();
 }, "community_recommendations");
 
-// Deleting a pending signal updates the server-maintained count. A place that
-// has already auto-published remains a public selection and is never
-// automatically withdrawn merely because a later recommendation is removed.
+// Deleting a signal updates the server-maintained count, and when it was the
+// last one the place is removed from the catalogue outright. Every listed place
+// exists because a member put their name behind it; once nobody does, it must
+// not keep appearing on a city list. This is the delete-time half of the rule
+// migrations 1768019000/1768019200 swept for once — see withdrawUnbackedEntry
+// for what is deleted and why private shares survive it.
+//
+// This also covers account removal: deleting a member cascades their
+// recommendations, so each place only they backed is withdrawn with them.
 onRecordAfterDeleteSuccess((e) => {
-  const { recalculateAndPublish } = require(__hooks + "/community_waitlist.js");
-  recalculateAndPublish(e.app, e.record.getString("waitlist"));
+  const community = require(__hooks + "/community_waitlist.js");
+  const waitlistId = e.record.getString("waitlist");
+  community.recalculateAndPublish(e.app, waitlistId);
+  community.withdrawUnbackedEntry(e.app, waitlistId);
   e.next();
 }, "community_recommendations");
 
@@ -1973,9 +1981,7 @@ routerAdd(
         // converge if a retry follows a failed transaction.
       }
       if (award) {
-        award.set("source_url", "");
         award.set("current", true);
-        award.set("verification_status", "verified");
         txApp.save(award);
       } else {
         const awards = txApp.findCollectionByNameOrId("venue_awards");
@@ -1984,10 +1990,7 @@ routerAdd(
         award.set("venue", venue.id);
         award.set("year", year);
         award.set("level", "Detour community selection");
-        award.set("rank", 0);
-        award.set("source_url", "");
         award.set("current", true);
-        award.set("verification_status", "verified");
         txApp.save(award);
       }
 

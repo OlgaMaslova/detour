@@ -623,16 +623,12 @@ a.account-brand:hover,
    Filled display-type buttons for primary actions, outlined mono buttons for
    everything secondary. Both press into their own shadow on hover. */
 .network-primary-link,
-.network-retry,
-.network-public-retry,
 .network-invite-submit,
 .network-reply-submit,
 .destination-go,
-.destination-near,
-.community-primary,
+.primary-button,
 .survey-primary-link,
-[data-survey-submit],
-.empty-state-reset {
+[data-survey-submit] {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
@@ -657,31 +653,24 @@ a.account-brand:hover,
 .network-retry { gap: 0.65rem; }
 .network-primary-link:visited { color: var(--tape-ink); }
 .network-primary-link:hover,
-.network-retry:hover,
-.network-public-retry:hover,
 .network-invite-submit:hover:not(:disabled),
 .network-reply-submit:hover:not(:disabled),
 .destination-go:hover:not(:disabled),
-.destination-near:hover:not(:disabled),
-.community-primary:hover:not(:disabled),
+.primary-button:hover:not(:disabled),
 .survey-primary-link:hover,
-[data-survey-submit]:hover:not(:disabled),
-.empty-state-reset:hover {
+[data-survey-submit]:hover:not(:disabled) {
   color: var(--tape-ink);
   background: var(--tape-orange);
   transform: translate(3px, 3px);
   box-shadow: 2px 2px 0 var(--tape-chrome);
 }
 .network-primary-link:active,
-.network-retry:active,
 .network-reply-submit:active,
-.survey-primary-link:active,
-.empty-state-reset:active { box-shadow: none; transform: translate(3px, 3px); }
+.survey-primary-link:active { box-shadow: none; transform: translate(3px, 3px); }
 .destination-go:disabled,
-.destination-near:disabled,
 .network-invite-submit:disabled,
 .network-reply-submit:disabled,
-.community-primary:disabled {
+.primary-button:disabled {
   opacity: 0.45;
   box-shadow: none;
   transform: none;
@@ -692,7 +681,7 @@ a.account-brand:hover,
 .network-public-retry,
 .network-reply-submit,
 .survey-submit { flex: none; }
-.community-primary,
+.primary-button,
 .network-show-more,
 .community-queue-more { justify-self: start; }
 .network-show-more { margin-top: 4px; }
@@ -701,27 +690,8 @@ a.account-brand:hover,
 .destination-near { min-height: 48px; }
 .survey-submit { min-height: 48px; }
 .survey-primary-link { margin-top: 0.5rem; min-height: 46px; }
-/* the outline variant of the primary action: same press, no fill */
-.destination-near,
-.network-cassette-flip {
-  color: var(--tape-text);
-  background: transparent;
-  border: 2.5px solid var(--tape-chrome);
-  box-shadow: 5px 5px 0 var(--tape-rust);
-}
-.destination-near:hover:not(:disabled),
-.network-cassette-flip:hover {
-  color: var(--tape-accent-strong);
-  background: transparent;
-  transform: translate(3px, 3px);
-  box-shadow: 2px 2px 0 var(--tape-rust);
-}
 
-.community-secondary,
-.community-tab-signout,
-.nearby-btn,
-.survey-home-link,
-.place-back {
+.secondary-button {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
@@ -741,34 +711,21 @@ a.account-brand:hover,
   cursor: pointer;
   transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
-/* Invert to the orange chip on hover, like the masthead toggle and menu.
-   Tinting only the label left it sitting on the translucent veil, which
-   composites against whatever is behind the card rather than a known colour. */
-.community-secondary:hover:not(:disabled),
-.community-tab-signout:hover,
-.nearby-btn:not([disabled]):hover,
-.survey-home-link:hover,
-.place-back:hover {
-  color: var(--tape-ink);
-  background: var(--tape-orange);
-  border-color: var(--tape-orange);
+.secondary-button:hover:not(:disabled) {
+  color: var(--tape-text);
+  background: var(--tape-field-veil);
+  border-color: var(--tape-chrome);
   transform: translate(2px, 2px);
   box-shadow: 2px 2px 0 var(--tape-rust);
 }
-.community-queue-more:hover:not(:disabled) {
-  box-shadow: 2px 2px 0 var(--tape-chrome);
-}
-.community-secondary:active,
-.nearby-btn:not([disabled]):active { box-shadow: none; transform: translate(3px, 3px); }
-.nearby-btn[disabled],
-.community-secondary:disabled {
+.secondary-button:active { box-shadow: none; transform: translate(3px, 3px); }
+.secondary-button:disabled {
   opacity: 0.45;
   box-shadow: none;
   transform: none;
   cursor: not-allowed;
 }
-.nearby-btn,
-.place-back { gap: 0.45rem; }
+.nearby-btn { gap: 0.45rem; }
 .community-tab-signout { align-self: center; min-height: 34px; }
 .nearby-btn { flex: none; }
 .nearby-btn::before {
@@ -780,7 +737,6 @@ a.account-brand:hover,
   background: var(--tape-orange);
   box-shadow: 0 0 0 3px rgba(243, 112, 30, 0.35);
 }
-.place-back { min-height: 40px; background: none; box-shadow: none; }
 .place-back-row { width: min(100%, 1080px); margin: 1.1rem auto 0; }
 /* The label carries tracking; the arrow must not, or it inherits a trailing
    space that reads as a broken gap.
@@ -820,6 +776,80 @@ a.account-brand:hover,
 }
 .community-danger:hover:not(:disabled) { color: var(--tape-ink); background: var(--tape-orange); border-color: var(--tape-orange); }
 .community-danger:disabled { opacity: 0.56; cursor: not-allowed; }
+
+/* Custom destructive confirmation: a compact cassette-label sheet in the
+   browser's modal top layer, with the rest of the member area inert. */
+.community-confirm-dialog {
+  width: min(calc(100% - 2rem), 36rem);
+  max-width: none;
+  margin: auto;
+  padding: 0;
+  color: var(--tape-text);
+  background: var(--tape-surface);
+  border: 3px solid var(--tape-chrome);
+  border-radius: 0;
+  box-shadow: 12px 12px 0 var(--tape-rust);
+}
+.community-confirm-dialog::backdrop {
+  background: rgba(4, 8, 20, 0.78);
+  backdrop-filter: blur(2px);
+}
+.community-confirm-sheet {
+  position: relative;
+  display: grid;
+  gap: 1rem;
+  padding: clamp(1.35rem, 5vw, 2.25rem);
+  overflow: hidden;
+}
+.community-confirm-sheet::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--tape-gold) 0 25%,
+    var(--tape-amber) 25% 50%,
+    var(--tape-orange) 50% 75%,
+    var(--tape-rust) 75%
+  );
+}
+.community-confirm-kicker {
+  margin: 0.3rem 0 0;
+  color: var(--tape-accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.community-confirm-dialog h2 {
+  margin: 0;
+  color: var(--tape-text);
+  font-family: var(--tape-anton);
+  font-size: clamp(1.75rem, 7vw, 2.5rem);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  text-shadow: 3px 3px 0 var(--tape-ghost);
+}
+.community-confirm-dialog h2:focus { outline: none; }
+.community-confirm-dialog p:not(.community-confirm-kicker) {
+  margin: 0;
+  color: var(--tape-muted);
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+.community-confirm-dialog strong { color: var(--tape-text); }
+.community-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--tape-hairline-strong);
+}
 
 /* ================= FORMS ================= */
 input[type='text'],
@@ -969,7 +999,6 @@ legend { color: var(--tape-text); }
   overflow-wrap: anywhere;
 }
 .card-meta,
-.card-locality span,
 .detail-meta {
   font-family: var(--tape-mono);
   font-weight: 700;
@@ -979,19 +1008,11 @@ legend { color: var(--tape-text); }
   color: var(--tape-accent);
 }
 .card-meta { margin: 0.25rem 0 0.15rem; }
-.card-address,
-.card-locality small {
+.card-address {
   margin: 0;
   color: var(--tape-muted);
   font-family: var(--tape-mono);
   font-size: 12px;
-}
-.card-locality {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.25rem 0.5rem;
-  margin: 0.35rem 0 0.2rem;
 }
 .card-occasions {
   display: flex;
@@ -1617,41 +1638,11 @@ legend { color: var(--tape-text); }
   text-transform: uppercase;
 }
 .detail-facts dd { margin: 0; color: var(--tape-text); font-family: var(--tape-mono); overflow-wrap: anywhere; }
-.detail-locality { display: block; font-weight: 750; }
-.detail-market { display: block; margin-top: 0.1rem; color: var(--tape-muted); font-size: 0.78rem; }
 .detail .approx { margin: 0.35rem 0 0; font-size: 0.82rem; }
 
 .detail-visit-links { display: flex; flex-wrap: wrap; gap: 0.45rem; }
 .detail .detail-visit-links { margin-top: 0.35rem; }
-/* Shared by the map preview and the place page's "where it is" links. */
-.detail-visit-links a {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 44px;
-  padding: 7px 11px;
-  color: var(--tape-accent);
-  background: none;
-  border: 2px solid var(--tape-accent);
-  border-radius: 0;
-  font-family: var(--tape-mono);
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  line-height: 1.2;
-  text-transform: uppercase;
-  text-decoration: none;
-  transition: color 140ms cubic-bezier(0.25, 1, 0.5, 1), border-color 140ms cubic-bezier(0.25, 1, 0.5, 1), background 140ms cubic-bezier(0.25, 1, 0.5, 1);
-}
-.detail-visit-links a:hover { color: var(--tape-ink); background: var(--tape-orange); border-color: var(--tape-orange); }
-/* the map preview's one job is to hand off to the place page — filled, not outlined */
-.detail-visit-links a.detail-open-place {
-  color: var(--tape-ink);
-  background: var(--tape-orange);
-  border-color: var(--tape-chrome);
-  text-decoration: none;
-}
-.detail-visit-links a.detail-open-place:hover { background: var(--tape-accent-strong); }
+.detail-visit-links a { gap: 0.4rem; }
 
 /* Locator bits, shared by the map preview (address) and the place page's own
    "where it is" section (map + credit). */
@@ -1813,7 +1804,13 @@ legend { color: var(--tape-text); }
 /* ---- feed entries ---- */
 .network-entry-list { display: grid; gap: 1rem; }
 .network-recommendation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
-.network-recommendation-grid .network-entry { height: 100%; grid-template-rows: auto 1fr; }
+.network-recommendation {
+  /* Keep stripe, cover, title/content and barcode in their own rows. The
+     flexible space belongs to the content row, so differing note lengths
+     never move a neighbouring card's title away from the cover. */
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+.network-recommendation-grid .network-entry { height: 100%; }
 .network-recommendation-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .network-recommendation-grid-3 .network-entry-thumb { height: 10.5rem; }
 .network-recommendation-grid-3 .network-entry h3 { font-size: 21px; }
@@ -2418,23 +2415,7 @@ legend { color: var(--tape-text); }
   border-bottom: 2px solid var(--tape-accent-strong);
 }
 .trusted-list-status-error p { margin: 0; color: var(--tape-accent-strong); }
-.trusted-list-status-error button {
-  min-height: 44px;
-  flex: none;
-  padding: 0.45rem 0.7rem;
-  color: var(--tape-accent);
-  background: none;
-  border: 2px solid var(--tape-accent);
-  border-radius: 0;
-  font-family: var(--tape-mono);
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  cursor: pointer;
-  line-height: 1.55;
-}
-.trusted-list-status-error button:hover { color: var(--tape-ink); background: var(--tape-orange); border-color: var(--tape-orange); }
+.trusted-list-status-error .secondary-button { flex: none; }
 .trusted-list-results { margin: 0; }
 /* the place you last opened keeps the accent frame */
 .trusted-entry.is-selected { border-color: var(--tape-accent-strong); }
@@ -3100,19 +3081,9 @@ legend { color: var(--tape-text); }
   flex: none;
   min-height: 32px;
   padding: 0.3rem 0.65rem;
-  color: var(--tape-accent);
-  background: none;
-  border: 2px solid var(--tape-accent);
-  border-radius: 0;
-  font-family: var(--tape-mono);
   font-size: 0.7rem;
-  font-weight: 800;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
-  cursor: pointer;
 }
-.community-invite-copy:hover,
-.community-invite-copy:focus-visible { color: var(--tape-ink); background: var(--tape-orange); border-color: var(--tape-orange); }
 .community-invite-claimed .community-invite-codes code,
 .community-invite-claimed .community-invite-codes span { color: var(--tape-muted); font-weight: 600; }
 
@@ -3285,6 +3256,7 @@ legend { color: var(--tape-text); }
 .community-queue-line::-webkit-details-marker { display: none; }
 .community-queue-where { min-width: 0; color: var(--tape-muted); font-family: var(--tape-mono); font-size: 11px; }
 .community-queue-edit,
+.community-queue-delete,
 .community-queue-open {
   color: var(--tape-accent);
   font-family: var(--tape-mono);
@@ -3293,14 +3265,30 @@ legend { color: var(--tape-text); }
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
+.community-queue-delete {
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.community-queue-delete:hover:not(:disabled) { color: var(--tape-orange); }
+.community-queue-delete:disabled { opacity: 0.56; cursor: not-allowed; }
 .community-queue-edit { margin-left: auto; }
 .community-queue-entry[open] .community-queue-edit::after { content: ' −'; }
 .community-queue-entry:not([open]) .community-queue-edit::after { content: ' +'; }
 .community-queue-body { display: grid; gap: 0.85rem; padding: 0.35rem 0 1.1rem; }
 /* the trailing Open / status shares the line's box, so the two sit on one
    optical baseline whether the entry is collapsed or expanded */
+.community-queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem 1.1rem;
+}
 .community-queue-open,
-.community-queue-row > .community-queue-status {
+.community-queue-actions > .community-queue-delete,
+.community-queue-actions > .community-queue-status {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
@@ -3770,7 +3758,7 @@ legend { color: var(--tape-text); }
   .community-member-tab { min-height: 50px; padding-inline: 0.35rem; }
   .community-tab-panel { min-height: 17rem; padding: 1.25rem; }
   .community-invite-bar { align-items: center; flex-wrap: wrap; }
-  .community-pseudo-form .community-secondary { width: 100%; }
+  .community-pseudo-form .secondary-button { width: 100%; }
   .community-visibility-row { grid-template-columns: 1fr; align-items: start; }
   .community-subheading { justify-content: flex-start; gap: 0.2rem 0.6rem; }
   .community-subheading p { text-align: left; }
@@ -3838,7 +3826,7 @@ legend { color: var(--tape-text); }
   .empty-state-reset { width: 100%; }
   .community-form-grid { grid-template-columns: 1fr; }
   .community-danger { width: 100%; }
-  .community-primary { width: 100%; justify-self: stretch; }
+  .primary-button { width: 100%; justify-self: stretch; }
 }
 
 @media (max-width: 390px) {
@@ -3863,10 +3851,10 @@ legend { color: var(--tape-text); }
   .signal-tooltip { transition: none; }
   .community-toggle:hover,
   .community-toggle:active,
-  .community-primary:hover,
-  .community-primary:active,
-  .community-secondary:hover,
-  .community-secondary:active,
+  .primary-button:hover,
+  .primary-button:active,
+  .secondary-button:hover,
+  .secondary-button:active,
   .empty-state-reset:hover,
   .empty-state-reset:active,
   .nearby-btn:hover,

@@ -1,7 +1,7 @@
 import './styles.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { citySlug, loadLiveCatalogue, venueMarketSlug, venuePlaceSlug } from './data';
+import { citySlug, loadLiveCatalogue, venueCitySlug, venuePlaceSlug } from './data';
 import type { Venue } from './data';
 import { GLOBAL_META_DESCRIPTION, GLOBAL_META_TITLE } from './cities';
 import { OCCASION_OPTIONS, occasionLabel } from './occasions';
@@ -134,20 +134,16 @@ function safeExternalHref(value: string | undefined): string {
 }
 
 function venueRouteName(v: Venue): string {
-  return v.market || v.city;
+  return v.city;
 }
 
 function venueRouteSlug(v: Venue): string {
-  return venueMarketSlug(v);
+  return venueCitySlug(v);
 }
 
-/** Shareable place-page slug, unique within the venue's market route. */
+/** Shareable place-page slug, unique within the venue's city route. */
 function venuePageSlug(v: Venue): string {
   return venuePlaceSlug(v, allVenues());
-}
-
-function hasDistinctLocality(v: Venue): boolean {
-  return citySlug(v.city) !== venueRouteSlug(v);
 }
 
 /* ---------- brand ---------- */
@@ -308,7 +304,7 @@ function destinationVenues(): Venue[] {
 /**
  * The place the current route names, or null when the slug matches nothing in
  * the active destination (a stale link, or a place that has since moved
- * markets). Venue ids are accepted too, so links minted before readable place
+ * cities). Venue ids are accepted too, so links minted before readable place
  * slugs existed keep working.
  */
 function activePlace(): Venue | null {
@@ -425,8 +421,17 @@ function openPlace(root: HTMLElement, v: Venue): void {
   state.selectedVia = 'card';
   updateRoute('place', slug, 'push', state.place);
   pendingFocus = '#place-title';
-  window.scrollTo({ top: 0, behavior: 'auto' });
   render(root);
+  // Reset only after the place DOM (including its locator map) has mounted.
+  // Scrolling before render lets browser scroll anchoring preserve the old
+  // map/detail position when the destination view is replaced.
+  window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  const openedPlace = state.place;
+  window.requestAnimationFrame(() => {
+    if (state.view === 'place' && state.place === openedPlace) {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    }
+  });
 }
 
 function showHome(root: HTMLElement): void {
@@ -879,7 +884,7 @@ function discoveryBar(list: Venue[], hasMap: boolean, mapView: boolean): string 
       ${cityViewSwitch(hasMap)}
       ${
         mapView
-          ? `<button type="button" class="nearby-btn" data-geolocate ${state.geoBusy ? 'disabled' : ''}>
+          ? `<button type="button" class="secondary-button nearby-btn" data-geolocate ${state.geoBusy ? 'disabled' : ''}>
               ${state.geoBusy ? 'Finding you…' : 'Show nearby'}
             </button>`
           : ''
@@ -900,7 +905,7 @@ function recommendationLoadStatus(city: string): string {
   if (notesState.status === 'error') {
     return `<div class="trusted-list-status trusted-list-status-error" role="status">
       <p>${esc(notesState.error || 'Member notes are unavailable right now. The published places are still here.')}</p>
-      <button type="button" data-city-notes-retry>Try member notes again</button>
+      <button type="button" class="secondary-button" data-city-notes-retry>Try member notes again</button>
     </div>`;
   }
   return '';
@@ -1038,9 +1043,7 @@ function trustedVenueCard(v: Venue): string {
       ? `<img src="${esc(image)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-cover-image>`
       : `<span aria-hidden="true">${esc(initial)}</span>`
   }</figure>`;
-  const meta = [v.category, v.neighborhood, hasDistinctLocality(v) ? v.city : '']
-    .filter(Boolean)
-    .join(' · ');
+  const meta = [v.category, v.neighborhood].filter(Boolean).join(' · ');
   const notes = recommendationNotesForVenue(v)
     .map((item) => {
       const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
@@ -1071,7 +1074,6 @@ function trustedVenueCard(v: Venue): string {
 function venueCard(v: Venue, trustedList = false): string {
   if (trustedList) return trustedVenueCard(v);
   const selected = v.id === state.selectedId;
-  const distinctLocality = hasDistinctLocality(v);
   const recommendations = recommendationNotesForVenue(v)
     .map(recommendationAttribution)
     .filter(Boolean)
@@ -1083,7 +1085,6 @@ function venueCard(v: Venue, trustedList = false): string {
         <span class="card-place-copy">
           <h3>${esc(v.name)}</h3>
           <p class="card-meta">${esc([v.category, v.neighborhood].filter(Boolean).join(' · '))}</p>
-          ${distinctLocality ? `<p class="card-locality"><span>${esc(v.city)}</span><small>${esc(venueRouteName(v))} selection</small></p>` : ''}
           <p class="card-address">${
             v.address
               ? esc(v.address)
@@ -1111,10 +1112,10 @@ function venueVisitLinks(v: Venue): string {
   const instagramUrl = safeExternalHref(v.instagramUrl);
   return [
     officialUrl
-      ? `<a href="${esc(officialUrl)}" target="_blank" rel="noopener noreferrer">Official website <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
+      ? `<a class="secondary-button" href="${esc(officialUrl)}" target="_blank" rel="noopener noreferrer">Official website <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
       : '',
     instagramUrl
-      ? `<a href="${esc(instagramUrl)}" target="_blank" rel="noopener noreferrer">Instagram <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
+      ? `<a class="secondary-button" href="${esc(instagramUrl)}" target="_blank" rel="noopener noreferrer">Instagram <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
       : '',
   ]
     .filter(Boolean)
@@ -1131,10 +1132,7 @@ function detailPanel(): string {
   if (!v) {
     return `<p class="map-prompt" aria-live="polite">Choose a pin to see the place — or switch to the list to read what members wrote.</p>`;
   }
-  const distinctLocality = hasDistinctLocality(v);
-  const detailMeta = [v.category, v.neighborhood, distinctLocality ? v.city : '']
-    .filter(Boolean)
-    .join(' · ');
+  const detailMeta = [v.category, v.neighborhood].filter(Boolean).join(' · ');
   const directions = directionsHref(v);
   return `<aside class="detail" id="selected-place-detail" aria-live="polite" aria-label="Selected place">
     <div class="detail-head">
@@ -1160,8 +1158,8 @@ function detailPanel(): string {
             : ''
         }
         <div class="detail-visit-links">
-          <a class="detail-open-place" href="${esc(placeHref(v))}" data-place="${esc(v.id)}" aria-label="Open the full place page for ${esc(v.name)}">To full page <span class="nav-arrow" aria-hidden="true">→</span></a>
-          ${directions ? `<a href="${esc(directions)}" target="_blank" rel="noopener noreferrer">Get directions <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>` : ''}
+          <a class="primary-button detail-open-place" href="${esc(placeHref(v))}" data-place="${esc(v.id)}" aria-label="Open the full place page for ${esc(v.name)}">To full page <span class="nav-arrow" aria-hidden="true">→</span></a>
+          ${directions ? `<a class="secondary-button" href="${esc(directions)}" target="_blank" rel="noopener noreferrer">Get directions <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>` : ''}
           ${venueVisitLinks(v)}
         </div>
       </div>
@@ -1205,8 +1203,6 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
     visitLinks: venueVisitLinks,
     directionsHref,
     occasionLabels: (venue) => venueOccasions(venue).map(occasionLabel),
-    hasDistinctLocality,
-    routeName: venueRouteName,
     notes: recommendationNotesForVenue,
     notesStatus: recommendationLoadStatus(destination.name),
     shortDate,
@@ -1465,9 +1461,8 @@ function renderAccount(root: HTMLElement): void {
 
 /**
  * Resolves a free-text landing search to a destination or a single place.
- * Matching is case-insensitive over route markets, physical localities,
- * place names, and the typed 'Place — Locality' form. Physical-locality
- * matches still open the venue's market route when those names differ.
+ * Matching is case-insensitive over city names, place names, and the typed
+ * 'Place — City' form.
  */
 function resolveSearch(query: string): { slug: string; venueId?: string } | null {
   const norm = (value: string) => value.trim().toLowerCase();
@@ -1519,9 +1514,6 @@ function exploreSearchOptions(): string {
     values.add(destination.country ? `${destination.name}, ${destination.country}` : destination.name);
   }
   for (const venue of allVenues()) {
-    if (hasDistinctLocality(venue)) {
-      values.add(venue.country ? `${venue.city}, ${venue.country}` : venue.city);
-    }
     values.add(`${venue.name} — ${venue.city}`);
   }
   return [...values]
@@ -1554,7 +1546,7 @@ function exploreSearchMarkup(): string {
           placeholder="Madrid, Tartine…" ${disabled ? 'disabled' : ''}>
         <datalist id="explore-search-options">${exploreSearchOptions()}</datalist>
         <button class="destination-go" type="submit" ${disabled ? 'disabled' : ''}>Search</button>
-        <button class="destination-near" type="button" data-geolocate ${
+        <button class="secondary-button destination-near" type="button" data-geolocate ${
           state.geoBusy || disabled ? 'disabled' : ''
         }>${state.geoBusy ? 'Finding you…' : 'Use my location'}</button>
       </div>
@@ -2037,7 +2029,7 @@ function render(root: HTMLElement) {
   const emptyState = `<div class="empty-state" role="status">
       <p class="empty-state-title">Nothing matches yet</p>
       <p class="empty-state-body">Adjust the filters, or start again with all ${esc(destination.name)} places.</p>
-      <button type="button" class="empty-state-reset" data-reset-filters>Show everything</button>
+      <button type="button" class="secondary-button empty-state-reset" data-reset-filters>Show everything</button>
     </div>`;
   const occasionBrowsing = destinationHasOccasions();
   const shortList = isShortListDestination(destination);
