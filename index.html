@@ -37,10 +37,11 @@
       name="twitter:image:alt"
       content="A mixtape-style Detour card reading “See the places your network would actually recommend” beside drinks shared around a table."
     />
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23222a3b'/%3E%3Cpath d='M11 13h42v26H39L32 52l-7-13H11z' fill='%23efe6d8'/%3E%3Cpath d='M39 39h14V26z' fill='%23d1552a'/%3E%3Cpath d='M24 22h16v6H24z' fill='%23f3701e'/%3E%3C/svg%3E"
-    />
+    <!-- A real file at a versioned URL, not a data: URI. The browser keeps
+         favicons in a store keyed by URL that plain reloads do not revisit, so
+         a data: URI can never announce a change — bump ?v= to force a refetch. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260729" />
+    <link rel="apple-touch-icon" href="/favicon.svg?v=20260729" />
     <!-- the browser chrome above the header follows the theme, so a light-mode
          phone does not put a navy band over a cream page -->
     <meta name="theme-color" content="#f0e7d6" media="(prefers-color-scheme: light)" />
