@@ -155,7 +155,7 @@ routerAdd(
     return e.json(200, {
       member: {
         id: e.auth.id,
-        display_name: e.auth.getString("display_name"),
+        display_name: e.auth.getString("pseudo") || e.auth.getString("display_name"),
         pseudo: e.auth.getString("pseudo"),
         community_status: e.auth.getString("community_status"),
         invitation_limit: founding.invitationLimitFor(e.auth),
@@ -738,9 +738,11 @@ routerAdd(
       throw new BadRequestError("q must contain at least two searchable characters.");
     }
 
+    // Members have one name: the pseudo. The directory matches and returns
+    // nothing else.
     const matches = e.app.findRecordsByFilter(
       "members",
-      "id != {:member} && internal_member = false && (pseudo ~ {:query} || display_name ~ {:query})",
+      "id != {:member} && internal_member = false && pseudo ~ {:query}",
       "pseudo",
       12,
       0,
@@ -750,12 +752,404 @@ routerAdd(
     for (const match of matches) {
       candidates.push({
         id: match.id,
-        display_name: match.getString("display_name"),
         pseudo: match.getString("pseudo"),
       });
     }
 
     return e.json(200, { items: candidates });
+  },
+  $apis.requireAuth("members")
+);
+
+// My Circle: the slice of the invitation graph the caller is actually part of.
+// Detour grows only by personal invitation, so who brought whom is the app's
+// trust structure — and a member can only judge a second-degree recommendation
+// if they can see the edge that connects them to it.
+//
+// This route bypasses the members collection rules, so it is deliberately
+// narrow. It projects display name, home city, and a published-place count,
+// and only for: the caller's inviter, the members the caller invited, the
+// members one hop out (invited by the caller's inviter or by one of the
+// caller's invitees, each labelled with that connector), and the founding
+// circle, which is not relational and reads the same for every member. No
+// email, pseudo, status, recommendation prose, moderation, or membership
+// marker is selected or returned, and the graph is never walked past one hop.
+routerAdd(
+  "GET",
+  "/api/detour/circle",
+  (e) => {
+    const founding = require(__hooks + "/founding_cap.js");
+    const callerId = e.auth.id;
+
+    // Internal accounts and reserved .invalid fixtures are never people in
+    // somebody's circle, on either end of an edge.
+    function realMember(alias) {
+      return (
+        "COALESCE(" + alias + ".internal_member, FALSE) = FALSE " +
+        "AND LOWER(TRIM(" + alias + ".email)) NOT LIKE '%.invalid'"
+      );
+    }
+
+    // A member's place count is their public footprint on the Detourist List:
+    // distinct published venues they have recommended. Unpublished entries and
+    // private drafts never reach it, so the number one member sees against
+    // another is the same number the catalogue already shows.
+    const placeCounts = {};
+    const placeRows = arrayOf(new DynamicModel({ member_id: "", places: 0 }));
+    e.app
+      .db()
+      .newQuery(
+        "SELECT r.member AS member_id, COUNT(DISTINCT w.published_venue) AS places " +
+          "FROM community_recommendations r " +
+          "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+          "WHERE w.status = 'published' AND w.published_venue != '' " +
+          "GROUP BY r.member LIMIT 5000"
+      )
+      .all(placeRows);
+    for (const row of placeRows) {
+      placeCounts[row.member_id] = Number(row.places || 0);
+    }
+
+    // The cities of those same published places — a member's recommendation
+    // geography, not their self-declared home. Distinct (member, city) pairs
+    // aggregated here rather than GROUP_CONCAT because SQLite cannot combine
+    // DISTINCT with a custom separator, and city names may contain commas.
+    const citiesByMember = {};
+    const cityRows = arrayOf(new DynamicModel({ member_id: "", city: "" }));
+    e.app
+      .db()
+      .newQuery(
+        "SELECT DISTINCT r.member AS member_id, v.city AS city " +
+          "FROM community_recommendations r " +
+          "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+          "JOIN venues v ON v.id = w.published_venue " +
+          "WHERE w.status = 'published' AND w.published_venue != '' " +
+          "AND TRIM(v.city) != '' LIMIT 5000"
+      )
+      .all(cityRows);
+    for (const row of cityRows) {
+      if (!citiesByMember[row.member_id]) citiesByMember[row.member_id] = [];
+      citiesByMember[row.member_id].push(row.city);
+    }
+    for (const memberId in citiesByMember) {
+      citiesByMember[memberId].sort();
+    }
+
+    // Each member's most recent published place — the one line that tells
+    // another member whether this person's taste is worth following. SQLite
+    // resolves the bare venue column from the MAX(created) row.
+    const latestByMember = {};
+    const latestRows = arrayOf(
+      new DynamicModel({ member_id: "", venue: "", created: "" })
+    );
+    e.app
+      .db()
+      .newQuery(
+        "SELECT r.member AS member_id, r.venue_name AS venue, MAX(r.created) AS created " +
+          "FROM community_recommendations r " +
+          "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+          "WHERE w.status = 'published' AND w.published_venue != '' " +
+          "GROUP BY r.member LIMIT 5000"
+      )
+      .all(latestRows);
+    for (const row of latestRows) {
+      if (row.venue) {
+        latestByMember[row.member_id] = { place: row.venue, created: row.created };
+      }
+    }
+
+    // Members are named by pseudo, exactly as recommendation bylines and the
+    // member directory name them; display_name only fills a missing pseudo.
+    function projectMember(row) {
+      return {
+        name: row.pseudo || row.display_name,
+        home: row.home_city,
+        places: placeCounts[row.member_id] || 0,
+        cities: (citiesByMember[row.member_id] || []).slice(0, 8),
+        latest: latestByMember[row.member_id] || null,
+      };
+    }
+
+    function memberRows() {
+      return arrayOf(
+        new DynamicModel({
+          member_id: "",
+          display_name: "",
+          pseudo: "",
+          home_city: "",
+        })
+      );
+    }
+
+    // The one person who brought the caller in. Null for the root account and
+    // for anyone whose inviter is an internal or fixture record.
+    const inviterRows = memberRows();
+    e.app
+      .db()
+      .newQuery(
+        "SELECT m.id AS member_id, m.display_name, m.pseudo, m.home_city " +
+          "FROM members m JOIN members caller ON caller.invited_by = m.id " +
+          "WHERE caller.id = {:caller} AND " + realMember("m") + " LIMIT 1"
+      )
+      .bind({ caller: callerId })
+      .all(inviterRows);
+
+    const invitedRows = memberRows();
+    e.app
+      .db()
+      .newQuery(
+        "SELECT m.id AS member_id, m.display_name, m.pseudo, m.home_city " +
+          "FROM members m WHERE m.invited_by = {:caller} AND m.id != {:caller} " +
+          "AND " + realMember("m") + " " +
+          "ORDER BY COALESCE(m.joined_at, '') ASC, m.id ASC LIMIT 500"
+      )
+      .bind({ caller: callerId })
+      .all(invitedRows);
+
+    // One hop out: everyone a single invitation away from the caller's own two
+    // edges — the other people their inviter brought in, and the people their
+    // invitees brought in. `connector` is the member who links each row to the
+    // caller, which is the whole point of the section. The caller's own row
+    // matches the first branch (they share an inviter with their siblings) and
+    // is excluded explicitly.
+    const secondDegreeRows = arrayOf(
+      new DynamicModel({
+        member_id: "",
+        display_name: "",
+        pseudo: "",
+        home_city: "",
+        connector: "",
+        connector_id: "",
+      })
+    );
+    e.app
+      .db()
+      .newQuery(
+        "SELECT m.id AS member_id, m.display_name, m.pseudo, m.home_city, " +
+          "CASE WHEN TRIM(COALESCE(c.pseudo, '')) != '' THEN c.pseudo ELSE c.display_name END AS connector, " +
+          "c.id AS connector_id " +
+          "FROM members m JOIN members c ON c.id = m.invited_by " +
+          "WHERE m.id != {:caller} " +
+          "AND (c.id = (SELECT invited_by FROM members WHERE id = {:caller}) " +
+          "OR c.invited_by = {:caller}) " +
+          "AND " + realMember("m") + " AND " + realMember("c") + " " +
+          "ORDER BY c.display_name ASC, COALESCE(m.joined_at, '') ASC, m.id ASC " +
+          "LIMIT 500"
+      )
+      .bind({ caller: callerId })
+      .all(secondDegreeRows);
+
+    // The founding circle uses the same predicate as the seat count, so the
+    // list length and "n of fifty" can never disagree.
+    const foundingRows = memberRows();
+    e.app
+      .db()
+      .newQuery(
+        "SELECT m.id AS member_id, m.display_name, m.pseudo, m.home_city FROM members m " +
+          "WHERE COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
+          "AND " + realMember("m") + " " +
+          "ORDER BY COALESCE(m.joined_at, '') ASC, m.id ASC LIMIT 100"
+      )
+      .all(foundingRows);
+
+    const unclaimed = new DynamicModel({ total: 0 });
+    e.app
+      .db()
+      .newQuery(
+        "SELECT COUNT(*) AS total FROM invites " +
+          "WHERE issued_by = {:caller} AND COALESCE(claimed_by, '') = ''"
+      )
+      .bind({ caller: callerId })
+      .one(unclaimed);
+    const invitationLimit = founding.invitationLimitFor(e.auth);
+    const unclaimedCount = Number(unclaimed.total || 0);
+
+    const invited = [];
+    for (const row of invitedRows) invited.push(projectMember(row));
+    // Positional connector references let a client draw the graph (an edge
+    // needs to know WHICH first-ring member it hangs off; display names can
+    // collide) without any member id entering the payload: 'inviter', or
+    // 'invited:<n>' as an index into the invited array above.
+    const invitedIndexById = {};
+    for (let i = 0; i < invitedRows.length; i++) {
+      invitedIndexById[invitedRows[i].member_id] = i;
+    }
+    const inviterId = inviterRows.length ? inviterRows[0].member_id : "";
+    const secondDegree = [];
+    for (const row of secondDegreeRows) {
+      const item = projectMember(row);
+      item.connector = row.connector;
+      if (inviterId && row.connector_id === inviterId) {
+        item.connector_ref = "inviter";
+      } else if (invitedIndexById[row.connector_id] !== undefined) {
+        item.connector_ref = "invited:" + invitedIndexById[row.connector_id];
+      }
+      secondDegree.push(item);
+    }
+    const foundingMembers = [];
+    for (const row of foundingRows) foundingMembers.push(projectMember(row));
+
+    return e.json(200, {
+      invitations: {
+        limit: invitationLimit,
+        unclaimed: unclaimedCount,
+        available: Math.max(0, invitationLimit - unclaimedCount),
+      },
+      inviter: inviterRows.length ? projectMember(inviterRows[0]) : null,
+      invited: invited,
+      second_degree: secondDegree,
+      founding: {
+        cap: founding.FOUNDING_MEMBER_CAP,
+        seated: founding.countFoundingMembers(e.app),
+        members: foundingMembers,
+      },
+    });
+  },
+  $apis.requireAuth("members")
+);
+
+// One circle member's published recommendations, for the My Circle panel.
+// The person is addressed by the same positional reference the circle payload
+// uses ('inviter', 'invited:<n>', 'second:<n>', 'founding:<n>') — the server
+// re-derives the member from the caller's own graph with the same ordered
+// queries, so no member id ever crosses the wire in either direction, and a
+// caller can never address a member outside their circle. Notes are shown
+// under the same policy as the discovery feed: the member's own always;
+// another member's only while they are verified and discovery-visible —
+// otherwise the panel is told the list is private and gets nothing.
+routerAdd(
+  "GET",
+  "/api/detour/circle/places",
+  (e) => {
+    const who = e.request.url.query().get("who") || "";
+    if (!/^(inviter|invited:\d{1,3}|second:\d{1,3}|founding:\d{1,3})$/.test(who)) {
+      throw new BadRequestError("who must reference a member of your circle.");
+    }
+    const callerId = e.auth.id;
+
+    function realMember(alias) {
+      return (
+        "COALESCE(" + alias + ".internal_member, FALSE) = FALSE " +
+        "AND LOWER(TRIM(" + alias + ".email)) NOT LIKE '%.invalid'"
+      );
+    }
+
+    // Re-derive the addressed member with the same ordered queries the circle
+    // payload was built from, so index references line up exactly.
+    function resolveTargetId() {
+      const rows = arrayOf(new DynamicModel({ member_id: "" }));
+      const index = who.includes(":") ? Number(who.split(":")[1]) : 0;
+      if (who === "inviter") {
+        e.app
+          .db()
+          .newQuery(
+            "SELECT m.id AS member_id FROM members m " +
+              "JOIN members caller ON caller.invited_by = m.id " +
+              "WHERE caller.id = {:caller} AND " + realMember("m") + " LIMIT 1"
+          )
+          .bind({ caller: callerId })
+          .all(rows);
+      } else if (who.indexOf("invited:") === 0) {
+        e.app
+          .db()
+          .newQuery(
+            "SELECT m.id AS member_id FROM members m " +
+              "WHERE m.invited_by = {:caller} AND m.id != {:caller} " +
+              "AND " + realMember("m") + " " +
+              "ORDER BY COALESCE(m.joined_at, '') ASC, m.id ASC LIMIT 500"
+          )
+          .bind({ caller: callerId })
+          .all(rows);
+      } else if (who.indexOf("second:") === 0) {
+        e.app
+          .db()
+          .newQuery(
+            "SELECT m.id AS member_id FROM members m " +
+              "JOIN members c ON c.id = m.invited_by " +
+              "WHERE m.id != {:caller} " +
+              "AND (c.id = (SELECT invited_by FROM members WHERE id = {:caller}) " +
+              "OR c.invited_by = {:caller}) " +
+              "AND " + realMember("m") + " AND " + realMember("c") + " " +
+              "ORDER BY c.display_name ASC, COALESCE(m.joined_at, '') ASC, m.id ASC " +
+              "LIMIT 500"
+          )
+          .bind({ caller: callerId })
+          .all(rows);
+      } else {
+        e.app
+          .db()
+          .newQuery(
+            "SELECT m.id AS member_id FROM members m " +
+              "WHERE COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
+              "AND " + realMember("m") + " " +
+              "ORDER BY COALESCE(m.joined_at, '') ASC, m.id ASC LIMIT 100"
+          )
+          .all(rows);
+      }
+      return rows[index] ? rows[index].member_id : "";
+    }
+
+    const targetId = resolveTargetId();
+    if (!targetId) {
+      throw new NotFoundError("That member is not in your circle.");
+    }
+    const target = e.app.findRecordById("members", targetId);
+    const name = target.getString("pseudo") || target.getString("display_name");
+
+    const visible =
+      targetId === callerId ||
+      (target.getString("community_status") === "verified" &&
+        target.getBool("discovery_visible"));
+    if (!visible) {
+      return e.json(200, { name: name, private: true, items: [] });
+    }
+
+    const rows = arrayOf(
+      new DynamicModel({
+        recommender_pseudo: "",
+        founding_member: false,
+        note: "",
+        venue_name: "",
+        city: "",
+        country: "",
+        address: "",
+        created: "",
+      })
+    );
+    e.app
+      .db()
+      .newQuery(
+        "SELECT m.pseudo AS recommender_pseudo, " +
+          "CASE WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
+          "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE " +
+          "THEN TRUE ELSE FALSE END AS founding_member, " +
+          "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
+          "FROM community_recommendations r " +
+          "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+          "JOIN members m ON m.id = r.member " +
+          "WHERE r.member = {:target} " +
+          "AND w.status = 'published' AND w.published_venue != '' " +
+          "ORDER BY r.created DESC, r.id DESC LIMIT 100"
+      )
+      .bind({ target: targetId })
+      .all(rows);
+
+    const items = [];
+    for (const row of rows) {
+      items.push({
+        venue_name: row.venue_name,
+        recommender_pseudo: row.recommender_pseudo,
+        is_own: targetId === callerId,
+        founding_member: Boolean(row.founding_member),
+        note: row.note,
+        city: row.city,
+        country: row.country,
+        address: row.address,
+        created: row.created,
+      });
+    }
+
+    return e.json(200, { name: name, private: false, items: items });
   },
   $apis.requireAuth("members")
 );
@@ -811,6 +1205,10 @@ onRecordCreateRequest((e) => {
   const issuer = e.app.findRecordById("members", issuerId);
 
   e.record.set("pseudo", pseudo);
+  // The pseudo is a member's one name on Detour. The schema's required
+  // display_name is kept as a server-owned mirror of it so older reads and
+  // superuser-created accounts keep working; public signup no longer sends it.
+  e.record.set("display_name", pseudo);
   e.record.set("invite_code", "");
   e.record.set("invited_by", issuerId);
   e.record.set("redeemed_invite", invite.id);
@@ -1994,8 +2392,8 @@ onRecordCreateRequest((e) => {
 
   e.record.set("sender", e.auth.id);
   e.record.set("recipient", recipientId);
-  e.record.set("sender_name", e.auth.getString("display_name") || "A Detour member");
-  e.record.set("recipient_name", recipient.getString("display_name") || "A Detour member");
+  e.record.set("sender_name", e.auth.getString("pseudo") || e.auth.getString("display_name") || "A Detour member");
+  e.record.set("recipient_name", recipient.getString("pseudo") || recipient.getString("display_name") || "A Detour member");
   e.record.set("sender_pseudo", e.auth.getString("pseudo"));
   e.record.set("recipient_pseudo", recipient.getString("pseudo"));
   e.record.set("personal_note", note);
@@ -2097,8 +2495,8 @@ onRecordCreateRequest((e) => {
     throw new BadRequestError("Add a thoughtful reply of at least 8 characters and two words.");
   }
 
-  const authorName = e.auth.getString("display_name") || "A Detour member";
   const authorPseudo = e.auth.getString("pseudo");
+  const authorName = authorPseudo || e.auth.getString("display_name") || "A Detour member";
   if (!authorPseudo) {
     throw new BadRequestError("Complete your member pseudo before replying.");
   }

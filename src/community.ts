@@ -158,6 +158,15 @@ let memberTab: MemberTab = 'detours';
 let detourTab: DetourTab = 'recommendations';
 let recommendationDraft: Venue | null = null;
 let recommendationIntent: 'add' | 'edit' = 'add';
+// Recommendations opens on the member's own ledger; the blank form is revealed
+// by Add new, so the tab reads as a record first and a submission second.
+let recommendationFormOpen = false;
+// Private share works the same way: the deck of sent and received shares is the
+// tab, and the sending form is revealed by Share new.
+let shareFormOpen = false;
+// Set when a route intent — a landing CTA, a place page, a ?recommend= link —
+// opened one of those forms, so the render that follows can reveal it.
+let pendingFormReveal: 'recommendation' | 'share' | null = null;
 let notice: Notice | null = null;
 let knownVenues: Venue[] = [];
 let waitlistEntries: WaitlistEntry[] = [];
@@ -375,9 +384,8 @@ function signedOutPanel(): string {
       ${
         isJoin
           ? `<form class="community-form" data-community-join>
-              <label>How should we know you?<input name="display_name" autocomplete="name" maxlength="100" required></label>
               <label>Pick a pseudo<input name="pseudo" autocomplete="off" spellcheck="false" minlength="3" maxlength="30" pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens" required placeholder="e.g. detour-anna"></label>
-              <p class="community-form-note">Your pseudo is your unique handle — it is how other members find you to share food-and-drink destinations.</p>
+              <p class="community-form-note">Your pseudo is your name on Detour — unique to you, and how other members find you to share food-and-drink destinations.</p>
               <label>Email address<input name="email" type="email" autocomplete="email" required></label>
               <div class="community-form-grid">
                 <label>Password<input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
@@ -485,7 +493,7 @@ function entryEditMarkup(entry: WaitlistEntry): string {
           <legend>Good for <span class="community-optional">Optional — choose any that fit</span></legend>
           <div class="community-choice-grid">${OCCASION_OPTIONS.map(([value, label]) => `<label><input type="checkbox" name="occasions" value="${value}"${selectedOccasions.indexOf(value) !== -1 ? ' checked' : ''}><span>${label}</span></label>`).join('')}</div>
         </fieldset>
-        ${rec ? `<label>Your recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?">${esc(rec.note || '')}</textarea></label>` : ''}
+        ${rec ? `<label>My recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?">${esc(rec.note || '')}</textarea></label>` : ''}
         ${placeLinkFields({
           officialUrl: entry.official_url,
           instagramUrl: entry.instagram_url,
@@ -585,7 +593,7 @@ function recommendationPanel(): string {
           : '<p class="community-empty">Your recommendation could not be matched to this place. Open all recommendations to find it.</p>';
     return `<section class="community-ledger-section community-direct-edit" aria-labelledby="community-waitlist-title">
       <div class="community-section-heading">
-        <div><h3 id="community-waitlist-title">Edit your recommendation for ${esc(draft.name)}</h3></div>
+        <div><h3 id="community-waitlist-title">Edit my recommendation for ${esc(draft.name)}</h3></div>
         <p>Update your note or correct the place details. Saved changes appear on the place page.</p>
       </div>
       ${editor}
@@ -595,6 +603,9 @@ function recommendationPanel(): string {
   const placeSummary = draft
     ? [draft.address, draft.city, draft.country].filter(Boolean).join(', ')
     : '';
+  // Submit and Cancel sit on one row inside the form: leaving the place is one
+  // decision with two answers, not a second block below the button.
+  const cancelButton = `<button class="secondary-button community-recommend-cancel" type="button" data-recommend-close ${submitting ? 'disabled' : ''}>Cancel</button>`;
   const form = draft
     ? `<form class="community-form community-same-place-form" data-community-recommendation>
         <div class="community-prefilled-place" aria-label="Place being recommended">
@@ -605,13 +616,16 @@ function recommendationPanel(): string {
         <input type="hidden" name="address" value="${esc(draft.address)}">
         <input type="hidden" name="city" value="${esc(draft.city)}">
         <input type="hidden" name="country" value="${esc(draft.country)}">
-        <label>Your recommendation<textarea id="recommendation-note" name="note" rows="5" maxlength="2400" minlength="24" required autofocus placeholder="What should another Detourist know about this place?"></textarea></label>
+        <label>My recommendation<textarea id="recommendation-note" name="note" rows="5" maxlength="2400" minlength="24" required autofocus placeholder="What should another Detourist know about this place?"></textarea></label>
         ${placeLinkFields({
           officialUrl: draft.officialUrl,
           instagramUrl: draft.instagramUrl,
           imageUrl: draft.imageUrl,
         }, { proposeImage: true })}
-        <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend this place'}</button>
+        <div class="community-form-actions">
+          <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend this place'}</button>
+          ${cancelButton}
+        </div>
       </form>`
     : `<form class="community-form" data-community-recommendation>
         <label>Food-and-drink destination name<input name="venue_name" maxlength="200" required placeholder="A restaurant, café, bar, or other food-and-drink destination"></label>
@@ -625,27 +639,25 @@ function recommendationPanel(): string {
           <legend>Good for <span class="community-optional">Optional — choose any that fit</span></legend>
           <div class="community-choice-grid">${OCCASION_OPTIONS.map(([value, label]) => `<label><input type="checkbox" name="occasions" value="${value}"><span>${label}</span></label>`).join('')}</div>
         </fieldset>
-        <label>Your recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?"></textarea></label>
+        <label>My recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?"></textarea></label>
         ${placeLinkFields()}
-        <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend'}</button>
+        <div class="community-form-actions">
+          <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend'}</button>
+          ${cancelButton}
+        </div>
       </form>`;
-  return `<section class="community-ledger-section" aria-labelledby="community-waitlist-title">
-    <div class="community-section-heading">
-      <div><h3 id="community-waitlist-title">${draft ? `Recommend ${esc(draft.name)}` : 'Recommend a destination'}</h3></div>
-      <p>${
-        draft
-          ? 'You are recommending this exact place. Add your own note; its existing details stay attached.'
-          : 'As a verified member, you can recommend a restaurant, café, bar, or other food-and-drink destination anywhere in the world. It will be published on the Detourist List.'
-      }</p>
-    </div>
-    <div class="community-action-grid community-recommend-action">
-      ${form}
-    </div>
+  // The ledger comes first: the panel opens on what the member has already
+  // recommended, and the form is the deliberate second step behind Add new. A
+  // draft carried in from a place page is that deliberate step already, so it
+  // opens the form on arrival.
+  const formOpen = Boolean(draft) || recommendationFormOpen;
+  return `<section class="community-ledger-section" aria-labelledby="your-community-queue-title">
     <div class="community-queue" aria-labelledby="your-community-queue-title">
       <div class="community-subheading">
-        <h4 id="your-community-queue-title">Your recommendations</h4>
+        <h4 id="your-community-queue-title">My recommendations</h4>
         ${communityLoaded && !loadingCommunity && waitlistEntries.length ? `<p class="community-queue-count">${waitlistEntries.length} ${waitlistEntries.length === 1 ? 'entry' : 'entries'}</p>` : ''}
       </div>
+      <p class="community-form-note">Places I have recommended, newest first — each line shows whether it is live.</p>
       ${
         loadingCommunity || !communityLoaded
           ? '<p class="community-loading" role="status">Loading…</p>'
@@ -654,6 +666,23 @@ function recommendationPanel(): string {
             : '<p class="community-empty">Nothing here yet.</p>'
       }
     </div>
+    ${
+      formOpen
+        ? `<div class="community-recommend-new" id="community-recommend-new">
+            <div class="community-section-heading">
+              <div><h3 id="community-waitlist-title">${draft ? `Recommend ${esc(draft.name)}` : 'Recommend a destination'}</h3></div>
+              <p>${
+                draft
+                  ? 'You are recommending this exact place. Add your own note; its existing details stay attached.'
+                  : 'As a verified member, you can recommend a restaurant, café, bar, or other food-and-drink destination anywhere in the world. It will be published on the Detourist List.'
+              }</p>
+            </div>
+            <div class="community-action-grid community-recommend-action">
+              ${form}
+            </div>
+          </div>`
+        : `<button class="primary-button community-recommend-open" type="button" data-recommend-open>Add new</button>`
+    }
   </section>`;
 }
 
@@ -701,24 +730,34 @@ function sharePlaceForm(): string {
       <label>Country<input name="country" maxlength="120" placeholder="Spain"></label>
     </div>
     <label>Personal note<textarea name="personal_note" rows="3" maxlength="1200" minlength="8" required placeholder="Why you thought of them for this food-and-drink destination"></textarea></label>
-    <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sharing…' : 'Share destination'}</button>
+    <div class="community-form-actions">
+      <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sharing…' : 'Share destination'}</button>
+      <button class="secondary-button community-share-cancel" type="button" data-share-close ${submitting ? 'disabled' : ''}>Cancel</button>
+    </div>
   </form>`;
 }
 
-// The Shares tab is the sending form plus the private-share deck that used to
-// sit on the landing feed. The deck itself lives in network.ts, where the
-// share payload, its replies, and its cassette flip are already modelled.
+// Private share is the deck of shares the member already sent and received —
+// the deck itself lives in network.ts, where the share payload, its replies,
+// and its cassette flip are already modelled — followed by Share new, which
+// reveals the sending form. Reading your shares comes before writing one.
 function sharesPanel(): string {
-  return `<section class="community-ledger-section" aria-labelledby="private-shares-title">
-    <div class="community-section-heading">
-      <div><h3 id="private-shares-title">Share a food-and-drink destination</h3></div>
-      <p>Send a restaurant, café, bar, or other food-and-drink destination to a member with a note — from the list, or one of your own.</p>
-    </div>
-    <div class="community-action-grid community-share-place-action">
-      ${sharePlaceForm()}
-    </div>
-  </section>
-  ${memberSharesMarkup()}`;
+  return `${memberSharesMarkup()}
+  ${
+    shareFormOpen
+      ? `<section class="community-ledger-section community-share-new" id="community-share-new" aria-labelledby="private-shares-title">
+          <div class="community-section-heading">
+            <div><h3 id="private-shares-title">Share a food-and-drink destination</h3></div>
+            <p>Send a restaurant, café, bar, or other food-and-drink destination to a member with a note — from the list, or one of your own.</p>
+          </div>
+          <div class="community-action-grid community-share-place-action">
+            ${sharePlaceForm()}
+          </div>
+        </section>`
+      : `<div class="community-ledger-section community-share-new">
+          <button class="primary-button community-share-open" type="button" data-share-open>Share new</button>
+        </div>`
+  }`;
 }
 
 function invitesPanel(): string {
@@ -813,7 +852,7 @@ function detoursPanel(): string {
   const unseen = unseenShareCount();
   const tabs: { id: DetourTab; label: string }[] = [
     { id: 'recommendations', label: 'Recommendations' },
-    { id: 'shares', label: 'Shares' },
+    { id: 'shares', label: 'Private shares' },
   ];
   return `<div class="community-tab-panel community-detours-panel" id="member-panel-detours" role="tabpanel" aria-labelledby="member-tab-detours" tabindex="0">
     <div class="community-tabs community-detour-tabs" role="tablist" aria-label="My detours sections">
@@ -826,8 +865,8 @@ function detoursPanel(): string {
     </div>
     ${
       detourTab === 'recommendations'
-        ? `<div id="detour-panel-recommendations" role="tabpanel" aria-labelledby="detour-tab-recommendations">${recommendationPanel()}</div>`
-        : `<div id="detour-panel-shares" role="tabpanel" aria-labelledby="detour-tab-shares">${sharesPanel()}</div>`
+        ? `<div class="community-detour-body" id="detour-panel-recommendations" role="tabpanel" aria-labelledby="detour-tab-recommendations">${recommendationPanel()}</div>`
+        : `<div class="community-detour-body" id="detour-panel-shares" role="tabpanel" aria-labelledby="detour-tab-shares">${sharesPanel()}</div>`
     }
   </div>`;
 }
@@ -838,7 +877,7 @@ function settingsPanel(record: MemberRecord): string {
     <p class="community-session-note">Signed in as <strong>${esc(record.email || memberName(record))}</strong></p>
     <div class="community-pseudo-row">
       <form class="community-form community-pseudo-form" data-community-pseudo>
-        <label>Your pseudo<input name="pseudo" value="${esc(record.pseudo || '')}" autocomplete="off" spellcheck="false" minlength="3" maxlength="30" pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens" required></label>
+        <label>My pseudo<input name="pseudo" value="${esc(record.pseudo || '')}" autocomplete="off" spellcheck="false" minlength="3" maxlength="30" pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens" required></label>
         <button class="secondary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Saving…' : 'Save pseudo'}</button>
       </form>
       <p class="community-form-note">Your unique handle — other members search for it to share food-and-drink destinations with you.</p>
@@ -915,6 +954,9 @@ export function applyInvitationRoute(code: string | null): void {
 export function openSharePlace(): void {
   memberTab = 'detours';
   detourTab = 'shares';
+  // Arriving via "Share privately" is an explicit ask for the form.
+  shareFormOpen = true;
+  pendingFormReveal = 'share';
 }
 
 /** Point the member area at the Recommend form, optionally fixed to one published place. */
@@ -923,6 +965,10 @@ export function openRecommendPlace(venue?: Venue): void {
   detourTab = 'recommendations';
   recommendationDraft = venue || null;
   recommendationIntent = 'add';
+  // "Recommend" from the feed or a place page is an explicit ask for the form,
+  // with or without a place attached.
+  recommendationFormOpen = true;
+  pendingFormReveal = 'recommendation';
 }
 
 /** Open the current member's editor for one published place. */
@@ -931,6 +977,8 @@ export function openEditRecommendation(venue: Venue): void {
   detourTab = 'recommendations';
   recommendationDraft = venue;
   recommendationIntent = 'edit';
+  recommendationFormOpen = false;
+  pendingFormReveal = null;
 }
 
 export function communityControl(href: string, current = false): string {
@@ -981,6 +1029,9 @@ function resetCommunityState(): void {
   detourTab = 'recommendations';
   recommendationDraft = null;
   recommendationIntent = 'add';
+  recommendationFormOpen = false;
+  shareFormOpen = false;
+  pendingFormReveal = null;
   waitlistEntries = [];
   recommendations = [];
   shares = [];
@@ -1307,7 +1358,53 @@ export function bindCommunity(
   root.querySelector<HTMLButtonElement>('[data-view-all-recommendations]')?.addEventListener('click', () => {
     recommendationDraft = null;
     recommendationIntent = 'add';
+    recommendationFormOpen = false;
     render();
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-recommend-open]')?.addEventListener('click', () => {
+    recommendationFormOpen = true;
+    notice = null;
+    render();
+    // The form is below the ledger, so opening it moves focus into the first
+    // field rather than leaving the cursor on a button that no longer exists.
+    window.requestAnimationFrame(() => {
+      const form = document.querySelector<HTMLElement>('[data-community-recommendation]');
+      form?.scrollIntoView({ block: 'nearest' });
+      form?.querySelector<HTMLElement>('input, textarea')?.focus({ preventScroll: true });
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-recommend-close]')?.addEventListener('click', () => {
+    recommendationFormOpen = false;
+    pendingFormReveal = null;
+    recommendationDraft = null;
+    render();
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLButtonElement>('[data-recommend-open]')?.focus({ preventScroll: true });
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-share-open]')?.addEventListener('click', () => {
+    shareFormOpen = true;
+    notice = null;
+    render();
+    window.requestAnimationFrame(() => {
+      const form = document.querySelector<HTMLElement>('[data-community-share-place]');
+      form?.scrollIntoView({ block: 'nearest' });
+      form?.querySelector<HTMLElement>('input, textarea')?.focus({ preventScroll: true });
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-share-close]')?.addEventListener('click', () => {
+    shareFormOpen = false;
+    pendingFormReveal = null;
+    // A half-filled recipient lookup must not survive a cancelled share.
+    directories.delete('share-place');
+    render();
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLButtonElement>('[data-share-open]')?.focus({ preventScroll: true });
+    });
   });
 
   const activateDetourTab = (nextTab: DetourTab, focusTab: boolean) => {
@@ -1456,7 +1553,6 @@ export function bindCommunity(
     render();
     try {
       await pb.collection('members').create({
-        display_name: String(values.get('display_name') || '').trim(),
         pseudo: String(values.get('pseudo') || '').trim(),
         email,
         password,
@@ -1656,6 +1752,8 @@ export function bindCommunity(
         }
       }
       recommendationDraft = null;
+      // Saved: the panel returns to the ledger, where the new line is waiting.
+      recommendationFormOpen = false;
       highlightedWaitlistId = created.waitlist || '';
       notice = { kind: 'success', text: 'Recommendation saved.' };
       onPlaceContributed();
@@ -1743,6 +1841,7 @@ export function bindCommunity(
         highlightedWaitlistId = '';
         recommendationDraft = null;
         recommendationIntent = 'add';
+        recommendationFormOpen = false;
         saved = true;
       } catch (error) {
         notice = { kind: 'error', text: readableError(error, 'Those changes could not be saved. Check the details and try again.') };
@@ -1891,6 +1990,8 @@ export function bindCommunity(
           : { venue_name: place, address, city, country, recipient: selected.id, personal_note: note }
       );
       directories.delete('share-place');
+      // Sent: the panel returns to the deck, where the new share is listed.
+      shareFormOpen = false;
       notice = { kind: 'success', text: `Shared with ${pseudoLabel(selected.pseudo)}.` };
       communityLoaded = false;
       await loadCommunity(render);
@@ -1903,6 +2004,23 @@ export function bindCommunity(
   });
 
   bindDirectories(root);
+
+  // A CTA that says Recommend or Share privately has to land on the form, not
+  // merely on the tab that holds it. The form is below the ledger, so the first
+  // settled render after such a route scrolls to it and puts the cursor in it.
+  // It waits for the ledger to finish loading, because that render replaces the
+  // panel and would drop the focus again.
+  if (pendingFormReveal && member() && communityLoaded && !loadingCommunity) {
+    const selector =
+      pendingFormReveal === 'share' ? '[data-community-share-place]' : '[data-community-recommendation]';
+    pendingFormReveal = null;
+    window.requestAnimationFrame(() => {
+      const form = document.querySelector<HTMLElement>(selector);
+      if (!form) return;
+      form.scrollIntoView({ block: 'center' });
+      form.querySelector<HTMLElement>('input, textarea')?.focus({ preventScroll: true });
+    });
+  }
 
   if (member() && !communityLoaded && !loadingCommunity) {
     void loadCommunity(render).then(() => {

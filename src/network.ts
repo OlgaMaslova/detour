@@ -820,18 +820,22 @@ export function memberSharesMarkup(): string {
     </div>`;
   }
 
+  // The deck sits beside My recommendations in the member area, so it wears the
+  // member-area ledger heading — subheading row, counter chip, one mono note —
+  // rather than the landing feed's larger section heading it was born with.
   return `<section class="network-stream network-shares" aria-labelledby="network-shares-title">
-    <div class="network-section-heading">
-      <div><h2 id="network-shares-title">Your private shares</h2><p>Private incoming and outgoing destination shares, kept together.</p></div>
+    <div class="community-subheading">
+      <h4 id="network-shares-title">My private shares</h4>
       <div class="network-section-actions">
-        <p class="network-section-count">${shareCount} ${shareCount === 1 ? 'share' : 'shares'}</p>
+        <p class="community-queue-count">${shareCount} ${shareCount === 1 ? 'share' : 'shares'}</p>
         ${shareCount ? `<button type="button" class="secondary-button network-retry network-cassette-flip" data-cassette-flip>${cassetteFlipLabel()}</button>` : ''}
       </div>
     </div>
+    <p class="community-form-note">Private incoming and outgoing destination shares, kept together.</p>
     ${shareCount ? `<div class="network-share-columns${sharesSide === 'b' ? ' is-side-b' : ''}">
-      <section aria-labelledby="network-received-title"><h3 id="network-received-title">Shared with you</h3>${shareColumnMarkup(received, 'Nothing received yet.')}</section>
-      <section aria-labelledby="network-sent-title"><h3 id="network-sent-title">Sent by you</h3>${shareColumnMarkup(sent, 'Nothing sent yet.')}</section>
-    </div>` : `<div class="network-empty"><h3>No shares yet</h3><p>Use the form above to send a restaurant, café, bar, or other food-and-drink destination privately to another member of the circle.</p></div>`}
+      <section aria-labelledby="network-received-title"><h3 id="network-received-title">Shared with me</h3>${shareColumnMarkup(received, 'Nothing received yet.')}</section>
+      <section aria-labelledby="network-sent-title"><h3 id="network-sent-title">Sent by me</h3>${shareColumnMarkup(sent, 'Nothing sent yet.')}</section>
+    </div>` : `<div class="network-empty"><h3>No shares yet</h3><p>Use Share new below to send a restaurant, café, bar, or other food-and-drink destination privately to another member of the circle.</p></div>`}
   </section>`;
 }
 
@@ -883,7 +887,7 @@ function memberFeedMarkup(
         </div>
         <div class="network-section-actions">
           <a class="network-primary-link network-recommend-cta" href="${esc(accountHref)}" data-community-route="recommend-place">Recommend<span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
-          <a class="network-primary-link network-share-cta" href="${esc(accountHref)}" data-community-route="share-place">Share privately<span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
+          <a class="secondary-button network-share-cta" href="${esc(accountHref)}" data-community-route="share-place">Share privately<span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
         </div>
       </div>
       ${

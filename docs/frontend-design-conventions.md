@@ -143,14 +143,16 @@ buttons.
   separated by the existing tabs. Broad support surfaces use `--canvas`, while
   success, warning, and error colors remain semantically separate from brand
   accents.
-- Privacy is expressed structurally: member search is a names-only typeahead;
+- Privacy is expressed structurally on this page: member search is a names-only
+  typeahead;
   recommendation cards show place and truthful publication state, with a direct
   discovery action when the published venue is available in the catalogue.
   Additional distinct member recommendations appear only as an aggregate count
   of other members who seconded the place; there is no threshold or progress
   framing. Incoming shares show only the private note and place. Other members'
-  status, email, identities, recommendation prose, and the endorsement graph are
-  never rendered.
+  status, email, identities, and recommendation prose are never rendered here,
+  and neither is the endorsement graph. The *invitation* graph is a separate
+  thing with its own surface — see My Circle below.
 - Verification copy names two distinct paths without conflating account email
   confirmation with trust: Olga curates founding members, while later members
   need two active endorsements from verified members. Verified members also see
@@ -179,6 +181,80 @@ buttons.
   curator notes. After successful intake, refresh the history and focus the new
   in-review record. Approved details may be public; rejected details remain
   non-public.
+
+## My Circle
+
+- **A second member-only nav item, beside Explore.** `?view=circle` renders its
+  own page: Explore is the whole directory, My Circle is the people it came
+  through. Both links appear together in every masthead (`memberNavLinks` in
+  `src/main.ts`) and in the account nav, and neither exists for a signed-out
+  visitor — a direct `?view=circle` link replaces itself with home. The page
+  never waits on the catalogue: it is member data, not place data.
+- **The drawing is the default view; the list is the alternative.** A
+  Rings/List toggle sits in a slim toolbar under the title, next to a single
+  "Invite someone" button (leading to the existing Invitations tab; the
+  remaining-invitations count is its hover title, not visible text). The page
+  carries no explanatory copy — in the rings view every explanation is
+  spoken on hover over a node, one glance long: relationship + home + count
+  ("olgaboss invited Tomás from Madrid · 2 places"); the list view has no
+  hovers because its rows already print everything, including the fuller
+  geography (cities of published places) and the latest place. Hovers are
+  instant and never cover the drawing: a single shared `.circle-tip` element
+  anchors beside the hovered element (right, flipping left near the edge) —
+  native `title` tooltips (with their ~1s OS delay) are not used anywhere on
+  this page. Zero places renders as "no places yet".
+- **Members have one name: the pseudo.** Signup asks only for a pseudo; the
+  server mirrors it into the schema's required `display_name` so older reads
+  and superuser-created accounts keep working. Every member-facing surface —
+  cards, circle, directory, share stamps — names people by pseudo
+  (display_name is only a fallback for pre-consolidation accounts).
+- **Rings**: the member at the centre, inviter (top, gold stroke) and invitees
+  on the inner ring, one hop out on the outer ring fanned around the inner
+  node that connects them. Contribution is the node state: hollow ring = no
+  places yet; amber disc sized by place count with the numeral printed
+  inside = publishing member — who contributes reads at a glance, no hover
+  needed. Solid spokes are the member's own invitations; dashed accent
+  spokes are second-degree provenance, and a two-line legend in the corner
+  ("invited" / "one hop") says so. Spokes attach by the payload's positional
+  `connector_ref` (`inviter` / `invited:<n>`), never by name or id.
+  Positions are deterministic trigonometry; past 40 people the drawing bows
+  out to a note pointing at the list. The Founding 50 is a satellite ring
+  off to the side (numeral, never "fifty"): exactly 50 seat-dots, filled as
+  taken — hovering a taken seat names the member, in seating order — and
+  the centre reads as scarcity ("43 left"), never as a tally of empties. No
+  spoke to the member, because it is not relational. On narrow screens the
+  SVG keeps a 700px floor and scrolls sideways in its own box.
+- **List**: relational rows only (the Founding 50 lives on the satellite),
+  grouped by tiny accent labels (`Your inviter`, `You invited · n`,
+  `One hop out · n`) with a single divider between groups and none between
+  rows — spacing separates them. Each row stacks two left-aligned lines:
+  name (with inline "· invited by X" on second-degree rows) and geography in
+  small mono ("MADRID · 3 PLACES" / "5 CITIES · 8 PLACES" / "NO PLACES
+  YET"). The right edge carries one thing: the place count. Empty groups are
+  skipped. No photos or inline links — a row's one action is opening its
+  person's places panel, where the member's actual recommendations live.
+- **Clicking a person opens their places in a fixed right rail.** Nodes,
+  taken founding seats, and list rows all open the same panel: a tall
+  column (min(400px, 94vw), sized to hold the landing's exact three-across
+  card) pinned to the viewport's right edge, top to bottom. Above phone
+  width there is no dim; `#app:has(.circle-panel)` pads the app column right
+  so the page shifts left to clear the panel — nothing sits underneath, the
+  graph stays usable beside it, and clicking another person swaps the
+  panel. On ≤640px it becomes an overlaid bottom sheet with a dimmed
+  backdrop (swipe-down on its header dismisses; backdrop tap closes).
+  Header: relationship kicker, name, home + place count; body: one 340px
+  card per place through the shared `groupedRecommendationCardMarkup`
+  renderer at the landing's three-across proportions (10.5rem cover, 21px
+  title). Close button and Escape close, returning focus to the person it
+  opened from. Data comes from `/api/detour/circle/places`
+  addressed by positional reference; a member who keeps recommendations
+  private renders as one quiet line ("Founding 50" caption's hover explains
+  that founding members' recommendations are visible to every member).
+- **The server decides what is visible.** All of it comes from
+  `/api/detour/circle`, which projects only name, city, and place count, and
+  only for the caller's own two edges plus the founding circle. The frontend
+  never reads the members collection to rebuild the graph, and no row carries an
+  email, pseudo, status, membership marker, or id.
 
 ## San Francisco occasion discovery
 

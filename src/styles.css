@@ -1817,11 +1817,16 @@ legend { color: var(--tape-text); }
    pure controls — filter left, count and CTAs pushed right. */
 .network-section-toolbar { align-items: center; }
 .network-section-toolbar .network-section-actions { margin-left: auto; }
+/* Recommending is the feed's primary act; sharing privately is the quieter
+   alternative beside it, so it wears the secondary button. Both keep the same
+   height so the toolbar reads as one row. */
 .network-share-cta,
 .network-recommend-cta {
   min-height: 40px;
   white-space: nowrap;
 }
+/* the arrow needs the same standoff the primary link gives it */
+.network-share-cta { gap: 0.65rem; text-decoration: none; }
 /* section counter: a bordered mono ticket */
 .network-section-count,
 .network-column-empty {
@@ -2900,6 +2905,7 @@ legend { color: var(--tape-text); }
 /* ================= EXPLORE DIRECTORY =================
    Explore is the durable directory; home remains the chronological feed. */
 .explore-page,
+.circle-page,
 .explore-footer,
 .explore-breadcrumb,
 .destination-breadcrumb { width: min(100%, 1080px); margin-inline: auto; }
@@ -3055,6 +3061,458 @@ legend { color: var(--tape-text); }
 .country-hero { padding-top: clamp(2rem, 5vw, 4rem); }
 .country-directory { padding-bottom: clamp(2rem, 6vw, 5rem); }
 .explore-empty { color: var(--tape-muted); font-family: var(--tape-mono); }
+
+/* ================= MY CIRCLE =================
+   The invitation graph, drawn by default: rings with the member at the
+   centre, contribution as node size and fill, the Founding 50 as a toolbar
+   stat. The list is the alternative reading behind a toggle — stacked rows
+   with the member's latest place, grouped by tiny labels. The page carries
+   no explanatory copy: hovering a person (node or row) speaks the
+   relationship through the shared instant tooltip. */
+.circle-page { padding-top: clamp(1.75rem, 5vw, 4rem); padding-bottom: clamp(1rem, 2.5vw, 2rem); }
+.circle-hero { padding-bottom: 1.1rem; }
+.circle-hero h1 { max-width: 12ch; }
+.circle-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.25rem;
+  padding: 1rem 0 1.1rem;
+}
+.circle-view-switch { display: inline-flex; border: 2.5px solid var(--tape-chrome); }
+.circle-view-btn {
+  min-height: 39px;
+  padding: 8px 16px;
+  color: var(--tape-text);
+  background: transparent;
+  border: 0;
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.circle-view-btn + .circle-view-btn { border-left: 2.5px solid var(--tape-chrome); }
+.circle-view-btn.is-active { color: var(--tape-ink); background: var(--tape-orange); }
+/* The spoke legend, on the toolbar line beside the view switch. */
+.circle-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1.1rem; }
+.circle-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.circle-legend-line { width: 26px; border-top: 2px solid var(--tape-muted); }
+.circle-legend-line.is-second { border-top-style: dashed; border-top-color: var(--tape-accent-strong); }
+/* The list: stacked rows with mass, separated by space rather than rules —
+   row hairlines over the graph-paper ground read as an unfilled table. One
+   opening rule, one divider per section, nothing per row. */
+.circle-people {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 2.5px solid var(--tape-chrome);
+}
+.circle-group-label {
+  padding: 1.3rem 0 0.55rem;
+  color: var(--tape-accent);
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.circle-group-label:not(:first-child) {
+  margin-top: 1.1rem;
+  border-top: 1px solid var(--tape-hairline-strong);
+}
+.circle-person {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0 1.25rem;
+  padding: 0.55rem 0 0.8rem;
+}
+.circle-person-main { display: grid; gap: 0.18rem; justify-items: start; }
+/* The right edge carries one thing: the place count. */
+.circle-person-count {
+  color: var(--tape-accent-strong);
+  font-family: var(--tape-anton);
+  font-size: 24px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.circle-person-name {
+  margin: 0;
+  color: var(--tape-text);
+  font-family: var(--tape-anton);
+  font-size: 17px;
+  font-weight: 400;
+  letter-spacing: 0.5px;
+  line-height: 1.15;
+  text-transform: uppercase;
+}
+/* The connector is the point of a second-degree row, so it sits on the same
+   line as the name in the accent, not below it in muted small print. It reads
+   as a phrase rather than a label — hence sentence case, which also keeps it
+   from being mistaken for more of the uppercase display name it follows. */
+.circle-person-provenance {
+  color: var(--tape-accent-strong);
+  font-family: var(--tape-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  white-space: nowrap;
+}
+.circle-person-meta {
+  margin: 0;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.12em;
+  line-height: 1.45;
+  text-transform: uppercase;
+}
+.circle-empty {
+  max-width: 62ch;
+  margin: 0;
+  padding: 0.9rem 1rem;
+  color: var(--tape-text);
+  background: var(--tape-inset);
+  border-left: 5px solid var(--tape-orange);
+  font-family: var(--tape-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+/* The rings: the graph drawn literally, the Founding 50 as its own small SVG
+   beside it. On a phone the satellite is dropped and the main drawing takes
+   the full width, so nothing needs sideways scrolling. */
+.circle-map {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1rem;
+}
+.circle-map-main {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Sized so hero + toolbar + drawing fit a 15" laptop without scrolling. */
+  max-width: min(560px, 62vh);
+}
+.circle-map-sat { flex: 0 0 clamp(170px, 20vw, 210px); }
+.circle-map-ring {
+  fill: none;
+  stroke: var(--tape-muted);
+  stroke-width: 1.25;
+  stroke-dasharray: 4 7;
+  opacity: 0.8;
+}
+/* The inner ring is the member's own circle — it gets the solid line. */
+.circle-map-ring-inner { stroke-width: 1.5; stroke-dasharray: none; opacity: 0.9; }
+.circle-map-spoke { stroke: var(--tape-muted); stroke-width: 2; }
+/* Outer spokes are the provenance lines, so they carry the same accent as the
+   "invited by" phrase in the list. */
+.circle-map-spoke-second {
+  stroke: var(--tape-accent-strong);
+  stroke-width: 2;
+  stroke-dasharray: 3 5;
+}
+/* Contribution is the node state: hollow ring = no places yet; amber disc,
+   sized by count with the number printed inside = publishing member. The
+   inviter keeps the gold ring; you stay the orange centre. Nothing else
+   varies, so fill differences are never incidental. */
+.circle-map-node {
+  fill: var(--tape-ground);
+  stroke: var(--tape-chrome);
+  stroke-width: 2.5;
+}
+.circle-map-node.has-places { fill: var(--tape-accent); }
+.circle-map-node-inviter { stroke: var(--tape-accent-strong); stroke-width: 3.5; }
+.circle-map-node-you { fill: var(--tape-orange); }
+.circle-map-node-count {
+  fill: var(--tape-ink);
+  font-family: var(--tape-mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+.circle-map-name {
+  fill: var(--tape-text);
+  font-family: var(--tape-mono);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.circle-map-you {
+  fill: var(--tape-ink);
+  font-family: var(--tape-anton);
+  font-size: 17px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.circle-map-caption {
+  fill: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.circle-map-person { cursor: default; }
+.circle-map-person[data-circle-person] { cursor: pointer; }
+.circle-map-person[data-circle-person]:focus-visible {
+  outline: 2px solid var(--tape-accent-strong);
+  outline-offset: 2px;
+}
+/* Invisible hover pad around targets too small to hit (satellite seats). */
+.circle-map-hit { fill: transparent; stroke: none; }
+/* Clickable list rows: the pointer and a name-color shift say "opens". */
+.circle-person[data-circle-person] { cursor: pointer; }
+.circle-person[data-circle-person]:hover .circle-person-name,
+.circle-person[data-circle-person]:focus-visible .circle-person-name { color: var(--tape-stack-title-hover); }
+.circle-person[data-circle-person]:focus-visible {
+  outline: 2px solid var(--tape-accent-strong);
+  outline-offset: 2px;
+}
+
+/* ---- the places slide-over ----
+   A tall narrow column over the graph, dimmed behind; a bottom sheet on a
+   phone. Closing steps back to the drawing rather than navigating away. */
+/* #app > * children each get z-index: 1, so the fixed panel is trapped in
+   main's stacking context below the z-40 masthead. While a panel is open the
+   page elevates above the masthead so the panel always wins; closed, the
+   masthead's member menu keeps its normal order. */
+#app > .circle-page:has(.circle-panel) { z-index: 55; }
+.circle-panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: var(--tape-vignette);
+}
+/* Above phone width the panel is a fixed right rail with no dim, and the
+   app column shifts left only by what the panel actually intrudes. The
+   1080px content column clears a 400px + 1rem rail untouched once the
+   viewport reaches 1080 + 2×416 = 1912px; below that, right-padding #app
+   moves the centred content left by half the padding, so the shortfall
+   (1912px − 100vw) is exactly the padding needed — and on wide monitors it
+   resolves to zero and nothing moves at all. */
+@media (min-width: 641px) {
+  .circle-panel-overlay { display: none; }
+  #app { transition: padding-right 0.2s ease-out; }
+  #app:has(.circle-panel) {
+    padding-right: max(calc(var(--gutter) + env(safe-area-inset-right)), calc(1912px - 100vw));
+  }
+  /* While the panel slides out, the content is already easing back. */
+  #app:has(.circle-panel.is-closing) {
+    padding-right: calc(var(--gutter) + env(safe-area-inset-right));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #app { transition: none; }
+}
+.circle-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 130;
+  display: flex;
+  flex-direction: column;
+  /* Sized to hold the landing feed's three-across card (~340px) exactly;
+     the main column shifts left to clear it (see the #app:has rule). */
+  width: min(400px, 94vw);
+  background: var(--tape-ground);
+  border-left: 3px solid var(--tape-chrome);
+  border-top: 3px solid var(--tape-chrome);
+  animation: circle-panel-in 0.22s ease-out;
+}
+@keyframes circle-panel-in {
+  from { transform: translateX(100%); }
+}
+@keyframes circle-sheet-in {
+  from { transform: translateY(100%); }
+}
+/* The exit mirrors the entrance: closePanel adds is-closing, waits out the
+   slide, and only then removes the node on the next render. */
+.circle-panel.is-closing {
+  transform: translateX(100%);
+  transition: transform 0.2s ease-in;
+}
+.circle-panel-head {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.25rem 0.9rem;
+  border-bottom: 2.5px solid var(--tape-chrome);
+}
+.circle-panel-kicker {
+  margin: 0 0 0.3rem;
+  color: var(--tape-accent);
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.circle-panel-head h2 {
+  margin: 0;
+  color: var(--tape-text);
+  font-family: var(--tape-anton);
+  font-size: clamp(24px, 4vw, 30px);
+  font-weight: 400;
+  letter-spacing: 1px;
+  line-height: 1.05;
+  text-transform: uppercase;
+}
+.circle-panel-meta {
+  margin: 0.35rem 0 0;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.circle-panel-close {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  color: var(--tape-text);
+  background: transparent;
+  border: 2.5px solid var(--tape-chrome);
+  font-family: var(--tape-mono);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.circle-panel-close:hover { color: var(--tape-ink); background: var(--tape-orange); }
+.circle-panel-body {
+  overflow-y: auto;
+  padding: 1.1rem 1.25rem 1.5rem;
+}
+/* Same card at the landing's exact three-across size: ~340px wide, short
+   cover, 21px title. The card keeps its dimensions; the column centres it. */
+.circle-panel-cards { display: grid; gap: 0.85rem; justify-items: center; }
+.circle-panel-cards .network-entry { width: min(100%, 340px); }
+.circle-panel-cards .network-entry-thumb { height: 10.5rem; }
+.circle-panel-cards .network-entry h3 { font-size: 21px; }
+.circle-panel-status {
+  margin: 0;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.circle-panel-status.is-error {
+  display: grid;
+  justify-items: start;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  color: var(--tape-text);
+  background: var(--tape-inset);
+  border: 2.5px solid var(--tape-rust);
+}
+.circle-panel-status.is-error p { margin: 0; }
+@media (max-width: 640px) {
+  .circle-panel {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 84vh;
+    border-left: none;
+    border-top: 3px solid var(--tape-chrome);
+    animation: circle-sheet-in 0.22s ease-out;
+  }
+  /* The main rings take the full phone width instead of scrolling sideways;
+     the Founding 50 satellite steps out (its stat stays one tap away in the
+     list of seats on wider screens). Type scales up in viewBox units so the
+     smaller physical drawing keeps legible names. */
+  .circle-map-sat { display: none; }
+  .circle-map-name { font-size: 19px; }
+  .circle-map-node-count { font-size: 16px; }
+  .circle-map-caption { font-size: 14px; }
+  /* The sheet exits downward, the way it came in. */
+  .circle-panel.is-closing { transform: translateY(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .circle-panel { animation: none; }
+}
+/* The instant tooltip every [data-tip] shares. Fixed so it rides the pointer
+   without scroll math; pointer-events none so it never eats its own hover. */
+.circle-tip {
+  position: fixed;
+  z-index: 200;
+  max-width: 22rem;
+  padding: 7px 10px;
+  color: var(--tape-text);
+  background: var(--tape-surface);
+  border: 2px solid var(--tape-chrome);
+  box-shadow: 3px 3px 0 var(--tape-rust);
+  font-family: var(--tape-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.5;
+  pointer-events: none;
+}
+/* The Founding 50 satellite: the empty seats themselves trace the ring, so it
+   needs no guide circle — a hollow dot is a seat waiting to be taken. */
+.circle-map-seat {
+  fill: none;
+  stroke: var(--tape-muted);
+  stroke-width: 1.5;
+}
+.circle-map-seat.is-taken {
+  fill: var(--tape-accent-strong);
+  stroke: var(--tape-accent-strong);
+}
+.circle-map-sat-count {
+  fill: var(--tape-text);
+  font-family: var(--tape-anton);
+  font-size: 34px;
+  letter-spacing: 1px;
+}
+.circle-map-sat-label {
+  fill: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.circle-status {
+  margin: clamp(1.9rem, 4.5vw, 3rem) 0 0;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 12.5px;
+}
+.circle-status.is-error {
+  display: grid;
+  justify-items: start;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  color: var(--tape-text);
+  background: var(--tape-inset);
+  border: 2.5px solid var(--tape-rust);
+}
+.circle-status.is-error p { margin: 0; }
 
 /* ============================================================
    ACCOUNT / MEMBER AREA
@@ -3262,10 +3720,34 @@ legend { color: var(--tape-text); }
 .community-detour-tabs { margin-bottom: clamp(1.5rem, 4vw, 2.25rem); }
 .community-detours-panel { gap: 0; }
 .community-detours-panel .community-ledger-section { padding-top: 0; border-top: 0; }
+/* In the member area the share deck is a panel ledger like My recommendations,
+   not a band on the landing feed: it drops the top rule and the inset padding
+   so both tab headings start on the same line and share one spacing rhythm. */
+.community-detours-panel .network-shares {
+  gap: 0.8rem;
+  margin-top: 0;
+  padding: 0;
+  border-top: 0;
+}
+/* The gap under the tab strip is the strip's own margin, the same for both
+   tabs. Whatever a tab opens with adds nothing of its own on top, or the first
+   heading sits at a different height per tab and switching tabs jumps. */
+.community-detour-body > :first-child { margin-top: 0; }
+.community-detour-body .community-queue { padding-top: 0; }
 .community-settings-panel { align-content: start; gap: 0; padding-top: 1.1rem; }
 
 /* ---- forms in the member area ---- */
 .community-form { display: grid; gap: 0.8rem; max-width: 38rem; }
+/* Submit and Cancel on one row. Both buttons carry a hard offset shadow, so
+   the gap stays wider than the 5px offset or Cancel sits in Recommend's
+   shadow; align-items: start keeps them level when one label wraps. */
+.community-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: 0.85rem 1.1rem;
+  margin-top: 0.25rem;
+}
 .community-form label { display: grid; gap: 0.32rem; color: var(--tape-text); font-family: var(--tape-mono); font-size: 0.84rem; font-weight: 750; }
 .community-form input,
 .community-form select,
@@ -3292,6 +3774,13 @@ legend { color: var(--tape-text); }
 .community-direct-editor { width: min(100%, 42rem); }
 .community-direct-editor .community-form { max-width: none; }
 .community-view-all-recommendations { width: fit-content; }
+/* Recommendations opens on the ledger; Add new reveals the form below it. */
+.community-recommend-open,
+.community-share-open { width: fit-content; }
+.community-recommend-new { display: grid; gap: 1.15rem; }
+/* Share new follows the share deck, which ends in cards with offset shadows —
+   it needs more air above it than the ledger default. */
+.community-share-new { margin-top: clamp(1.2rem, 3vw, 2.2rem); }
 .community-form input:focus-visible,
 .community-form select:focus-visible,
 .community-form textarea:focus-visible {
@@ -3495,6 +3984,11 @@ legend { color: var(--tape-text); }
   text-shadow: 2px 2px 0 var(--tape-ghost);
 }
 .community-subheading p:not(.community-queue-count) { margin: 0; color: var(--tape-muted); font-family: var(--tape-mono); font-size: 0.78rem; text-align: right; }
+/* The row aligns on the title's baseline, so a taller trailing control (the
+   share deck's 44px flip button) would drag the title down and give one tab a
+   deeper gap under the tab strip. Centring the cluster keeps it out of the
+   baseline calculation, the way the bare counter chip already is. */
+.community-subheading .network-section-actions { align-self: center; }
 /* the ledger counter drops the display-type shadow the subheading passes down */
 .community-queue-count {
   flex: none;
@@ -4078,6 +4572,7 @@ legend { color: var(--tape-text); }
 @media (max-width: 560px) {
   .network-primary-nav { gap: 0.2rem; }
   .network-explore-link { padding-inline: 7px; letter-spacing: 0.1em; }
+  .circle-person-provenance { white-space: normal; }
 }
 
 @media (max-width: 700px) {
@@ -4088,6 +4583,10 @@ legend { color: var(--tape-text); }
 
 @media (max-width: 520px) {
   .network-masthead .community-toggle { max-width: 13rem; min-height: 40px; }
+  /* Three nav items now share the row with the wordmark, and "My Circle" is
+     the longest of them; tighten the links before the member control, which
+     already has its own max-width above. */
+  .network-explore-link { padding-inline: 5px; font-size: 10px; letter-spacing: 0.06em; }
   .network-home,
   .network-invitation { padding-top: 2.4rem; }
   .network-invite-fields { grid-template-columns: 1fr; }
@@ -4110,6 +4609,14 @@ legend { color: var(--tape-text); }
     padding-inline: 0.65rem;
     font-size: 14px;
     letter-spacing: 0.8px;
+  }
+  /* the secondary share CTA shares the row evenly with the primary one; its
+     mono type stays its own size */
+  .network-section-toolbar .network-share-cta {
+    flex: 1 1 0;
+    min-width: 0;
+    gap: 0.35rem;
+    padding-inline: 0.65rem;
   }
   /* A single card would otherwise eat two-thirds of a phone screen, and every
      card carries a cover now — not just the ones with photos. */

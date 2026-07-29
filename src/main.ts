@@ -17,6 +17,7 @@ import {
   signOutMember,
 } from './community';
 import { pb } from './pocketbase';
+import { bindCircle, circleMarkup, resetCircle } from './circle';
 import {
   bindNetworkDiscovery,
   ensureNetworkDiscovery,
@@ -35,7 +36,15 @@ import { detouristSignalBadge, detouristSignalText } from './signal';
 import type { PlaceChrome, PlaceHelpers } from './place';
 
 type DataMode = 'loading' | 'live' | 'error';
-type AppView = 'home' | 'explore' | 'country' | 'destination' | 'place' | 'account' | 'survey';
+type AppView =
+  | 'home'
+  | 'explore'
+  | 'circle'
+  | 'country'
+  | 'destination'
+  | 'place'
+  | 'account'
+  | 'survey';
 /** The two ways a destination's places can be browsed. */
 type CityView = 'list' | 'map';
 
@@ -358,6 +367,10 @@ function routeHref(
     url.searchParams.set('view', 'explore');
     url.searchParams.delete('invite');
   }
+  else if (view === 'circle') {
+    url.searchParams.set('view', 'circle');
+    url.searchParams.delete('invite');
+  }
   else {
     url.searchParams.delete('view');
     url.searchParams.delete('invite');
@@ -378,6 +391,10 @@ function destinationHref(slug: string): string {
 
 function exploreHref(): string {
   return routeHref('explore', null);
+}
+
+function circleHref(): string {
+  return routeHref('circle', null);
 }
 
 function countryHref(slug: string): string {
@@ -483,6 +500,19 @@ function showExplore(root: HTMLElement): void {
   render(root);
 }
 
+function showCircle(root: HTMLElement): void {
+  if (state.destination !== null) resetDestinationState();
+  state.view = 'circle';
+  state.destination = null;
+  state.country = null;
+  state.pendingDestination = null;
+  state.place = null;
+  state.exploreQuery = '';
+  updateRoute('circle', null, 'push');
+  pendingFocus = '#circle-title';
+  render(root);
+}
+
 function showCountry(root: HTMLElement, slug: string): void {
   if (state.destination !== null) resetDestinationState();
   state.view = 'country';
@@ -525,6 +555,8 @@ function applyRouteFromUrl(root: HTMLElement): void {
         ? requestedCountry
           ? 'country'
           : 'explore'
+        : url.searchParams.get('view') === 'circle'
+          ? 'circle'
       : 'home';
   // Legacy ?city= links resolve to the same destination.
   const requested = surveyPath
@@ -1442,6 +1474,13 @@ function bindRouteLinks(root: HTMLElement): void {
       showExplore(root);
     });
   });
+  root.querySelectorAll<HTMLAnchorElement>('[data-circle]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      showCircle(root);
+    });
+  });
   root.querySelectorAll<HTMLAnchorElement>('[data-country]').forEach((link) => {
     link.addEventListener('click', (event) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -1476,7 +1515,7 @@ function renderAccount(root: HTMLElement): void {
       <div class="account-nav-row">
         <a class="account-brand" href="${esc(homeHref())}" data-return-discovery>${brandMark()}Detour</a>
         <nav class="account-nav" aria-label="Member navigation">
-          ${memberCanExplore() ? `<a class="network-explore-link" href="${esc(exploreHref())}" data-explore>Explore</a>` : ''}
+          ${memberCanExplore() ? memberNavLinks('other') : ''}
           ${communityControl(accountHref(), true)}
         </nav>
       </div>
@@ -1526,7 +1565,7 @@ function resolveSearch(query: string): { slug: string; venueId?: string } | null
   return null;
 }
 
-function mastheadMarkup(active: 'home' | 'explore' | 'other' = 'other'): string {
+function mastheadMarkup(active: 'home' | 'explore' | 'circle' | 'other' = 'other'): string {
   const brand =
     active === 'home'
       ? `<p class="network-brand">${brandMark()}Detour</p>`
@@ -1534,16 +1573,23 @@ function mastheadMarkup(active: 'home' | 'explore' | 'other' = 'other'): string 
   return `<header class="network-masthead">
     ${brand}
     <nav class="network-primary-nav" aria-label="Primary navigation">
-      ${
-        memberCanExplore()
-          ? `<a class="network-explore-link${active === 'explore' ? ' is-current' : ''}" href="${esc(exploreHref())}" data-explore${
-              active === 'explore' ? ' aria-current="page"' : ''
-            }>Explore</a>`
-          : ''
-      }
+      ${memberCanExplore() ? memberNavLinks(active) : ''}
       ${communityControl(accountHref())}
     </nav>
   </header>`;
+}
+
+/**
+ * Explore and My Circle are the two member-only ways into the app: the whole
+ * directory, and the people it came through. They travel together in every
+ * masthead so neither reads as the odd one out.
+ */
+function memberNavLinks(active: 'home' | 'explore' | 'circle' | 'other'): string {
+  const link = (view: 'explore' | 'circle', href: string, label: string): string =>
+    `<a class="network-explore-link${active === view ? ' is-current' : ''}" href="${esc(href)}" data-${view}${
+      active === view ? ' aria-current="page"' : ''
+    }>${label}</a>`;
+  return `${link('explore', exploreHref(), 'Explore')}${link('circle', circleHref(), 'My Circle')}`;
 }
 
 function memberCanExplore(): boolean {
@@ -1716,6 +1762,48 @@ function renderExplore(root: HTMLElement): void {
   `;
   bindRouteLinks(root);
   bindExploreDiscovery(root);
+  if (pendingFocus) {
+    const target = root.querySelector<HTMLElement>(pendingFocus);
+    pendingFocus = null;
+    target?.focus({ preventScroll: true });
+  }
+}
+
+/**
+ * My Circle: the invitation graph the member belongs to, read from the server's
+ * own projection. It is a members-only surface — the whole page is about the
+ * caller's position in the circle, so there is nothing here to gate a preview
+ * of; a signed-out visitor is sent home by render() before this runs.
+ */
+function renderCircle(root: HTMLElement): void {
+  destroyMap();
+  root.dataset.restyle = 'circle';
+  applyTapeTheme();
+  document.title = 'My Circle — Detour';
+  document
+    .querySelector<HTMLMetaElement>('meta[name="description"]')
+    ?.setAttribute(
+      'content',
+      'See your place in the Detour circle: who invited you, who you invited, who they invited, and the founding fifty.'
+    );
+  root.innerHTML = `
+    <a class="skip-link" href="#circle-title">Skip to your circle</a>
+    ${mastheadMarkup('circle')}
+    <main class="circle-page">
+      <header class="explore-hero circle-hero">
+        <p class="network-kicker">Invitation by invitation</p>
+        <h1 id="circle-title" tabindex="-1">My circle.</h1>
+        <p>Nobody here is a stranger by more than one step.</p>
+      </header>
+      ${circleMarkup(accountHref(), resolveNetworkPlace)}
+    </main>
+    <footer class="footer explore-footer">
+      <p>${FOOTER_TAGLINE}</p>
+      ${tapeThemeToggleMarkup()}
+    </footer>
+  `;
+  bindRouteLinks(root);
+  bindCircle(root, () => render(root));
   if (pendingFocus) {
     const target = root.querySelector<HTMLElement>(pendingFocus);
     pendingFocus = null;
@@ -1962,6 +2050,8 @@ function render(root: HTMLElement) {
         ? 'account'
         : state.view === 'explore' || state.view === 'country'
           ? 'explore'
+        : state.view === 'circle'
+          ? 'circle'
         : state.mode === 'loading' || state.view === 'home' || !state.destination
           ? 'home'
           : state.view === 'place'
@@ -1982,12 +2072,18 @@ function render(root: HTMLElement) {
     return;
   }
 
-  if (!memberCanExplore() && state.view === 'explore') {
+  if (!memberCanExplore() && (state.view === 'explore' || state.view === 'circle')) {
     state.view = 'home';
     state.country = null;
     state.exploreQuery = '';
     updateRoute('home', null, 'replace');
     renderHome(root);
+    return;
+  }
+
+  // The circle is member data, not catalogue data, so it never waits on places.
+  if (state.view === 'circle') {
+    renderCircle(root);
     return;
   }
 
@@ -2349,6 +2445,7 @@ if (root instanceof HTMLElement) {
     if (nextIdentity === authIdentity) return;
     authIdentity = nextIdentity;
     resetNetworkDiscovery();
+    resetCircle();
     render(root);
   }, false);
   applyRouteFromUrl(root);

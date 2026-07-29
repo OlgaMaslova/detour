@@ -123,6 +123,36 @@ Add future project-specific rules to this file.
 - One published place must render as one card with one representative recommendation note and a combined member/date byline. The place page owns the complete list of recommendation notes.
 - Do not add another recommendation-card renderer or expand multiple notes inside a card. Extend the shared renderer when the card treatment changes.
 
+## The invitation graph
+
+- The `members` collection is readable only by the member it belongs to
+  (`id = @request.auth.id`). Any surface that shows one member something about
+  another must go through an explicit server projection, never a client-side
+  list, filter, or `expand`.
+- `GET /api/detour/circle` is that projection for the invitation graph: the
+  caller's inviter, the members they invited, the members one hop out with the
+  connecting member named, the founding circle, and the caller's invitation
+  allowance. Per person it returns one name (the pseudo, falling back to
+  display name — members have one name on Detour and it is the pseudo),
+  self-declared home city, published-place count, the cities of those
+  published places, and the latest published place — and nothing else: no
+  email, status, membership marker, or record id.
+- `GET /api/detour/circle/places?who=<ref>` opens one circle member's
+  published recommendations for the My Circle panel. The person is addressed
+  by positional reference only ('inviter', 'invited:<n>', 'second:<n>',
+  'founding:<n>'), re-derived server-side from the caller's own graph with
+  the same ordered queries — ids never cross the wire in either direction,
+  and a caller cannot address anyone outside their circle. Notes follow the
+  discovery-feed policy: the member's own always; others' only while
+  verified and discovery-visible, otherwise the response is `private: true`
+  with no items.
+  One-hop rows additionally carry a positional `connector_ref` ('inviter' or
+  'invited:<n>', an index into the caller's own invited list) so the client can
+  draw the graph without a member id ever entering the payload.
+- Keep it to one hop. Extending the walk, or adding a field to the projection,
+  widens what every member can see about every other member; treat it as a
+  product decision, not a refactor.
+
 ## Frontend hosting
 
 - Production frontend assets are deployed with Supernaut's Cloudflare static Worker/custom-domain flow.
