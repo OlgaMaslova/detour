@@ -1013,7 +1013,7 @@ function recommendationNotesForVenue(v: Venue) {
 
 function recommendationAttribution(item: ReturnType<typeof recommendationNotesForVenue>[number]): string {
   const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
-  const label = item.is_own ? 'You' : recommender ? `@${recommender}` : '';
+  const label = item.is_own ? 'You' : recommender || '';
   if (!label || !item.note?.trim()) return '';
   return `<blockquote class="card-member-note">
     <p>${esc(item.note)}</p>
@@ -1044,7 +1044,7 @@ function trustedVenueCard(v: Venue): string {
   const notes = recommendationNotesForVenue(v)
     .map((item) => {
       const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
-      const label = item.is_own ? 'You' : recommender ? `@${recommender}` : '';
+      const label = item.is_own ? 'You' : recommender || '';
       if (!label || !item.note?.trim()) return '';
       return `<blockquote><p>${esc(item.note)}</p></blockquote>
         <p class="network-entry-byline">Recommended by <strong class="network-pseudo">${esc(label)}</strong></p>`;
@@ -1111,10 +1111,10 @@ function venueVisitLinks(v: Venue): string {
   const instagramUrl = safeExternalHref(v.instagramUrl);
   return [
     officialUrl
-      ? `<a href="${esc(officialUrl)}" target="_blank" rel="noopener noreferrer">Official website <span class="nav-arrow" aria-hidden="true">↗</span></a>`
+      ? `<a href="${esc(officialUrl)}" target="_blank" rel="noopener noreferrer">Official website <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
       : '',
     instagramUrl
-      ? `<a href="${esc(instagramUrl)}" target="_blank" rel="noopener noreferrer">Instagram <span class="nav-arrow" aria-hidden="true">↗</span></a>`
+      ? `<a href="${esc(instagramUrl)}" target="_blank" rel="noopener noreferrer">Instagram <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
       : '',
   ]
     .filter(Boolean)
@@ -1161,7 +1161,7 @@ function detailPanel(): string {
         }
         <div class="detail-visit-links">
           <a class="detail-open-place" href="${esc(placeHref(v))}" data-place="${esc(v.id)}" aria-label="Open the full place page for ${esc(v.name)}">To full page <span class="nav-arrow" aria-hidden="true">→</span></a>
-          ${directions ? `<a href="${esc(directions)}" target="_blank" rel="noopener noreferrer">Get directions <span class="nav-arrow" aria-hidden="true">↗</span></a>` : ''}
+          ${directions ? `<a href="${esc(directions)}" target="_blank" rel="noopener noreferrer">Get directions <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>` : ''}
           ${venueVisitLinks(v)}
         </div>
       </div>
@@ -1543,7 +1543,7 @@ function exploreSearchMarkup(): string {
   const noResult = state.exploreQuery
     ? `<div class="explore-no-result" role="status" tabindex="-1">
         <p><strong>No published city or place matches “${esc(state.exploreQuery)}.”</strong> Detour grows wherever members recommend something worth the trip.</p>
-        <a href="${esc(accountHref())}" data-community-route="recommend-place">Recommend a place <span class="nav-arrow" aria-hidden="true">↗</span></a>
+        <a href="${esc(accountHref())}" data-community-route="recommend-place">Recommend a place <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
       </div>`
     : '';
   return `<form class="destination-search explore-search" data-explore-search role="search" aria-label="Search cities and places">
@@ -1786,7 +1786,7 @@ function renderDiscoveryGate(
         <p>Membership keeps the full city and country directories inside the circle.</p>
       </div>
       <a class="network-primary-link" href="${esc(accountHref())}" data-community-route>
-        Sign in or join <span class="nav-arrow" aria-hidden="true">↗</span>
+        Sign in or join <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span>
       </a>
     </section>
     <footer class="footer">
@@ -1989,7 +1989,7 @@ function render(root: HTMLElement) {
       <section class="city-chooser" aria-label="No coverage yet">
         <div class="city-chooser-heading">
           <h2>Be the first</h2>
-          <p>A meaningful recommendation from a verified member puts a place on the list. <a href="${esc(accountHref())}" data-community-route>Recommend a place in ${esc(name)} <span class="nav-arrow" aria-hidden="true">↗</span></a></p>
+          <p>A meaningful recommendation from a verified member puts a place on the list. <a href="${esc(accountHref())}" data-community-route>Recommend a place in ${esc(name)} <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a></p>
         </div>
         <p class="city-chooser-status"><a href="${esc(exploreHref())}" data-explore><span class="nav-arrow nav-arrow-back" aria-hidden="true">←</span> Back to Explore</a></p>
       </section>

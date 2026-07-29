@@ -164,7 +164,7 @@ function member(): MemberRecord | null {
 
 function memberName(record: MemberRecord): string {
   const pseudo = record.pseudo?.trim().replace(/^@+/, '');
-  return pseudo ? `@${pseudo}` : record.display_name?.trim() || record.email?.split('@')[0] || 'Member';
+  return pseudo || record.display_name?.trim() || record.email?.split('@')[0] || 'Member';
 }
 
 function readableError(error: unknown, fallback: string): string {
@@ -239,9 +239,11 @@ function directoryListId(key: string): string {
   return `member-directory-${key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 }
 
+/** Pseudos read as plain handles on screen — no decorative @ in front. The
+ *  leading-@ strip only guards against a typist's @ surviving into storage. */
 function pseudoLabel(pseudo: string | undefined, fallback = 'A Detour member'): string {
   const cleaned = pseudo?.trim().replace(/^@+/, '');
-  return cleaned ? `@${cleaned}` : fallback;
+  return cleaned || fallback;
 }
 
 function directoryResultsMarkup(key: string): string {
@@ -250,7 +252,7 @@ function directoryResultsMarkup(key: string): string {
     return `<p class="member-directory-selected"><span>Selected</span><strong>${esc(pseudoLabel(state.selected.pseudo))}</strong></p>`;
   }
   if (state.query.trim().length < 2) {
-    return '<p class="member-directory-hint">Type a pseudo, such as @detour-anna — at least two characters.</p>';
+    return '<p class="member-directory-hint">Type a pseudo, such as detour-anna — at least two characters.</p>';
   }
   if (state.loading) return '<p class="member-directory-hint" role="status">Searching members…</p>';
   if (state.error) return `<p class="member-directory-error" role="alert">${esc(state.error)}</p>`;
@@ -268,7 +270,7 @@ function directoryMarkup(key: string, label: string): string {
   const listId = directoryListId(key);
   return `<div class="member-directory" data-member-directory="${esc(key)}">
     <label>${esc(label)}
-      <input type="search" value="${esc(state.query)}" autocomplete="off" spellcheck="false" placeholder="@detour-anna" role="combobox" aria-autocomplete="list" aria-expanded="${state.items.length > 0}" aria-controls="${listId}" ${state.activeIndex >= 0 ? `aria-activedescendant="${listId}-option-${state.activeIndex}"` : ''} data-member-search>
+      <input type="search" value="${esc(state.query)}" autocomplete="off" spellcheck="false" placeholder="detour-anna" role="combobox" aria-autocomplete="list" aria-expanded="${state.items.length > 0}" aria-controls="${listId}" ${state.activeIndex >= 0 ? `aria-activedescendant="${listId}-option-${state.activeIndex}"` : ''} data-member-search>
     </label>
     <div id="${listId}" class="member-directory-output" data-member-results>${directoryResultsMarkup(key)}</div>
   </div>`;
@@ -506,11 +508,9 @@ function queueListMarkup(): string {
   const hidden = waitlistEntries.length - shown.length;
   const toggle =
     hidden > 0
-      ? `<button type="button" class="community-secondary community-queue-more" data-queue-toggle>Show ${hidden} more</button>`
-      : queueExpanded && waitlistEntries.length > QUEUE_PREVIEW_LIMIT
-        ? '<button type="button" class="community-secondary community-queue-more" data-queue-toggle>Show fewer</button>'
-        : '';
-  return `<ul class="community-queue-list">${shown.map(waitlistRow).join('')}</ul>${toggle}`;
+      ? `<button type="button" class="community-secondary community-queue-more" data-queue-toggle aria-expanded="false" aria-controls="community-queue-list">Show ${hidden} more</button>`
+      : '';
+  return `<ul class="community-queue-list" id="community-queue-list">${shown.map(waitlistRow).join('')}</ul>${toggle}`;
 }
 
 function formatDate(value: string | undefined): string {
@@ -713,7 +713,7 @@ export function communityControl(href: string, current = false): string {
   const record = member();
   // Signed out, the control is a plain link into the sign-in / join panel.
   if (!record) {
-    return `<a class="community-toggle${current ? ' is-current' : ''}" href="${esc(href)}" data-community-route${current ? ' aria-current="page"' : ''}>Members<span${current ? '' : ' class="nav-arrow"'} aria-hidden="true">${current ? '•' : '↗'}</span></a>`;
+    return `<a class="community-toggle${current ? ' is-current' : ''}" href="${esc(href)}" data-community-route${current ? ' aria-current="page"' : ''}>Members<span${current ? '' : ' class="nav-arrow nav-arrow-external"'} aria-hidden="true">${current ? '•' : '&#x2197;&#xFE0E;'}</span></a>`;
   }
   const items = MEMBER_TABS.map((tab) => {
     const active = current && memberTab === tab;
@@ -1001,9 +1001,19 @@ export function bindCommunity(
     }
   };
 
-  root.querySelector<HTMLButtonElement>('[data-queue-toggle]')?.addEventListener('click', () => {
-    queueExpanded = !queueExpanded;
+  root.querySelector<HTMLButtonElement>('[data-queue-toggle]')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    if (queueExpanded) return;
+    const firstRevealedId = waitlistEntries[QUEUE_PREVIEW_LIMIT]?.id || '';
+    queueExpanded = true;
     render();
+    if (firstRevealedId) {
+      window.requestAnimationFrame(() => {
+        const firstRevealed = document.getElementById(`waitlist-${firstRevealedId}`);
+        firstRevealed?.scrollIntoView({ block: 'nearest' });
+        firstRevealed?.focus({ preventScroll: true });
+      });
+    }
   });
 
   const detourTabButtons = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-detour-tab]'));
@@ -1136,7 +1146,7 @@ export function bindCommunity(
     render();
     try {
       await pb.collection('members').update(record.id, { pseudo });
-      notice = { kind: 'success', text: `Your pseudo is now @${pseudo}.` };
+      notice = { kind: 'success', text: `Your pseudo is now ${pseudo}.` };
     } catch (error) {
       notice = { kind: 'error', text: readableError(error, 'Your pseudo could not be updated. Please try again.') };
     } finally {

@@ -82,7 +82,7 @@ function notesSection(v: Venue, h: PlaceHelpers): string {
       ${notes
         .map((item) => {
           const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
-          const memberLabel = item.is_own ? 'You' : `@${recommender}`;
+          const memberLabel = item.is_own ? 'You' : recommender || '';
           const when = h.shortDate(item.created);
           return `<blockquote class="detail-network-note place-note">
             <p>${h.esc(item.note || '')}</p>
@@ -120,7 +120,7 @@ function recognitionSection(v: Venue, h: PlaceHelpers): string {
           source
             ? `<p class="place-award-source">${
                 href
-                  ? `<a href="${h.esc(href)}" target="_blank" rel="noopener noreferrer">${h.esc(source)} <span class="nav-arrow" aria-hidden="true">↗</span></a>`
+                  ? `<a href="${h.esc(href)}" target="_blank" rel="noopener noreferrer">${h.esc(source)} <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
                   : h.esc(source)
               }</p>`
             : ''
@@ -167,7 +167,7 @@ function whereSection(v: Venue, h: PlaceHelpers): string {
         ${
           directions || visitLinks
             ? `<div class="detail-visit-links place-visit-links">
-                ${directions ? `<a href="${h.esc(directions)}" target="_blank" rel="noopener noreferrer">Get directions <span class="nav-arrow" aria-hidden="true">↗</span></a>` : ''}
+                ${directions ? `<a href="${h.esc(directions)}" target="_blank" rel="noopener noreferrer">Get directions <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>` : ''}
                 ${visitLinks}
               </div>`
             : '<p class="place-empty">No address or links on file yet — ask the member who recommended it.</p>'
@@ -262,7 +262,7 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
                 <h2 id="place-cta-title">Been here too?</h2>
                 <p>Add your own note so the next Detourist knows what to order.</p>
               </div>
-              <a class="network-primary-link" href="${h.esc(chrome.accountHref)}" data-community-route="recommend-place">Recommend a place <span class="nav-arrow" aria-hidden="true">↗</span></a>
+              <a class="network-primary-link" href="${h.esc(chrome.accountHref)}" data-community-route="recommend-place">Recommend a place <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
             </aside>`
           : ''
       }

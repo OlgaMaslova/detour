@@ -151,10 +151,10 @@ routerAdd(
   $apis.requireAuth("members")
 );
 
-// Anonymous home-page preview of real recommendations that have completed the
-// community publication path. The private source collections have no public
-// CRUD rules, so keep this projection deliberately small and independently
-// enforce member visibility and fixture exclusions here.
+// Anonymous recommendation projection. The home-page sample is deliberately
+// stricter than city-scoped place notes: it shows at most three founding-circle
+// recommendations, one per city. The private source collections have no public
+// CRUD rules, so independently enforce visibility and fixture exclusions here.
 routerAdd("GET", "/api/detour/public-recommendations", (e) => {
   function meaningfulText(value) {
     if (typeof value !== "string") return "";
@@ -216,13 +216,14 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
   );
 
   try {
-    let sql =
-      "SELECT COALESCE(TRIM(v.name), '') AS venue_name, " +
+    const projection =
+      "COALESCE(TRIM(v.name), '') AS venue_name, " +
       "COALESCE(TRIM(v.city), '') AS city, " +
       "COALESCE(TRIM(v.country), '') AS country, " +
       "COALESCE(TRIM(r.note), '') AS note, " +
       "COALESCE(TRIM(m.pseudo), '') AS recommender_pseudo, " +
-      "COALESCE(v.id, '') AS venue_id " +
+      "COALESCE(v.id, '') AS venue_id ";
+    const joinsAndFilters =
       "FROM community_recommendations r " +
       "JOIN members m ON m.id = r.member " +
       "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
@@ -237,10 +238,38 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
       "AND LOWER(TRIM(m.email)) != 'agent@detour.supernaut.to' " +
       "AND LENGTH(TRIM(r.note)) >= 24 " +
       "AND TRIM(m.pseudo) != '' ";
+    let sql;
     if (city) {
-      sql += "AND LOWER(TRIM(v.city)) = LOWER({:city}) ";
+      // City-scoped notes continue to include every discovery-visible verified
+      // member; the founding-member restriction belongs only to the landing
+      // preview.
+      sql =
+        "SELECT " + projection + joinsAndFilters +
+        "AND LOWER(TRIM(v.city)) = LOWER({:city}) " +
+        "ORDER BY r.created DESC, r.id DESC LIMIT 24";
+    } else {
+      // direct_founder_invited is the capped founding-membership marker.
+      // Include the authorized Founder issuer as part of the same circle.
+      // Rank before limiting so a busy city can never occupy two of the three
+      // anonymous preview slots.
+      sql =
+        "WITH ranked AS (" +
+        "SELECT " + projection +
+        ", r.created AS recommendation_created, r.id AS recommendation_id, " +
+        "ROW_NUMBER() OVER (" +
+        "PARTITION BY LOWER(TRIM(v.city)), LOWER(TRIM(v.country)) " +
+        "ORDER BY r.created DESC, r.id DESC" +
+        ") AS city_rank " +
+        joinsAndFilters +
+        "AND (" +
+        "COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
+        "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE" +
+        ")" +
+        ") " +
+        "SELECT venue_name, city, country, note, recommender_pseudo, venue_id " +
+        "FROM ranked WHERE city_rank = 1 " +
+        "ORDER BY recommendation_created DESC, recommendation_id DESC LIMIT 3";
     }
-    sql += "ORDER BY r.created DESC, r.id DESC LIMIT " + (city ? "24" : "4");
 
     const query = e.app.db().newQuery(sql);
     if (city) query.bind({ city: city });

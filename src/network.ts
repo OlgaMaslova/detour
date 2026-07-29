@@ -325,7 +325,7 @@ function inviteRequestFormMarkup(accountHref: string): string {
     </div>
     <div class="network-member-return">
       <p class="network-membership-label">Already invited?</p>
-      <a class="network-primary-link" href="${esc(accountHref)}" data-community-route>Sign in or join with a code <span class="nav-arrow" aria-hidden="true">↗</span></a>
+      <a class="network-primary-link" href="${esc(accountHref)}" data-community-route>Sign in or join with a code <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
       <p class="network-invitation-note">Invitations and replies are shared personally by the Detour team and current members.</p>
     </div>`;
   }
@@ -377,7 +377,7 @@ function inviteRequestFormMarkup(accountHref: string): string {
     </form>
     <div class="network-member-return">
       <p class="network-membership-label">Already invited?</p>
-      <a class="network-primary-link" href="${esc(accountHref)}" data-community-route>Sign in or join with a code <span class="nav-arrow" aria-hidden="true">↗</span></a>
+      <a class="network-primary-link" href="${esc(accountHref)}" data-community-route>Sign in or join with a code <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
       <p class="network-invitation-note">Invitations are shared personally by current Detour members.</p>
     </div>`;
 }
@@ -515,9 +515,10 @@ function recencyValue(item: { created?: string }): number {
   return item.created ? new Date(item.created).getTime() : 0;
 }
 
+/** Pseudos read as plain handles on screen — no decorative @ in front. */
 function pseudo(value: string | undefined, fallback = 'A Detour member'): string {
   const cleaned = value?.trim().replace(/^@+/, '');
-  return `<strong class="network-pseudo">${cleaned ? `@${esc(cleaned)}` : esc(fallback)}</strong>`;
+  return `<strong class="network-pseudo">${esc(cleaned || fallback)}</strong>`;
 }
 
 function replyState(shareId: string): ReplyState {
@@ -667,7 +668,7 @@ function firstPlaceInvitationMarkup(accountHref: string): string {
       <h2 id="network-first-place-title">Know somewhere worth a detour?</h2>
       <p>Your first place gives the circle somewhere new to discover.</p>
     </div>
-    <a class="network-primary-link" href="${esc(accountHref)}" data-community-route="recommend-place">Add your first place <span class="nav-arrow" aria-hidden="true">↗</span></a>
+    <a class="network-primary-link" href="${esc(accountHref)}" data-community-route="recommend-place">Add your first place <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
   </aside>`;
 }
 
@@ -774,8 +775,8 @@ function memberFeedMarkup(
             .join('')}
         </div>
         <div class="network-section-actions">
-          <a class="network-primary-link network-recommend-cta" href="${esc(accountHref)}" data-community-route="recommend-place">Recommend<span class="nav-arrow" aria-hidden="true">↗</span></a>
-          <a class="network-primary-link network-share-cta" href="${esc(accountHref)}" data-community-route="share-place">Share privately<span class="nav-arrow" aria-hidden="true">↗</span></a>
+          <a class="network-primary-link network-recommend-cta" href="${esc(accountHref)}" data-community-route="recommend-place">Recommend<span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
+          <a class="network-primary-link network-share-cta" href="${esc(accountHref)}" data-community-route="share-place">Share privately<span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
         </div>
       </div>
       ${
@@ -793,9 +794,8 @@ function memberFeedMarkup(
   </div>`;
 }
 
-// The anonymous sample section: same endpoint, same state, same cards as the
-// member feed — the server already reduces the payload to a public-safe
-// four-place sample for signed-out callers.
+// The anonymous sample section: same card renderer as the member feed. The
+// server supplies at most three founding-circle recommendations, one per city.
 function publicRecommendationSampleMarkup(resolvePlace?: NetworkPlaceResolver): string {
   const feed = publicRecommendationFeed();
   const heading = `<div class="network-public-sample-heading">
@@ -848,7 +848,7 @@ export function networkDiscoveryMarkup(
   }
 
   const pseudoName = record.pseudo?.trim().replace(/^@+/, '');
-  const memberLabel = pseudoName ? `@${pseudoName}` : record.email || 'Detourist';
+  const memberLabel = pseudoName || record.email || 'Detourist';
   return `<section class="network-home" aria-labelledby="network-home-title">
     <div class="network-home-heading">
       <p class="network-kicker">Your Detour circle</p>
