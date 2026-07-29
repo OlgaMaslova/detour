@@ -46,6 +46,10 @@ function signalPhrase(count: number): string {
   return count === 1 ? '1 Detourist recommends' : `${count} Detourists recommend`;
 }
 
+function signalTooltipPhrase(count: number): string {
+  return count === 1 ? 'Recommended by 1 Detourist' : `Recommended by ${count} Detourists`;
+}
+
 /**
  * The badge: figure first, then the mark. No noun — the mark is the word, which
  * is the whole point of having a mark, and it keeps the badge the same width in
@@ -64,9 +68,13 @@ export function detouristSignalBadge(count: number | undefined, variant: SignalV
     return `<p class="signal-badge signal-badge-${variant} signal-badge-bare" aria-label="${NO_COUNT_LABEL}">${DETOUR_MARK}</p>`;
   }
 
-  return `<p class="signal-badge signal-badge-${variant}" aria-label="${phrase}">
+  const tooltipPhrase = signalTooltipPhrase(n);
+  const tooltip = `<span class="signal-tooltip" role="tooltip" aria-hidden="true">${tooltipPhrase}</span>`;
+
+  return `<p class="signal-badge signal-badge-${variant}" aria-label="${tooltipPhrase}" tabindex="0">
     <strong class="signal-count">${n}</strong>
     ${DETOUR_MARK}
+    ${tooltip}
   </p>`;
 }
 

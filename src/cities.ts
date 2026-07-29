@@ -60,9 +60,9 @@ export interface CityEditorialSource {
   bounds?: CityBounds | null;
 }
 
-export const GLOBAL_META_TITLE = 'Detour — Food-and-drink recommendations from an invite-only circle';
+export const GLOBAL_META_TITLE = 'Detour — Places your network would actually recommend';
 export const GLOBAL_META_DESCRIPTION =
-  'Detour is an invite-only circle for discovering memorable restaurants, cafés, bars, and other food-and-drink destinations through member recommendations. Direct shares and replies stay private.';
+  'An invite-only food-and-drink circle built on recommendations from people whose taste you trust. No ads, paid listings, or anonymous stars.';
 
 /**
  * Build the full presentation config for one live city record. Blank

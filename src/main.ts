@@ -1,5 +1,4 @@
 import './styles.css';
-import './restyle.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { citySlug, loadLiveCatalogue, venueMarketSlug, venuePlaceSlug } from './data';
@@ -1179,7 +1178,7 @@ function detailPanel(): string {
 function renderPlace(root: HTMLElement, destination: Destination, v: Venue): void {
   destroyMap();
   root.dataset.restyle = 'place';
-  applyTapeTheme(root);
+  applyTapeTheme();
   syncDocumentMeta(destination.name, false, v);
 
   const country = destinationCountry(destination);
@@ -1345,7 +1344,7 @@ function bindRouteLinks(root: HTMLElement): void {
   root.querySelector<HTMLButtonElement>('[data-tape-theme-toggle]')?.addEventListener('click', (event) => {
     tapeTheme = tapeTheme === 'auto' ? 'light' : tapeTheme === 'light' ? 'dark' : 'auto';
     localStorage.setItem(TAPE_THEME_KEY, tapeTheme);
-    applyTapeTheme(root);
+    applyTapeTheme();
     (event.currentTarget as HTMLButtonElement).textContent = tapeThemeLabel();
   });
   bindMemberMenu(root);
@@ -1613,7 +1612,7 @@ function bindExploreDiscovery(root: HTMLElement): void {
 function renderExplore(root: HTMLElement): void {
   destroyMap();
   root.dataset.restyle = 'explore';
-  applyTapeTheme(root);
+  applyTapeTheme();
   document.title = 'Explore cities and places — Detour';
   document
     .querySelector<HTMLMetaElement>('meta[name="description"]')
@@ -1712,7 +1711,7 @@ function renderCountry(root: HTMLElement): void {
   }
   destroyMap();
   root.dataset.restyle = 'explore';
-  applyTapeTheme(root);
+  applyTapeTheme();
   document.title = `${country.name} destinations — Detour`;
   document
     .querySelector<HTMLMetaElement>('meta[name="description"]')
@@ -1761,7 +1760,7 @@ function renderDiscoveryGate(
 ): void {
   destroyMap();
   root.dataset.restyle = 'destination';
-  applyTapeTheme(root);
+  applyTapeTheme();
   document.title = `${label} — Members — Detour`;
   document
     .querySelector<HTMLMetaElement>('meta[name="description"]')
@@ -1847,8 +1846,8 @@ function resolveNetworkPlace(
   };
 }
 
-// Manual override for the restyle's light/dark tokens; 'auto' follows the OS
-// via the prefers-color-scheme block in restyle-home.css.
+// Manual override for the mixtape light/dark tokens; 'auto' follows the OS
+// via the prefers-color-scheme block in styles.css.
 type TapeTheme = 'auto' | 'light' | 'dark';
 const TAPE_THEME_KEY = 'detour-tape-theme';
 let tapeTheme: TapeTheme = ((): TapeTheme => {
@@ -1856,9 +1855,12 @@ let tapeTheme: TapeTheme = ((): TapeTheme => {
   return stored === 'light' || stored === 'dark' ? stored : 'auto';
 })();
 
-function applyTapeTheme(root: HTMLElement): void {
-  if (tapeTheme === 'auto') delete root.dataset.tapeTheme;
-  else root.dataset.tapeTheme = tapeTheme;
+// The tokens live on :root so the page (not just #app) is themed — the
+// overscroll gutter behind the fixed ground would otherwise stay one colour.
+function applyTapeTheme(): void {
+  const html = document.documentElement;
+  if (tapeTheme === 'auto') delete html.dataset.tapeTheme;
+  else html.dataset.tapeTheme = tapeTheme;
 }
 
 function tapeThemeLabel(): string {
@@ -1876,7 +1878,7 @@ const FOOTER_TAGLINE = 'Recommended by members. Ready for your next detour.';
 function renderHome(root: HTMLElement): void {
   destroyMap();
   root.dataset.restyle = 'home';
-  applyTapeTheme(root);
+  applyTapeTheme();
   syncDocumentMeta(null);
 
   root.innerHTML = `
@@ -1915,9 +1917,9 @@ function renderHome(root: HTMLElement): void {
 }
 
 function render(root: HTMLElement) {
-  // Mixtape design scope: every view opts in with its own tag so restyle.css
-  // can target views individually; the theme attribute rides along app-wide.
-  applyTapeTheme(root);
+  // Mixtape design scope: every view tags itself so styles.css can target
+  // views individually; the theme attribute rides along app-wide.
+  applyTapeTheme();
   root.dataset.restyle =
     state.view === 'survey'
       ? 'survey'
