@@ -87,8 +87,16 @@ onRecordCreateRequest((e) => {
   }
 
   const name = normalizeBounded(e.record.getString("name"), "Name", 120, 544);
+  if (!name) {
+    throw new BadRequestError("Enter your name.");
+  }
   const city = normalizeBounded(e.record.getString("city"), "City", 120, 544);
   const why = normalizeBounded(e.record.getString("why"), "Reason", 500, 2064);
+  // The recommendation is the only thing the team actually reads, so it is
+  // enforced here as well as in the browser form.
+  if (!why) {
+    throw new BadRequestError("Name one place you'd recommend, and why.");
+  }
   const source = normalizeBounded(
     e.record.getString("source"),
     "Source",

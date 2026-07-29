@@ -2,7 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover so the fixed ground reaches the screen edges; the
+         safe-area insets in styles.css keep content off the notch and clock. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
       name="description"
       content="An invite-only food-and-drink circle built on recommendations from people whose taste you trust. No ads, paid listings, or anonymous stars."
@@ -39,11 +41,14 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23222a3b'/%3E%3Cpath d='M11 13h42v26H39L32 52l-7-13H11z' fill='%23efe6d8'/%3E%3Cpath d='M39 39h14V26z' fill='%23d1552a'/%3E%3Cpath d='M24 22h16v6H24z' fill='%23f3701e'/%3E%3C/svg%3E"
     />
-    <meta name="theme-color" content="#222a3b" />
+    <!-- the browser chrome above the header follows the theme, so a light-mode
+         phone does not put a navy band over a cream page -->
+    <meta name="theme-color" content="#f0e7d6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#222a3b" media="(prefers-color-scheme: dark)" />
     <meta name="detour-release" content="detour-community-first-public-surface-2026-07-20-r1" />
     <title>Detour — Places your network would actually recommend</title>
-    <script type="module" crossorigin src="/assets/index-xEh_B2PM.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CK9MAFiX.css">
+    <script type="module" crossorigin src="/assets/index-7BDoT-lP.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-n6_8kZkh.css">
   </head>
   <body>
     <main id="app"></main>

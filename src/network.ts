@@ -314,6 +314,8 @@ function inviteRequestFieldError(field: InviteRequestField, element: HTMLInputEl
     if (!value) return 'Enter your email address.';
     if (element.validity.typeMismatch) return 'Enter an email address in the usual name@example.com format.';
   }
+  if (field === 'name' && !value) return 'Enter your name — every place here has a person behind it.';
+  if (field === 'why' && !value) return "Name one place you'd recommend, and why — this is the part we read.";
   const limits: Record<InviteRequestField, number> = { name: 120, email: 0, city: 120, why: 500 };
   const limit = limits[field];
   if (limit && value.length > limit) return `${field === 'why' ? 'This answer' : field === 'name' ? 'Name' : 'City'} must be ${limit} characters or fewer.`;
@@ -325,7 +327,7 @@ function inviteRequestFormMarkup(accountHref: string): string {
     return `<div class="network-invite-success" data-invite-request-success role="status" aria-live="polite" tabindex="-1">
       <p class="network-membership-label">Request received</p>
       <h2>Thank you for raising your hand.</h2>
-      <p>The Detour team received your founding-member request and will reply personally. This is a request, not immediate membership or access.</p>
+      <p>The Detour team has your recommendation and will read it and reply personally. This is a request, not immediate membership or access.</p>
     </div>
     <div class="network-member-return">
       <p class="network-membership-label">Already invited?</p>
@@ -340,14 +342,13 @@ function inviteRequestFormMarkup(accountHref: string): string {
   return `<div class="network-invite-intro">
       <p class="network-membership-label">Founding membership</p>
       <h2 id="network-membership-title">Ask to join the Detour circle.</h2>
-      <p>Tell us a little about yourself. The Detour team reads every request and replies personally; submitting does not grant immediate access.</p>
+      <p>Tell us about one place you'd recommend, and why. We read every request and reply personally.</p>
       <p class="network-founding-benefits-title">What founding membership gives you</p>
       <ul class="network-founding-benefits">
-        <li><strong>One of few.</strong> Founding membership is capped. Once the seats are taken an invitation still admits you, as a regular member.</li>
-        <li><strong>Whole circle visibility.</strong> All members will see your recommended places. You are the face shaping the early-growing community. That recognition carries a responsibility — we are in your hands.</li>
-        <li><strong>Recommend whenever you want to.</strong> Add a place and it publishes instantly to the circle — no approval queue, and no minimum. We trust you.</li>
-        <li><strong>A larger invitation allowance.</strong> Enough to bring in the people whose taste you trust.</li>
-        <li><strong>Free membership for life.</strong> Your place is permanent, however Detour evolves.</li>
+        <li><strong>Free membership for life.</strong> Your place is permanent, whatever Detour becomes.</li>
+        <li><strong>One of fifty.</strong> Fifty founding seats, and no more.</li>
+        <li><strong>More invitations to give.</strong> Enough for everyone whose taste you trust.</li>
+        <li><strong>Whole circle visibility.</strong> Every member sees your places. Your taste defines what this becomes.</li>
       </ul>
     </div>
     <form class="network-invite-form" data-invite-request-form novalidate aria-labelledby="network-membership-title">
@@ -355,8 +356,8 @@ function inviteRequestFormMarkup(accountHref: string): string {
         <legend class="visually-hidden">Founding-member invite request</legend>
         <div class="network-invite-fields">
           <div class="network-invite-field">
-            <label for="invite-request-name">Name <span>(optional)</span></label>
-            <input id="invite-request-name" name="name" type="text" autocomplete="name" maxlength="120" value="${esc(inviteRequestState.name)}" aria-describedby="invite-request-name-error"${inviteRequestState.fieldErrors.name ? ' aria-invalid="true"' : ''}>
+            <label for="invite-request-name">Name</label>
+            <input id="invite-request-name" name="name" type="text" autocomplete="name" maxlength="120" required value="${esc(inviteRequestState.name)}" aria-describedby="invite-request-name-error"${inviteRequestState.fieldErrors.name ? ' aria-invalid="true"' : ''}>
             <p class="network-invite-field-error" id="invite-request-name-error">${esc(inviteRequestState.fieldErrors.name)}</p>
           </div>
           <div class="network-invite-field">
@@ -370,15 +371,16 @@ function inviteRequestFormMarkup(accountHref: string): string {
             <p class="network-invite-field-error" id="invite-request-email-error">${esc(inviteRequestState.fieldErrors.email)}</p>
           </div>
           <div class="network-invite-field network-invite-field-wide">
-            <label for="invite-request-why">What would you bring to Detour? <span>(optional)</span></label>
-            <textarea id="invite-request-why" name="why" rows="3" maxlength="500" aria-describedby="invite-request-why-hint invite-request-why-error"${inviteRequestState.fieldErrors.why ? ' aria-invalid="true"' : ''}>${esc(inviteRequestState.why)}</textarea>
-            <p class="network-invite-field-hint" id="invite-request-why-hint">A short line about the places, perspective, or local knowledge you would share.</p>
+            <label for="invite-request-why">Name one place you'd recommend, and why.</label>
+            <textarea id="invite-request-why" name="why" rows="3" maxlength="500" required aria-describedby="invite-request-why-hint invite-request-why-error"${inviteRequestState.fieldErrors.why ? ' aria-invalid="true"' : ''}>${esc(inviteRequestState.why)}</textarea>
+            <p class="network-invite-field-hint" id="invite-request-why-hint">The one you'd send a friend to without checking anything first. A couple of sentences is plenty — this is your first recommendation, not an application letter.</p>
             <p class="network-invite-field-error" id="invite-request-why-error">${esc(inviteRequestState.fieldErrors.why)}</p>
           </div>
         </div>
         <button class="network-primary-link network-invite-submit" type="submit"${pending ? ' disabled' : ''}>${pending ? 'Sending request…' : 'Request a founding-member invite'}</button>
       </fieldset>
       <p class="network-invite-status${statusClass}" data-invite-request-status${statusRole ? ` role="${statusRole}" aria-live="${pending ? 'polite' : 'assertive'}"` : ''} tabindex="-1">${esc(inviteRequestState.message)}</p>
+      <p class="network-invite-smallprint">If the fifty are gone by the time we reach your request, it's considered for regular membership instead.</p>
     </form>
     <div class="network-member-return">
       <p class="network-membership-label">Already invited?</p>
@@ -520,6 +522,17 @@ function recencyValue(item: { created?: string }): number {
   return item.created ? new Date(item.created).getTime() : 0;
 }
 
+const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * One definition of "new" for the feed: the header's recency count and the
+ * badge on each card both ask this, so the "3 new places" line can never claim
+ * something the list itself does not show.
+ */
+function isRecent(item: { created?: string }): boolean {
+  return recencyValue(item) >= Date.now() - RECENT_WINDOW_MS;
+}
+
 /** Pseudos read as plain handles on screen — no decorative @ in front. */
 function pseudo(value: string | undefined, fallback = 'A Detour member'): string {
   const cleaned = value?.trim().replace(/^@+/, '');
@@ -597,6 +610,7 @@ function recommendationCardMarkup(
     bylineHtml: string;
     recommendationCount?: number;
     foundingChoice?: boolean;
+    recent?: boolean;
     trustedEntry?: boolean;
     selected?: boolean;
   },
@@ -618,7 +632,7 @@ function recommendationCardMarkup(
   const thumb = place?.imageUrl
     ? `<figure class="network-entry-thumb" data-cover-initial="${esc(initial)}" aria-hidden="true"><img src="${esc(place.imageUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-network-thumb></figure>`
     : `<figure class="network-entry-thumb cover-placeholder network-entry-thumb-placeholder" data-cover-initial="${esc(initial)}" aria-hidden="true"><span aria-hidden="true">${esc(initial)}</span></figure>`;
-  return `<article class="network-entry network-recommendation network-entry-with-thumb${view.trustedEntry ? ' trusted-entry' : ''}${view.selected ? ' is-selected' : ''}" data-network-recommendation${place ? ' data-place-card' : ''}>
+  return `<article class="network-entry network-recommendation network-entry-with-thumb${view.recent ? ' is-recent' : ''}${view.trustedEntry ? ' trusted-entry' : ''}${view.selected ? ' is-selected' : ''}" data-network-recommendation${place ? ' data-place-card' : ''}>
     <div class="network-entry-main">
       <header class="network-entry-head">
         <div>
@@ -632,6 +646,7 @@ function recommendationCardMarkup(
                 : ''
           }
         </div>
+        ${view.recent ? '<p class="network-entry-recent">New<span class="visually-hidden"> in the last 24 hours</span></p>' : ''}
       </header>
       ${view.note ? `<blockquote><p>${esc(view.note)}</p></blockquote>` : '<p class="network-entry-note-empty">No note was included with this recommendation.</p>'}
       ${
@@ -684,7 +699,7 @@ function groupRecommendations(
 export function groupedRecommendationCardMarkup(
   items: DiscoveryRecommendation[],
   resolvePlace?: NetworkPlaceResolver,
-  options: { trustedEntry?: boolean; selected?: boolean } = {}
+  options: { trustedEntry?: boolean; selected?: boolean; markRecent?: boolean } = {}
 ): string {
   const latest = items[0];
   if (!latest) return '';
@@ -708,6 +723,8 @@ export function groupedRecommendationCardMarkup(
       bylineHtml,
       recommendationCount: items.length,
       foundingChoice: items.some((item) => item.founding_member),
+      // Only the home feed states a 24-hour count, so only it asks for badges.
+      recent: options.markRecent ? isRecent(latest) : false,
       trustedEntry: options.trustedEntry,
       selected: options.selected,
     },
@@ -842,9 +859,7 @@ function memberFeedMarkup(
   const previewLimit = recommendationColumns * 2;
   const latest = recommendationsExpanded ? grouped : grouped.slice(0, previewLimit);
   const hiddenCount = grouped.length - latest.length;
-  const recentCount = grouped.filter(
-    (group) => recencyValue(group.items[0]) >= Date.now() - 24 * 60 * 60 * 1000
-  ).length;
+  const recentCount = grouped.filter((group) => isRecent(group.items[0])).length;
   const recentLabel = recentCount
     ? `${recentCount} new ${recentCount === 1 ? 'place' : 'places'}`
     : 'No new places';
@@ -873,7 +888,7 @@ function memberFeedMarkup(
       </div>
       ${
         latest.length
-          ? `<div class="network-entry-list network-recommendation-grid network-recommendation-grid-${recommendationColumns}">${latest.map((group) => groupedRecommendationCardMarkup(group.items, resolvePlace)).join('')}</div>${
+          ? `<div class="network-entry-list network-recommendation-grid network-recommendation-grid-${recommendationColumns}">${latest.map((group) => groupedRecommendationCardMarkup(group.items, resolvePlace, { markRecent: true })).join('')}</div>${
               hiddenCount > 0
                 ? `<button type="button" class="secondary-button network-retry network-show-more" data-network-show-more>Show ${hiddenCount} more ${hiddenCount === 1 ? 'place' : 'places'}</button>`
                 : recommendationsExpanded && grouped.length > previewLimit
@@ -931,6 +946,7 @@ export function networkDiscoveryMarkup(
         <p class="network-kicker">An invite-only circle shaped by member taste</p>
         <h1 id="network-home-title">Detours from people you trust.</h1>
         <p class="network-invitation-lead">This isn't a restaurant directory. Every place here is one a member put their name behind and said why — no ads, no paid listings, no anonymous stars. Add one of yours — someone needs it.</p>
+        <p class="network-invitation-lead">Members publish straight to the circle: no approval queue, no editors, no minimum. We trust you.</p>
       </div>
       ${publicRecommendationSampleMarkup(resolvePlace)}
       <aside class="network-invitation-action" aria-label="Founding membership and member sign-in">

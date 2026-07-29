@@ -1673,7 +1673,7 @@ function renderExplore(root: HTMLElement): void {
             <p class="explore-country-overline">${country.count} ${country.count === 1 ? 'place' : 'places'}</p>
             <h2 id="country-${esc(country.slug)}">${esc(country.name)}</h2>
           </div>
-          <a href="${esc(countryHref(country.slug))}" data-country="${esc(country.slug)}">Open country <span class="nav-arrow" aria-hidden="true">→</span></a>
+          <a href="${esc(countryHref(country.slug))}" data-country="${esc(country.slug)}"><span class="explore-country-link-label">Open country</span><span class="nav-arrow" aria-hidden="true">→</span></a>
         </div>
         <div class="explore-destination-grid">${country.destinations.map(destinationDirectoryCard).join('')}</div>
       </section>`

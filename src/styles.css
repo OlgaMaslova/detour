@@ -62,12 +62,22 @@
   --tape-stack-title-hover: var(--tape-orange);
   --tape-stack-title-hover-shadow: var(--tape-chrome);
   --tape-ghost: var(--tape-rust); /* misregistered-print text shadow */
+  /* The ghost behind a title that is in its hover colour. Kept apart from
+     --tape-stack-title-hover-shadow because the two sit behind different hover
+     colours: gold here, orange there. */
+  --tape-ghost-hover: var(--tape-ghost);
   --tape-shell: rgba(22, 28, 40, 0.72); /* smoked-glass cassette body */
   --tape-shell-dots: rgba(239, 230, 216, 0.05); /* molded-plastic texture */
   --tape-screw: #2f3a4e;
   --tape-shell-gloss: rgba(255, 255, 255, 0.07); /* glass edge highlight */
   --tape-sticker: var(--tape-cream);
   --tape-map-filter: invert(1) hue-rotate(190deg) saturate(0.5) brightness(0.92) contrast(0.92);
+  /* Thinned strokes flatter light type on a dark ground; on paper the same
+     setting drains dark type to grey, so the light theme opts out. */
+  --tape-smoothing: antialiased;
+  /* Righteous ships one weight, so the wordmark gains its light-theme density
+     from a hairline stroke rather than a heavier cut. */
+  --tape-wordmark-stroke: 0;
 
   --tape-stripe: linear-gradient(
     to bottom,
@@ -92,58 +102,75 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-tape-theme='dark']) {
     --tape-ground: #f0e7d6;
-    --tape-grid: rgba(107, 100, 88, 0.18);
-    --tape-grid-soft: rgba(107, 100, 88, 0.07);
+    /* the ruling carries a little more of the paper texture here, so a flat
+       card reads as a card rather than as more of the same cream */
+    --tape-grid: rgba(107, 100, 88, 0.24);
+    --tape-grid-soft: rgba(107, 100, 88, 0.1);
     --tape-vignette: rgba(120, 90, 50, 0.2);
-    --tape-surface: #f8f2e7;
+    /* fresh stock, not more of the ground: the dark theme got its card
+       separation free from a panel darker than the paper */
+    --tape-surface: #fffdf6;
     --tape-surface-raised: #efe6d8;
     --tape-chrome: var(--tape-slate); /* the dark theme's navy, per Olga */
     --tape-text: var(--tape-slate);
     --tape-muted: #5e6a80; /* slate-toned muted to match the navy text */
     --tape-inset: rgba(16, 16, 20, 0.06);
     --tape-field: #fdfaf3;
-    --tape-field-veil: rgba(255, 255, 255, 0.55);
+    --tape-field-veil: rgba(255, 255, 255, 0.92); /* a chip, not a wash */
     --tape-hairline: #e2d7c4;
     --tape-hairline-strong: rgba(16, 16, 20, 0.3);
     --tape-accent: var(--tape-rust); /* amber text is too faint on paper */
     --tape-accent-strong: var(--tape-rust);
     --tape-stack-title-hover: var(--tape-rust);
-    --tape-stack-title-hover-shadow: var(--tape-ghost);
-    --tape-ghost: rgba(243, 112, 30, 0.45); /* softer ghost on paper */
-    --tape-shell: rgba(253, 252, 248, 0.45); /* clear frosted glass on paper */
+    /* both hover titles are rust here, the same ink as the ghost, so their
+       ghosts switch to navy rather than disappearing */
+    --tape-stack-title-hover-shadow: var(--tape-chrome);
+    --tape-ghost-hover: var(--tape-chrome);
+    /* Full-strength rust. Peach behind navy had so little contrast the
+       misregistration read as double vision; rust sits clear of both the
+       navy letter and the cream paper, so it reads as a second ink pass. */
+    --tape-ghost: var(--tape-rust);
+    /* Matches the dark shell's 0.72 so the cassette and the city-chooser
+       sleeve read as a plane; at 0.45 they were cream on cream. */
+    --tape-shell: rgba(255, 253, 246, 0.78);
     --tape-shell-dots: rgba(34, 42, 59, 0.05);
     --tape-screw: rgba(34, 42, 59, 0.45);
     --tape-shell-gloss: rgba(255, 255, 255, 0.65);
     --tape-sticker: #fffdf6;
     --tape-map-filter: saturate(0.85) sepia(0.08);
+    --tape-smoothing: auto;
+    --tape-wordmark-stroke: 0.4px;
   }
 }
 :root[data-tape-theme='light'] {
   --tape-ground: #f0e7d6;
-  --tape-grid: rgba(107, 100, 88, 0.18);
-  --tape-grid-soft: rgba(107, 100, 88, 0.07);
+  --tape-grid: rgba(107, 100, 88, 0.24);
+  --tape-grid-soft: rgba(107, 100, 88, 0.1);
   --tape-vignette: rgba(120, 90, 50, 0.2);
-  --tape-surface: #f8f2e7;
+  --tape-surface: #fffdf6;
   --tape-surface-raised: #efe6d8;
   --tape-chrome: var(--tape-slate);
   --tape-text: var(--tape-slate);
   --tape-muted: #5e6a80;
   --tape-inset: rgba(16, 16, 20, 0.06);
   --tape-field: #fdfaf3;
-  --tape-field-veil: rgba(255, 255, 255, 0.55);
+  --tape-field-veil: rgba(255, 255, 255, 0.92);
   --tape-hairline: #e2d7c4;
   --tape-hairline-strong: rgba(16, 16, 20, 0.3);
   --tape-accent: var(--tape-rust);
   --tape-accent-strong: var(--tape-rust);
   --tape-stack-title-hover: var(--tape-rust);
-  --tape-stack-title-hover-shadow: var(--tape-ghost);
-  --tape-ghost: rgba(243, 112, 30, 0.45);
-  --tape-shell: rgba(253, 252, 248, 0.45);
+  --tape-stack-title-hover-shadow: var(--tape-chrome);
+  --tape-ghost-hover: var(--tape-chrome);
+  --tape-ghost: var(--tape-rust);
+  --tape-shell: rgba(255, 253, 246, 0.78);
   --tape-shell-dots: rgba(34, 42, 59, 0.05);
   --tape-screw: rgba(34, 42, 59, 0.45);
   --tape-shell-gloss: rgba(255, 255, 255, 0.65);
   --tape-sticker: #fffdf6;
   --tape-map-filter: saturate(0.85) sepia(0.08);
+  --tape-smoothing: auto;
+  --tape-wordmark-stroke: 0.4px;
 }
 
 /* ================= DOCUMENT ================= */
@@ -158,7 +185,7 @@ body {
      the viewport itself. */
   background: var(--tape-ground);
   line-height: 1.55;
-  -webkit-font-smoothing: antialiased;
+  -webkit-font-smoothing: var(--tape-smoothing);
   text-rendering: optimizeLegibility;
 }
 
@@ -167,6 +194,11 @@ body {
   max-width: 1240px;
   margin: 0 auto;
   padding: 0 var(--gutter) 4rem;
+  /* viewport-fit=cover lets the ground run under the notch and the home bar,
+     so the content itself has to stay clear of them */
+  padding-right: calc(var(--gutter) + env(safe-area-inset-right));
+  padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+  padding-left: calc(var(--gutter) + env(safe-area-inset-left));
   background: transparent;
   color: var(--tape-text);
   font-family: var(--tape-mono);
@@ -249,7 +281,7 @@ h1[tabindex='-1']:focus-visible { outline: none; box-shadow: none; }
   text-decoration: none;
   transition: top 0.15s;
 }
-.skip-link:focus-visible { top: 0; color: white; }
+.skip-link:focus-visible { top: env(safe-area-inset-top, 0px); color: white; }
 
 /* ================= DISPLAY TYPE =================
    Two ramps: the loud one for page and section headlines, the quieter one
@@ -325,6 +357,10 @@ h1 { margin: 0; font-size: clamp(34px, 6vw, 54px); }
   width: min(100%, 1080px);
   margin-inline: auto;
   padding: 1rem 0;
+  /* the status bar sits over the top of the viewport on a phone; the wordmark
+     must not end up under the system clock. Separate declaration so a browser
+     without env() keeps the plain padding above. */
+  padding-top: max(1rem, env(safe-area-inset-top));
   background: none;
 }
 .network-masthead,
@@ -374,6 +410,7 @@ h1 { margin: 0; font-size: clamp(34px, 6vw, 54px); }
   letter-spacing: -0.5px;
   text-transform: none;
   text-decoration: none;
+  -webkit-text-stroke: var(--tape-wordmark-stroke) currentColor;
 }
 .network-brand { line-height: 1; }
 .account-brand,
@@ -1469,8 +1506,10 @@ legend { color: var(--tape-text); }
     var(--pearl-accent) 58%,
     oklch(from var(--pearl-accent) calc(l - 0.09) c h) 100%
   );
+  /* the halo is chrome, not raw cream: on the light map a cream ring against
+     light tiles left the pearl with no edge at all */
   box-shadow:
-    0 0 0 2px var(--tape-cream),
+    0 0 0 2px var(--tape-chrome),
     0 2px 6px rgba(4, 8, 20, 0.45),
     0 0 12px rgba(243, 112, 30, 0.55);
   transition:
@@ -1490,15 +1529,17 @@ legend { color: var(--tape-text); }
 .map-pin.pin-selected .pin-pearl {
   transform: scale(1.1);
   box-shadow:
-    0 0 0 2px var(--tape-cream),
+    0 0 0 2px var(--tape-chrome),
     0 0 0 4.5px var(--tape-rust),
     0 3px 7px rgba(4, 8, 20, 0.4);
 }
 .venue-map .map-pin:focus-visible { outline: 0; }
 .venue-map .map-pin:focus-visible .pin-pearl {
+  /* accent-strong, so the ring follows the same focus colour as every other
+     control — gold reads as nothing against light map tiles */
   box-shadow:
-    0 0 0 2px var(--tape-cream),
-    0 0 0 5px var(--tape-gold);
+    0 0 0 2px var(--tape-chrome),
+    0 0 0 5px var(--tape-accent-strong);
 }
 .map-pin .pin-label {
   display: none;
@@ -1826,6 +1867,7 @@ legend { color: var(--tape-text); }
 }
 .network-entry:focus-within,
 .network-entry.is-new,
+.network-entry.is-recent,
 .network-recommendation:has(.network-entry-place):hover { border-color: var(--tape-accent-strong); }
 .network-recommendation[data-place-card] { cursor: pointer; }
 /* The venue photo is a full-width banner above the text, so a large image
@@ -1833,7 +1875,12 @@ legend { color: var(--tape-text); }
 .network-entry-with-thumb { grid-template-columns: minmax(0, 1fr); }
 .network-entry-main { display: grid; gap: 0.85rem; min-width: 0; }
 .network-entry-with-thumb .network-entry-main { order: 2; }
-.network-recommendation .network-entry-main { grid-template-rows: auto auto 1fr; }
+/* The note row takes the slack and the note itself sits at its bottom edge, so
+   the quote block lands on the same baseline on every card in a row no matter
+   how tall the heading above it grew (a wrapped title, a missing badge). */
+.network-recommendation .network-entry-main { grid-template-rows: auto 1fr auto; }
+.network-recommendation blockquote,
+.network-recommendation .network-entry-note-empty { align-self: end; }
 .network-entry-head {
   display: flex;
   align-items: flex-start;
@@ -1874,7 +1921,7 @@ legend { color: var(--tape-text); }
   cursor: pointer;
   transition: color 180ms cubic-bezier(0.25, 1, 0.5, 1);
 }
-.network-entry-place:hover { color: var(--tape-accent-strong); }
+.network-entry-place:hover { color: var(--tape-accent-strong); text-shadow: 2px 2px 0 var(--tape-ghost-hover); }
 .network-entry-place span { font-size: 0.8em; }
 .network-place-meta {
   margin: 0.28rem 0 0;
@@ -1898,6 +1945,23 @@ legend { color: var(--tape-text); }
   line-height: 1.25;
   text-transform: uppercase;
 }
+/* The feed toolbar counts places added in the last 24 hours; this sticker is
+   how that count is visible in the list itself. Both come from one predicate,
+   so the header can never name a number the cards do not show. */
+.network-entry-recent {
+  flex: none;
+  margin: 0;
+  padding: 3px 8px;
+  color: var(--tape-ink);
+  background: var(--tape-gold);
+  box-shadow: 2px 2px 0 var(--tape-ghost);
+  font-family: var(--tape-mono);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
 .network-entry-kind {
   flex: none;
   padding: 4px 8px;
@@ -1918,22 +1982,25 @@ legend { color: var(--tape-text); }
   border-color: var(--tape-accent-strong);
 }
 .network-entry blockquote {
-  margin: 12px 0;
-  padding: 10px 14px;
+  margin: 10px 0;
+  padding: 7px 11px;
   color: var(--tape-text);
   background: var(--tape-inset);
   border: 0;
   border-left: 4px solid var(--tape-orange);
   border-radius: 0;
-  font-size: 14px;
-  line-height: 1.65;
+  font-size: 13.5px;
+  line-height: 1.38;
 }
 .network-entry blockquote p { margin: 0; }
+/* Exactly four lines, always — a short note reserves the same block as a
+   clamped one so the boxes line up rather than each one hugging its text. */
+.network-recommendation blockquote { height: calc(4 * 1.38em + 14px); }
 .network-recommendation blockquote p {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
   overflow: hidden;
 }
 .network-entry-byline,
@@ -2130,14 +2197,19 @@ legend { color: var(--tape-text); }
 .network-invitation-action .network-invitation-note { font-size: 13.5px; line-height: 1.7; opacity: 0.9; }
 .network-invitation-action .network-primary-link { width: 100%; }
 .network-invite-intro { display: grid; gap: 0.65rem; }
+/* The label is a single tracked-out line, so it overrides the column's 42ch
+   measure and takes a slightly tighter setting than the other kickers — at
+   11px/0.16em it wraps once the invite column reaches its 20rem minimum. */
+.network-invitation-action .network-founding-benefits-title { max-width: none; }
 .network-founding-benefits-title {
   margin: 0.35rem 0 0;
   color: var(--tape-accent);
   font-family: var(--tape-mono);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 .network-founding-benefits {
   margin: 0.15rem 0 0;
@@ -2156,6 +2228,15 @@ legend { color: var(--tape-text); }
 }
 .network-founding-benefits li::before { content: '—'; position: absolute; left: 0; opacity: 0.7; }
 .network-founding-benefits strong { color: var(--tape-text); font-weight: 800; }
+.network-invite-form .network-invite-smallprint {
+  margin: 0;
+  /* muted carries the quiet tone on its own; 12px at 0.85 opacity fell under
+     4.5:1 on the light card */
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
 .network-invite-form,
 .network-invite-form fieldset { display: grid; gap: 1rem; min-width: 0; }
 .network-invite-form fieldset { margin: 0; padding: 0; border: 0; }
@@ -2946,6 +3027,14 @@ legend { color: var(--tape-text); }
   letter-spacing: 0.1em;
   line-height: 1;
   text-transform: uppercase;
+  /* The link is a flex container, so an underline on it would be drawn across
+     the gap and the arrow too. Only the label carries the rule. */
+  text-decoration: none;
+}
+.explore-country-heading > a .explore-country-link-label {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.35em;
 }
 .explore-breadcrumb {
   display: flex;
@@ -3681,7 +3770,9 @@ legend { color: var(--tape-text); }
   display: grid;
   grid-template-columns: minmax(17rem, 0.72fr) minmax(0, 1.28fr);
   align-items: start;
-  min-height: calc(100vh - 152px);
+  /* 152px is the masthead plus footer; the masthead grows by the status-bar
+     inset on a notched phone, so that comes off the height too */
+  min-height: calc(100vh - 152px - env(safe-area-inset-top));
   margin-inline: calc(-1 * var(--gutter));
   background: none;
 }
@@ -3832,7 +3923,7 @@ legend { color: var(--tape-text); }
 
 .survey-success {
   display: grid;
-  min-height: calc(100vh - 152px);
+  min-height: calc(100vh - 152px - env(safe-area-inset-top));
   place-content: center;
   justify-items: start;
   gap: 1rem;
@@ -4050,7 +4141,7 @@ legend { color: var(--tape-text); }
 }
 
 @media (max-width: 480px) {
-  #app { padding-bottom: 2.5rem; }
+  #app { padding-bottom: calc(2.5rem + env(safe-area-inset-bottom)); }
   .pin-label { max-width: 92px; }
   .nearby-btn { flex: 1 1 auto; justify-content: center; }
   .empty-state { padding: 1.4rem 1rem; }

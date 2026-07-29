@@ -520,6 +520,9 @@ function waitlistRow(entry: WaitlistEntry): string {
   const occasions = (entry.occasions || []).map((occasion) => labelForOption(OCCASION_OPTIONS, occasion)).filter(Boolean);
   const name = entry.venue_name || 'Unnamed food-and-drink destination';
   const where = [entry.address, entry.city, entry.country].filter(Boolean).join(', ');
+  // A just-saved or just-deleted entry is marked and focused, never expanded:
+  // opening its pre-filled Edit form would read as an edit the member did not
+  // ask for.
   const highlighted = highlightedWaitlistId === entry.id;
   // A live place ends its line with Open; anything else ends it with the
   // reason it has no page yet, so the collapsed list still tells the truth.
@@ -538,7 +541,7 @@ function waitlistRow(entry: WaitlistEntry): string {
       ? '<p class="community-queue-context">Your recommendation is saved, but this place is not live on the Detourist List yet.</p>'
       : '<p class="community-queue-context">This entry has no recommendation note, so it is not publishable yet.</p>';
   return `<li class="community-queue-row${highlighted ? ' is-highlighted' : ''}" id="waitlist-${esc(entry.id)}" tabindex="-1">
-    <details class="community-queue-entry"${highlighted ? ' open' : ''}>
+    <details class="community-queue-entry">
       <summary class="community-queue-line">
         <span class="community-queue-name">${esc(name)}</span>
         ${where ? `<span class="community-queue-where">${esc(where)}</span>` : ''}
