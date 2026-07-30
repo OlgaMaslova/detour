@@ -166,33 +166,32 @@ onRecordAfterCreateSuccess((e) => {
     }
 
     const config = require(__hooks + "/survey_forms.json");
-    const forms = config.forms;
-    const sets = config.questionSets || {};
+    // Require the formatter inside this callback. PocketBase invokes hook
+    // callbacks in an isolated VM, so a module-scope helper would not exist here.
+    const { buildSurveyResponseReport } = require(__hooks + "/survey_report.js");
     const formId = e.record.getString("form");
-    const form = Object.prototype.hasOwnProperty.call(forms, formId) ? forms[formId] : null;
-    const answers = e.record.get("answers") || {};
-
-    const lines = [];
-    if (form) {
-      const shared = form.questionSet ? sets[form.questionSet] || [] : [];
-      for (const question of shared.concat(form.questions || [])) {
-        const value = answers[question.key];
-        let readable = "not asked";
-        if (value) {
-          readable = value;
-          if (question.options) {
-            for (const option of question.options) {
-              if (option.value === value) readable = option.label;
-            }
-          }
-        }
-        lines.push(question.summaryLabel + ": " + readable);
-      }
-    } else {
-      // An unknown form id means the config moved on; the raw answers are still
-      // worth delivering rather than dropping the notification.
-      lines.push(JSON.stringify(answers));
+    const version = e.record.get("form_version");
+    // JSONField values are raw bytes through Record#get. Build a DynamicModel
+    // from every current and versioned question key, then unmarshal those bytes
+    // so the report sees the answers actually stored in the response. Reading
+    // keys from config keeps a later form addition readable without another
+    // hook edit.
+    const answerDefaults = {};
+    function addAnswerKeys(questions) {
+      for (const question of questions || []) answerDefaults[question.key] = "";
     }
+    const sets = config.questionSets || {};
+    for (const setName in sets) addAnswerKeys(sets[setName]);
+    const forms = config.forms || {};
+    for (const configuredFormId in forms) addAnswerKeys(forms[configuredFormId].questions);
+    const historicalVersions = config.reportingVersions || {};
+    for (const historicalFormId in historicalVersions) {
+      const versions = historicalVersions[historicalFormId];
+      for (const historicalVersion in versions) addAnswerKeys(versions[historicalVersion].questions);
+    }
+    const answers = new DynamicModel(answerDefaults);
+    e.record.unmarshalJSONField("answers", answers);
+    const report = buildSurveyResponseReport(config, formId, version, answers);
 
     const response = $http.send({
       url: eventsUrl,
@@ -201,13 +200,7 @@ onRecordAfterCreateSuccess((e) => {
       body: JSON.stringify({
         event: "detour.survey_response.created",
         subject: "New Detour survey response: " + formId,
-        text:
-          "Survey: " +
-          formId +
-          " (v" +
-          e.record.get("form_version") +
-          ")\n" +
-          lines.join("\n"),
+        text: report,
       }),
       timeout: 5,
     });

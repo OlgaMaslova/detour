@@ -8,8 +8,8 @@
     "change. Every response is stored as JSON under its form id and version, so",
     "answers to a question that later changes stay readable under the version",
     "that asked it. Bump that form's `version` whenever a question's meaning",
-    "changes; add a question freely without bumping, since absent keys read as",
-    "unanswered.",
+    "changes and copy the retired reporting fields into `reportingVersions`; add",
+    "a question freely without bumping, since absent keys read as unanswered.",
     "",
     "`questionSets` holds question lists more than one survey asks. A form takes",
     "a set by name and may append its own `questions` after it, so the shared",
@@ -31,6 +31,71 @@
     "stored as absent rather than empty. A question may only depend on one asked",
     "before it."
   ],
+  "reportingVersions": {
+    "discovery-habits": {
+      "1": {
+        "questions": [
+          {
+            "key": "discoverySource",
+            "summaryLabel": "Discovery source",
+            "options": [
+              { "value": "friends", "label": "Friends" },
+              { "value": "food-people", "label": "Food people" },
+              { "value": "social", "label": "Social media" },
+              { "value": "reviews", "label": "Reviews" },
+              { "value": "other", "label": "Other" }
+            ]
+          },
+          {
+            "key": "circleInterest",
+            "summaryLabel": "Interest in a circle",
+            "options": [
+              { "value": "yes", "label": "Yes" },
+              { "value": "maybe", "label": "Maybe" },
+              { "value": "no", "label": "No" }
+            ]
+          },
+          { "key": "valueNeeded", "summaryLabel": "What would make it valuable" }
+        ]
+      },
+      "2": {
+        "questions": [
+          {
+            "key": "lastSearchAction",
+            "summaryLabel": "Last search",
+            "options": [
+              { "value": "asked-person", "label": "Asked a specific person" },
+              { "value": "searched-maps", "label": "Searched maps or reviews" },
+              { "value": "went-back", "label": "Went back somewhere I knew" },
+              { "value": "saved-earlier", "label": "Something I’d saved earlier" },
+              { "value": "walked-picked", "label": "Just walked and picked" }
+            ]
+          },
+          {
+            "key": "lastRecommendWhen",
+            "summaryLabel": "Last recommended",
+            "options": [
+              { "value": "this-week", "label": "This week" },
+              { "value": "this-month", "label": "This month" },
+              { "value": "few-months", "label": "A few months ago" },
+              { "value": "cant-remember", "label": "Can’t remember" }
+            ]
+          },
+          {
+            "key": "recommendChannel",
+            "summaryLabel": "Channel",
+            "options": [
+              { "value": "text-whatsapp", "label": "Text or WhatsApp" },
+              { "value": "instagram-dm", "label": "Instagram or DM" },
+              { "value": "said-aloud", "label": "Said it out loud" },
+              { "value": "map-link", "label": "Shared a map link" }
+            ]
+          },
+          { "key": "discoveryFriction", "summaryLabel": "Friction" }
+        ]
+      }
+    }
+  },
   "questionSets": {
     "core-discovery": [
       {
