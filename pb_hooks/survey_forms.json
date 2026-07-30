@@ -64,59 +64,56 @@
         ]
       },
       {
-        "key": "lastRecommendWhen",
+        "key": "preferredSource",
         "kind": "single",
-        "summaryLabel": "Last recommended",
-        "prompt": "When did you last recommend a place to someone?",
-        "error": "Choose when you last recommended a place.",
+        "summaryLabel": "Preferred source",
+        "prompt": "Where would you rather get a recommendation from?",
+        "error": "Choose where you’d rather a recommendation came from.",
         "options": [
           {
-            "value": "this-week",
-            "label": "This week"
+            "value": "friend-taste",
+            "label": "A friend whose taste you know"
           },
           {
-            "value": "this-month",
-            "label": "This month"
+            "value": "food-writer",
+            "label": "Someone who writes about food professionally"
           },
           {
-            "value": "few-months",
-            "label": "A few months ago"
+            "value": "highest-rated",
+            "label": "Whatever’s rated highest"
           },
           {
-            "value": "cant-remember",
-            "label": "Can’t remember"
+            "value": "ai",
+            "label": "Asking an AI"
+          },
+          {
+            "value": "no-preference",
+            "label": "Doesn’t matter, I just want somewhere good"
           }
         ]
       },
       {
-        "key": "recommendChannel",
+        "key": "postedAboutFood",
         "kind": "single",
-        "summaryLabel": "Channel",
-        "prompt": "If yes to that — how did you send it?",
-        "note": "Skips itself if you can’t remember recommending one.",
-        "error": "Choose how you sent it.",
-        "appliesWhen": {
-          "key": "lastRecommendWhen",
-          "notIn": [
-            "cant-remember"
-          ]
-        },
+        "summaryLabel": "Posts about food",
+        "prompt": "Have you ever written a review, or posted a photo of a meal?",
+        "error": "Choose the closest answer.",
         "options": [
           {
-            "value": "text-whatsapp",
-            "label": "Text or WhatsApp"
+            "value": "regularly",
+            "label": "Yes, fairly regularly"
           },
           {
-            "value": "instagram-dm",
-            "label": "Instagram or DM"
+            "value": "once-or-twice",
+            "label": "Once or twice"
           },
           {
-            "value": "said-aloud",
-            "label": "Said it out loud"
+            "value": "tell-people",
+            "label": "No, but I tell people"
           },
           {
-            "value": "map-link",
-            "label": "Shared a map link"
+            "value": "never",
+            "label": "No, and I wouldn’t"
           }
         ]
       },
@@ -136,7 +133,7 @@
   },
   "forms": {
     "discovery-habits": {
-      "version": 2,
+      "version": 3,
       "audience": "public",
       "source": "public_survey",
       "questionSet": "core-discovery",
