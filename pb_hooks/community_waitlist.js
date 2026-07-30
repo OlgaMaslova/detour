@@ -1302,10 +1302,19 @@ function venueHasEditorialRecognition() {
 // correct poor automatic discovery on their own published places while a
 // catalogue venue's editorial links stay authoritative. Cleared entry links
 // never clear venue links.
+//
+// `image_url` is deliberately absent from the merged fields. A cover is not a
+// link: it is a photograph somebody took, and copying one member's picture onto
+// the shared venue record made it everyone's — and let a card show that picture
+// above a different member's words. Photos belong to the recommendation that
+// submitted them (see the curation routes in main.pb.js); `venues.image_url` is
+// written only by resolveCoverImage below, from the place's own web presence,
+// and serves as the fallback for a place whose fronting recommendation has no
+// photo of its own.
 function mergeEntryLinksIntoVenue(app, entry, venue) {
   let editorial = null;
   let changed = false;
-  for (const field of ["official_url", "instagram_url", "image_url"]) {
+  for (const field of ["official_url", "instagram_url"]) {
     const supplied = cleanText(entry.getString(field), 2048);
     if (!supplied) continue;
     const current = cleanText(venue.getString(field), 2048);

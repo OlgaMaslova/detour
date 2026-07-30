@@ -21,6 +21,14 @@ export interface PlaceNote {
   is_own?: boolean;
   founding_member?: boolean;
   created?: string;
+  /**
+   * The photo this member attached to this note, already resolved to a full URL
+   * by main.ts; '' when they attached none. Inside a note block the attribution
+   * is exact — this is only ever its own author's photo. The hero above is the
+   * looser one: it shows the newest photo any visible recommender contributed,
+   * which need not be the member quoted beneath it.
+   */
+  photoHref?: string;
 }
 
 /** Shell furniture — hrefs and fragments main.ts already renders elsewhere. */
@@ -62,7 +70,16 @@ export interface PlaceHelpers {
   shortDate(value: string | undefined): string;
 }
 
-/** Every note members attached to this place, attribution and date intact. */
+/**
+ * Every note members attached to this place, attribution and date intact —
+ * each with its own author's photo when they added one.
+ *
+ * Deliberately not a gallery. Collecting the photos into a grid of their own
+ * would separate each picture from the note that came with it, and would state
+ * a count: a member who can see two recommendations would learn from a
+ * five-photo grid that three more exist beyond their circle. Every photo here
+ * sits inside a note block the caller was already shown.
+ */
 function notesSection(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
   const notes = h.notes(v).filter((item) => {
     const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
@@ -94,7 +111,15 @@ function notesSection(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
           const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
           const memberLabel = item.is_own ? 'You' : recommender || '';
           const when = h.shortDate(item.created);
-          return `<blockquote class="detail-network-note place-note">
+          const photoAlt = memberLabel
+            ? `Photo by ${memberLabel}`
+            : 'Photo from this recommendation';
+          return `<blockquote class="detail-network-note place-note${item.photoHref ? ' has-photo' : ''}">
+            ${
+              item.photoHref
+                ? `<figure class="place-note-photo"><img src="${h.esc(item.photoHref)}" alt="${h.esc(photoAlt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-place-note-photo></figure>`
+                : ''
+            }
             <p>${h.esc(item.note || '')}</p>
             <footer>
               <span class="place-note-author">Recommended by <strong class="network-pseudo">${h.esc(memberLabel)}</strong></span>${

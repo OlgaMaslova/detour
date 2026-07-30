@@ -20,14 +20,19 @@ import { pb } from './pocketbase';
 import { bindCircle, circleMarkup, resetCircle } from './circle';
 import {
   bindNetworkDiscovery,
+  coverPhotoHref,
   ensureNetworkDiscovery,
   groupedRecommendationCardMarkup,
   markFirstPlaceContributed,
+  markRecommendationPhotoFailed,
   networkDiscoveryMarkup,
   networkPlaceNotes,
   networkPlaceNotesState,
+  recommendationPhotoHref,
   resetNetworkDiscovery,
   retryNetworkPlaceNotes,
+  NOTE_PHOTO_THUMB,
+  PLACE_PHOTO_THUMB,
 } from './network';
 import type { DiscoveryRecommendation } from './network';
 import { defaultSurveyForm, renderSurvey, surveyFormFromPath, surveyMeta, surveyPath } from './survey';
@@ -1037,10 +1042,22 @@ function coverInitial(v: Venue): string {
  * exposes a broken image or changes silhouette. Card covers are decorative; the
  * detail and place covers carry a concise accessible label in both image and
  * fallback states.
+ *
+ * `photoHref` is the fronting recommendation's own photo and wins when present;
+ * `v.imageUrl` is the place's enrichment-sourced cover and is only the fallback.
+ * Callers pass the photo of whichever recommendation they are also showing the
+ * note of, so the picture and the words are one member's.
  */
-function venueCover(v: Venue, variant: CoverVariant = 'card'): string {
-  const image = safeExternalHref(v.imageUrl);
-  const usable = image && !failedCoverUrls.has(image);
+function venueCover(v: Venue, variant: CoverVariant = 'card', photoHref = ''): string {
+  // The resolution order, applied against what is actually loadable: a photo
+  // that failed earlier this session drops through to the next candidate rather
+  // than dead-ending on the monogram, so a broken member photo does not hide a
+  // perfectly good place cover.
+  const image =
+    [photoHref, safeExternalHref(v.imageUrl)].find(
+      (candidate) => candidate && !failedCoverUrls.has(candidate)
+    ) || '';
+  const usable = Boolean(image);
   const initial = coverInitial(v);
   const baseClass = `${variant}-cover`;
   const placeholderClass = usable ? '' : ` cover-placeholder ${baseClass}-placeholder`;
@@ -1091,6 +1108,33 @@ function recommendationNotesForVenue(v: Venue) {
     const itemCity = normalizePlacePart(item.city || '');
     return !itemCity || !city || itemCity === city;
   });
+}
+
+/**
+ * The place page's own notes, each carrying its author's photo.
+ *
+ * Nothing else on the page reaches for a photograph: the hero below uses the
+ * fronting note's, and every other photo appears only inside the note block it
+ * belongs to.
+ */
+function placeNotesForVenue(v: Venue) {
+  return recommendationNotesForVenue(v).map((item) => ({
+    ...item,
+    photoHref: recommendationPhotoHref(item.photo_url, NOTE_PHOTO_THUMB),
+  }));
+}
+
+/**
+ * The hero image for a place page: the newest visible recommendation photo,
+ * otherwise the place's enrichment cover, otherwise the monogram.
+ *
+ * The same resolution the cards use, on purpose — a place must not present one
+ * member's photograph on the list and a different one when opened. Each note
+ * further down the page still shows only its own author's photo; this is the
+ * one spot where a picture is not attributable to the words beside it.
+ */
+function placeHeroPhotoHref(v: Venue): string {
+  return coverPhotoHref(recommendationNotesForVenue(v), PLACE_PHOTO_THUMB);
 }
 
 /**
@@ -1255,11 +1299,11 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
   const helpers: PlaceHelpers = {
     esc,
     safeExternalHref,
-    cover: (venue) => venueCover(venue, 'place'),
+    cover: (venue) => venueCover(venue, 'place', placeHeroPhotoHref(venue)),
     visitLinks: venueVisitLinks,
     directionsHref,
     occasionLabels: (venue) => venueOccasions(venue).map(occasionLabel),
-    notes: recommendationNotesForVenue,
+    notes: placeNotesForVenue,
     notesStatus: recommendationLoadStatus(destination.name),
     shortDate,
   };
@@ -1278,6 +1322,19 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
   root.querySelectorAll<HTMLImageElement>('[data-cover-image]').forEach((img) => {
     img.addEventListener('error', () => showCoverFallback(img), { once: true });
     if (img.complete && img.naturalWidth === 0) showCoverFallback(img);
+  });
+  // A note's photo that will not load is removed rather than replaced: the note
+  // is the content here, and a monogram inside somebody's recommendation would
+  // read as an image they attached. The URL is remembered so the hero and the
+  // cards stop offering it too.
+  const dropNotePhoto = (img: HTMLImageElement) => {
+    markRecommendationPhotoFailed(img.currentSrc || img.src);
+    failedCoverUrls.add(img.currentSrc || img.src);
+    img.closest<HTMLElement>('.place-note-photo')?.remove();
+  };
+  root.querySelectorAll<HTMLImageElement>('[data-place-note-photo]').forEach((img) => {
+    img.addEventListener('error', () => dropNotePhoto(img), { once: true });
+    if (img.complete && img.naturalWidth === 0) dropNotePhoto(img);
   });
   if (placeIsLocated(v)) mountLocatorMap(root, v);
   else destroyLocatorMap();
@@ -2041,6 +2098,10 @@ function renderHome(root: HTMLElement): void {
   root.querySelectorAll<HTMLImageElement>('[data-network-thumb]').forEach((img) => {
     img.addEventListener('error', () => {
       failedCoverUrls.add(img.currentSrc || img.src);
+      // A thumb can be a member's photo or the place's cover. Remembering a
+      // failed photo separately lets the next render fall through to the place
+      // cover rather than dropping straight to the monogram.
+      markRecommendationPhotoFailed(img.currentSrc || img.src);
       const figure = img.closest<HTMLElement>('.network-entry-thumb');
       if (!figure || figure.classList.contains('cover-placeholder')) return;
       figure.classList.add('cover-placeholder', 'network-entry-thumb-placeholder');

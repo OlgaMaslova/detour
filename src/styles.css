@@ -2824,6 +2824,26 @@ legend { color: var(--tape-text); }
   scroll-snap-align: start;
 }
 .place-note p { color: var(--tape-text); font-family: var(--tape-mono); font-size: 14px; line-height: 1.65; }
+/* The photo sits inside the note block, above its author's words — never
+   collected into a grid of its own. Deliberately a small attachment rather than
+   a hero: the note is the content here, and a full-width image would make a
+   note with a photo tower over the one beside it in the carousel. */
+.place-note-photo {
+  margin: 0 0 0.6rem;
+  width: 100%;
+  max-width: 11rem;
+  overflow: hidden;
+  border-radius: 3px;
+  border: 1px solid var(--tape-hairline);
+  background: color-mix(in srgb, var(--tape-chrome) 8%, transparent);
+}
+.place-note-photo img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
 .place-note footer {
   display: flex;
   flex-wrap: wrap;

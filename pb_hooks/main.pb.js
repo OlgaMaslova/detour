@@ -411,6 +411,7 @@ routerAdd(
 // CRUD rules, so independently enforce visibility and fixture exclusions here.
 routerAdd("GET", "/api/detour/public-recommendations", (e) => {
   const founding = require(__hooks + "/founding_cap.js");
+  const photos = require(__hooks + "/recommendation_photos.js");
   function meaningfulText(value) {
     if (typeof value !== "string") return "";
     const normalized = value.replace(/\s+/g, " ").trim();
@@ -434,6 +435,10 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
       return null;
     }
     return {
+      // The recommendation's own id. Clients front the most recent
+      // recommendation for a place and break ties on this, so the same card
+      // shows the same note and the same photo on every render.
+      id: String(row.recommendation_id || "").trim(),
       venue_name: venueName,
       city: city,
       country: country,
@@ -441,6 +446,8 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
       recommender_pseudo: recommenderPseudo,
       founding_member: Boolean(row.founding_member),
       venue_id: venueId,
+      // The photo this member attached to this note, never the venue's cover.
+      photo_url: photos.photoUrl(e.app, row),
     };
   }
 
@@ -460,32 +467,37 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
   }
 
   const city = normalizeCityFilter(e.request.url.query().get("city") || "");
-  const rows = arrayOf(
-    new DynamicModel({
-      venue_name: "",
-      city: "",
-      country: "",
-      note: "",
-      recommender_pseudo: "",
-      founding_member: false,
-      venue_id: "",
-    })
-  );
+  const rowShape = {
+    recommendation_id: "",
+    venue_name: "",
+    city: "",
+    country: "",
+    note: "",
+    recommender_pseudo: "",
+    founding_member: false,
+    venue_id: "",
+  };
+  const photoFields = photos.photoRowFields();
+  for (const key of Object.keys(photoFields)) rowShape[key] = photoFields[key];
+  const rows = arrayOf(new DynamicModel(rowShape));
 
   try {
     const projection =
+      "COALESCE(r.id, '') AS recommendation_id, " +
       "COALESCE(TRIM(v.name), '') AS venue_name, " +
       "COALESCE(TRIM(v.city), '') AS city, " +
       "COALESCE(TRIM(v.country), '') AS country, " +
       "COALESCE(TRIM(r.note), '') AS note, " +
       "COALESCE(TRIM(m.pseudo), '') AS recommender_pseudo, " +
       "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
-      "COALESCE(v.id, '') AS venue_id ";
+      "COALESCE(v.id, '') AS venue_id " +
+      photos.photoColumns();
     const joinsAndFilters =
       "FROM community_recommendations r " +
       "JOIN members m ON m.id = r.member " +
       "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
       "JOIN venues v ON v.id = w.published_venue " +
+      photos.photoJoin("r") +
       "WHERE w.status = 'published' " +
       "AND w.published_venue != '' " +
       "AND w.published_at != '' " +
@@ -512,7 +524,7 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
       sql =
         "WITH ranked AS (" +
         "SELECT " + projection +
-        ", r.created AS recommendation_created, r.id AS recommendation_id, " +
+        ", r.created AS recommendation_created, " +
         "ROW_NUMBER() OVER (" +
         "PARTITION BY LOWER(TRIM(v.city)), LOWER(TRIM(v.country)) " +
         "ORDER BY r.created DESC, r.id DESC" +
@@ -520,7 +532,8 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
         joinsAndFilters +
         "AND " + founding.foundingMemberSql("m") + " " +
         ") " +
-        "SELECT venue_name, city, country, note, recommender_pseudo, founding_member, venue_id " +
+        "SELECT recommendation_id, venue_name, city, country, note, recommender_pseudo, " +
+        "founding_member, venue_id, photo_id, photo_file " +
         "FROM ranked WHERE city_rank = 1 " +
         "ORDER BY recommendation_created DESC, recommendation_id DESC LIMIT 3";
     }
@@ -545,8 +558,36 @@ routerAdd(
   "/api/detour/network-discovery",
   (e) => {
     const founding = require(__hooks + "/founding_cap.js");
+    const photos = require(__hooks + "/recommendation_photos.js");
     // Route handlers run in isolated VMs, so all route-specific helpers and
     // query models live inside this handler.
+    function recommendationRowShape() {
+      const shape = {
+        recommendation_id: "",
+        recommender_pseudo: "",
+        member_id: "",
+        founding_member: false,
+        note: "",
+        venue_name: "",
+        city: "",
+        country: "",
+        address: "",
+        created: "",
+      };
+      const photoFields = photos.photoRowFields();
+      for (const key of Object.keys(photoFields)) shape[key] = photoFields[key];
+      return shape;
+    }
+
+    // The recommendation columns every branch below selects, photo included.
+    // Written once so the anonymous sample and the member feed cannot drift
+    // into showing a photo on one surface and not the other.
+    const recommendationColumns =
+      "r.id AS recommendation_id, m.pseudo AS recommender_pseudo, m.id AS member_id, " +
+      "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
+      "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
+      photos.photoColumns();
+
     function projectReply(row) {
       return {
         id: row.id,
@@ -575,6 +616,10 @@ routerAdd(
 
     function projectRecommendation(row, callerId) {
       return {
+        // Clients front the most recent recommendation per place and break ties
+        // on this id, so a card's note and its cover stay the same pair across
+        // renders.
+        id: row.recommendation_id,
         venue_name: row.venue_name,
         recommender_pseudo: row.recommender_pseudo,
         is_own: row.member_id === callerId,
@@ -584,6 +629,10 @@ routerAdd(
         country: row.country,
         address: row.address,
         created: row.created,
+        // Attached to this recommendation by its own author. Selected in the
+        // same projection as the note, so it is visible to exactly the callers
+        // the note is.
+        photo_url: photos.photoUrl(e.app, row),
       };
     }
 
@@ -594,28 +643,15 @@ routerAdd(
     // published recommendations stand in so the section is never empty.
     if (!e.auth || !e.auth.id) {
       function sampleRecommendations(visibilitySql) {
-        const rows = arrayOf(
-          new DynamicModel({
-            recommender_pseudo: "",
-            member_id: "",
-            founding_member: false,
-            note: "",
-            venue_name: "",
-            city: "",
-            country: "",
-            address: "",
-            created: "",
-          })
-        );
+        const rows = arrayOf(new DynamicModel(recommendationRowShape()));
         e.app
           .db()
           .newQuery(
-            "SELECT m.pseudo AS recommender_pseudo, m.id AS member_id, " +
-              "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
-              "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
+            "SELECT " + recommendationColumns +
               "FROM community_recommendations r " +
               "JOIN members m ON m.id = r.member " +
               "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+              photos.photoJoin("r") +
               "WHERE w.status = 'published' AND w.published_venue != '' " +
               "AND COALESCE(m.internal_member, FALSE) = FALSE " +
               "AND m.community_status = 'verified' " +
@@ -721,27 +757,14 @@ routerAdd(
       repliesByShare[row.share_id].push(projectReply(row));
     }
 
-    const recommendationRows = arrayOf(
-      new DynamicModel({
-        recommender_pseudo: "",
-        member_id: "",
-        founding_member: false,
-        note: "",
-        venue_name: "",
-        city: "",
-        country: "",
-        address: "",
-        created: "",
-      })
-    );
+    const recommendationRows = arrayOf(new DynamicModel(recommendationRowShape()));
     e.app
       .db()
       .newQuery(
-        "SELECT m.pseudo AS recommender_pseudo, m.id AS member_id, " +
-          "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
-          "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
+        "SELECT " + recommendationColumns +
           "FROM community_recommendations r " +
           "JOIN members m ON m.id = r.member " +
+          photos.photoJoin("r") +
           "WHERE COALESCE(m.internal_member, FALSE) = FALSE " +
           "AND (m.id = {:caller} " +
           "OR (m.community_status = 'verified' AND m.discovery_visible = TRUE)) " +
@@ -1299,27 +1322,32 @@ routerAdd(
       return e.json(200, { name: name, private: true, items: [] });
     }
 
-    const rows = arrayOf(
-      new DynamicModel({
-        recommender_pseudo: "",
-        founding_member: false,
-        note: "",
-        venue_name: "",
-        city: "",
-        country: "",
-        address: "",
-        created: "",
-      })
-    );
+    const photos = require(__hooks + "/recommendation_photos.js");
+    const rowShape = {
+      recommendation_id: "",
+      recommender_pseudo: "",
+      founding_member: false,
+      note: "",
+      venue_name: "",
+      city: "",
+      country: "",
+      address: "",
+      created: "",
+    };
+    const photoFields = photos.photoRowFields();
+    for (const key of Object.keys(photoFields)) rowShape[key] = photoFields[key];
+    const rows = arrayOf(new DynamicModel(rowShape));
     e.app
       .db()
       .newQuery(
-        "SELECT m.pseudo AS recommender_pseudo, " +
+        "SELECT r.id AS recommendation_id, m.pseudo AS recommender_pseudo, " +
           "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
           "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
+          photos.photoColumns() +
           "FROM community_recommendations r " +
           "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
           "JOIN members m ON m.id = r.member " +
+          photos.photoJoin("r") +
           "WHERE r.member = {:target} " +
           "AND w.status = 'published' AND w.published_venue != '' " +
           "ORDER BY r.created DESC, r.id DESC LIMIT 100"
@@ -1330,6 +1358,7 @@ routerAdd(
     const items = [];
     for (const row of rows) {
       items.push({
+        id: row.recommendation_id,
         venue_name: row.venue_name,
         recommender_pseudo: row.recommender_pseudo,
         is_own: targetId === callerId,
@@ -1339,6 +1368,7 @@ routerAdd(
         country: row.country,
         address: row.address,
         created: row.created,
+        photo_url: photos.photoUrl(e.app, row),
       });
     }
 
@@ -2131,8 +2161,9 @@ onRecordAfterDeleteSuccess((e) => {
 // Member-supplied images never update a place directly. Public collection
 // creation is disabled; the custom route below accepts the candidate URL,
 // creates a stable PocketBase snapshot, and initializes every server-owned
-// moderation field. Only a founding-member approval route can attach the
-// snapshot to a public venue.
+// moderation field. Only a founding-member approval route can make a snapshot
+// visible, and then only as the cover of the recommendation that submitted it —
+// never as the place's own image.
 onRecordCreateRequest((e) => {
   if (e.hasSuperuserAuth()) {
     return e.next();
@@ -2159,9 +2190,17 @@ routerAdd(
       "community_waitlist_entries",
       waitlistId
     );
-    if (!community.isParticipant(entry, e.auth.id)) {
+    // A photo hangs off a recommendation, so the caller must have written one.
+    // Being a participant is no longer enough: somebody who only received this
+    // place as a private share has no note here for a photo to belong to.
+    const recommendation = community.findMemberRecommendation(
+      e.app,
+      e.auth.id,
+      entry.id
+    );
+    if (!recommendation) {
       throw new BadRequestError(
-        "Recommend this place before submitting an image for it."
+        "Write your recommendation for this place before adding a photo to it."
       );
     }
 
@@ -2203,6 +2242,7 @@ routerAdd(
     );
     const image = new Record(collection);
     image.set("waitlist", entry.id);
+    image.set("recommendation", recommendation.id);
     image.set("submitted_by", e.auth.id);
     image.set("source_url", links.image_url);
     image.set("snapshot", snapshot);
@@ -2226,6 +2266,7 @@ routerAdd(
     return e.json(201, {
       id: saved.id,
       waitlist: saved.getString("waitlist"),
+      recommendation: saved.getString("recommendation"),
       status: saved.getString("status"),
     });
   },
@@ -2304,40 +2345,52 @@ routerAdd(
           "Only an unflagged image awaiting founder review can be approved."
         );
       }
-      const entry = txApp.findRecordById(
-        "community_waitlist_entries",
-        image.getString("waitlist")
-      );
-      const venueId = entry.getString("published_venue");
-      if (!venueId) {
+      // The photo belongs to a recommendation, so approving it needs one to
+      // belong to. A submission whose recommendation was withdrawn while it sat
+      // in the queue is cascade-deleted with it and never reaches this route;
+      // a pre-migration row that could not be matched to its author is refused
+      // here rather than approved into nothing.
+      const recommendationId = image.getString("recommendation");
+      if (!recommendationId) {
         throw new BadRequestError(
-          "This place must be published before its image can be approved."
+          "This photo is not attached to a recommendation and cannot be approved."
         );
       }
-      const venue = txApp.findRecordById("venues", venueId);
-      const previousImageId = venue.getString("curated_image");
-      if (previousImageId && previousImageId !== image.id) {
-        try {
-          const previous = txApp.findRecordById(
-            "community_place_images",
-            previousImageId
-          );
-          if (previous.getString("status") === "approved") {
-            previous.set("status", "superseded");
-            txApp.save(previous);
-          }
-        } catch {
-          // A missing prior image must not block a valid replacement.
-        }
+      const recommendation = txApp.findRecordById(
+        "community_recommendations",
+        recommendationId
+      );
+
+      // One approved photo per recommendation: a member replacing their own
+      // photo supersedes their previous one. Scoped to the recommendation, not
+      // to the place — approving one member's photo must never retire another
+      // member's, which is exactly what the venue-scoped version did.
+      const superseded = txApp.findRecordsByFilter(
+        "community_place_images",
+        "recommendation = {:recommendation} && status = 'approved' && id != {:id}",
+        "created",
+        20,
+        0,
+        { recommendation: recommendation.id, id: image.id }
+      );
+      for (const previous of superseded) {
+        previous.set("status", "superseded");
+        txApp.save(previous);
       }
+
       image.set("status", "approved");
       image.set("reviewed_by", e.auth.id);
       image.set("reviewed_at", new Date().toISOString());
       image.set("curator_note", curatorNote);
       txApp.save(image);
-      venue.set("curated_image", image.id);
-      txApp.save(venue);
-      result = { id: image.id, status: "approved", venue_id: venue.id };
+      // Nothing is written to the venue. The place's own `image_url` stays
+      // enrichment-sourced and remains the fallback for recommendations
+      // without a photo.
+      result = {
+        id: image.id,
+        status: "approved",
+        recommendation_id: recommendation.id,
+      };
     });
 
     return e.json(200, result);
@@ -2414,9 +2467,13 @@ onRecordUpdateRequest((e) => {
     }
   }
 
+  // A place has no member-supplied photo of its own any more: a photo belongs
+  // to the recommendation whose author took it, and reaches the public through
+  // the screened curation route. This field is inert legacy state, frozen so a
+  // request cannot revive a shared member-authored cover through the back door.
   if (e.record.getString("image_url") !== original.getString("image_url")) {
     throw new BadRequestError(
-      "Place photos must go through safety screening and founding-member review."
+      "A photo belongs to your recommendation. Add it there, and it goes through safety screening and founding-member review."
     );
   }
 
@@ -2482,17 +2539,12 @@ onRecordUpdateRequest((e) => {
     community.validateOccasions(e.record.getStringSlice("occasions"))
   );
 
-  const links = community.validateMemberPlaceLinks(
-    {
-      officialUrl: e.record.getString("official_url"),
-      instagram: e.record.getString("instagram_url"),
-      imageUrl: e.record.getString("image_url"),
-    },
-    { verifiedImageUrl: original.getString("image_url") }
-  );
+  const links = community.validateMemberPlaceLinks({
+    officialUrl: e.record.getString("official_url"),
+    instagram: e.record.getString("instagram_url"),
+  });
   e.record.set("official_url", links.official_url);
   e.record.set("instagram_url", links.instagram_url);
-  e.record.set("image_url", links.image_url);
   e.next();
 }, "community_waitlist_entries");
 

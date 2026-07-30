@@ -8,6 +8,8 @@ type InviteRequestStatus = 'idle' | 'submitting' | 'success';
 type InviteRequestField = 'name' | 'email' | 'city' | 'why';
 
 export interface DiscoveryRecommendation {
+  /** The recommendation's own id, used to break recency ties deterministically. */
+  id?: string;
   recommender_pseudo?: string;
   is_own?: boolean;
   founding_member?: boolean;
@@ -18,9 +20,16 @@ export interface DiscoveryRecommendation {
   country?: string;
   address?: string;
   created?: string;
+  /**
+   * The photo this member attached to this note, as an API file path. Arrives in
+   * the same projection as the note, so it is never visible to anyone the note
+   * is not — and can never be shown above somebody else's words.
+   */
+  photo_url?: string;
 }
 
 interface PublicRecommendation {
+  id?: string;
   venue_name: string;
   city: string;
   country?: string;
@@ -29,6 +38,7 @@ interface PublicRecommendation {
   founding_member?: boolean;
   created?: string;
   venue_id?: string;
+  photo_url?: string;
 }
 
 interface DiscoveryReply {
@@ -159,12 +169,46 @@ function cleanDate(value: unknown): string | undefined {
   return text;
 }
 
+/**
+ * A recommendation photo as the server addresses it: a root-relative API file
+ * path. Resolved here against the configured API base, because the frontend and
+ * the API are on different origins. Anything else — an absolute link, a
+ * protocol-relative one, a path pointing outside the files API — is dropped
+ * rather than rendered, so a stored value can never redirect a member's browser
+ * somewhere the API did not put a file.
+ */
+function cleanPhotoPath(value: unknown): string | undefined {
+  const raw = cleanText(value);
+  if (!raw || !raw.startsWith('/api/files/') || raw.startsWith('//')) return undefined;
+  return raw;
+}
+
+/**
+ * Recommendation photos that failed to load this session. A card whose photo is
+ * in here falls through to its place's cover instead of re-requesting a broken
+ * URL on every render — the same memory main.ts keeps for venue covers, kept
+ * here because this module renders the cards.
+ */
+const failedPhotoUrls = new Set<string>();
+
+export function markRecommendationPhotoFailed(url: string): void {
+  if (url) failedPhotoUrls.add(url);
+}
+
+/** The absolute URL for a recommendation photo at the size a surface needs. */
+export function recommendationPhotoHref(path: string | undefined, thumb: string): string {
+  if (!path) return '';
+  const href = `${apiBaseUrl.replace(/\/$/, '')}${path}?thumb=${encodeURIComponent(thumb)}`;
+  return failedPhotoUrls.has(href) ? '' : href;
+}
+
 function cleanRecommendation(value: unknown): DiscoveryRecommendation | null {
   if (!value || typeof value !== 'object') return null;
   const item = value as Record<string, unknown>;
   const venueName = cleanText(item.venue_name);
   if (!venueName) return null;
   return {
+    id: cleanText(item.id),
     venue_name: venueName,
     venue_id: cleanText(item.venue_id),
     recommender_pseudo: cleanText(item.recommender_pseudo),
@@ -175,6 +219,7 @@ function cleanRecommendation(value: unknown): DiscoveryRecommendation | null {
     country: cleanText(item.country),
     address: cleanText(item.address),
     created: cleanDate(item.created),
+    photo_url: cleanPhotoPath(item.photo_url),
   };
 }
 
@@ -187,6 +232,7 @@ function cleanPublicRecommendation(value: unknown): PublicRecommendation | null 
   const recommenderPseudo = cleanText(item.recommender_pseudo)?.replace(/^@+/, '');
   if (!venueName || !city || !note || !recommenderPseudo) return null;
   return {
+    id: cleanText(item.id),
     venue_name: venueName,
     city,
     country: cleanText(item.country),
@@ -195,6 +241,7 @@ function cleanPublicRecommendation(value: unknown): PublicRecommendation | null 
     founding_member: item.founding_member === true,
     created: cleanDate(item.created),
     venue_id: cleanText(item.venue_id),
+    photo_url: cleanPhotoPath(item.photo_url),
   };
 }
 
@@ -523,6 +570,54 @@ function recencyValue(item: { created?: string }): number {
   return item.created ? new Date(item.created).getTime() : 0;
 }
 
+/**
+ * The ordering that decides which recommendation fronts a place: most recent
+ * first, ties broken by id.
+ *
+ * The tie-break is not cosmetic. Two recommendations written in the same second
+ * would otherwise swap places between renders, and because a card's photo comes
+ * from whichever one fronts it, the card would flicker between two members'
+ * photographs — each time re-pairing a picture with the note beside it. Sorting
+ * on a stable key makes the pairing stable too.
+ */
+function frontingOrder(a: DiscoveryRecommendation, b: DiscoveryRecommendation): number {
+  return recencyValue(b) - recencyValue(a) || (b.id || '').localeCompare(a.id || '');
+}
+
+/** Rendered sizes. Cards get a thumbnail; a hero and a note block get the wide crop. */
+const CARD_PHOTO_THUMB = '480x360';
+export const PLACE_PHOTO_THUMB = '1200x900';
+export const NOTE_PHOTO_THUMB = '480x360';
+
+/**
+ * The recommendation a cover is taken from: the most recent visible one that
+ * actually has a photo, which is not always the one fronting the note.
+ *
+ * This is a deliberate reversal of the stricter rule that a card may only show
+ * the fronting recommendation's own photo. Under that rule a place fell back to
+ * its monogram whenever the newest note happened to carry no picture, even
+ * though an older member had contributed a perfectly good one — which is the
+ * common case, since most notes have no photo. The cost is real and should be
+ * named: the picture above a note may now be someone else's, so a cover is no
+ * longer evidence that the member quoted beneath it took the photograph.
+ *
+ * What this does NOT do is widen visibility. `items` is already the caller's
+ * visible set — the server only ever projects notes the caller may read, and
+ * the photo rides along in that same projection — so searching it for a photo
+ * can never surface one from a recommendation the caller was not already shown,
+ * and can never hint that such a recommendation exists.
+ */
+function coverRecommendation(
+  items: DiscoveryRecommendation[]
+): DiscoveryRecommendation | undefined {
+  return [...items].sort(frontingOrder).find((item) => Boolean(item.photo_url));
+}
+
+/** The cover photo for a place, given every recommendation the caller can see. */
+export function coverPhotoHref(items: DiscoveryRecommendation[], thumb: string): string {
+  return recommendationPhotoHref(coverRecommendation(items)?.photo_url, thumb);
+}
+
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -614,6 +709,8 @@ function recommendationCardMarkup(
     recent?: boolean;
     trustedEntry?: boolean;
     selected?: boolean;
+    /** The fronting recommendation's photo, already resolved to a full URL. */
+    photoHref?: string;
   },
   resolvePlace?: NetworkPlaceResolver
 ): string {
@@ -625,13 +722,20 @@ function recommendationCardMarkup(
   const title = place
     ? `<a class="network-entry-place" href="${esc(place.placeHref)}" data-place="${esc(place.venueId)}" aria-label="Open the ${esc(view.venueName)} place page">${esc(view.venueName)}</a>`
     : esc(view.venueName);
-  // Every card carries a cover of the same height — a photo when the place has
-  // one, otherwise the monogram placeholder the catalogue and detail views
-  // already use. A card that skipped it would be stretched to its neighbour's
-  // photo and collect the difference as one dead gap.
+  // The cover is the newest visible recommendation's photo, falling back to the
+  // place's enrichment cover — resolved by the caller, which is the only place
+  // that knows the full set of recommendations behind this card. It is not
+  // necessarily the photo of the member quoted below; see coverRecommendation.
+  //
+  // With neither, the card keeps the monogram placeholder the catalogue and
+  // detail views use rather than dropping the figure. This is the "no image"
+  // rendering, not a demotion — every card holds the same silhouette, and one
+  // that skipped its cover would be stretched to its neighbour's photo and
+  // collect the difference as a dead gap.
   const initial = (view.venueName.trim().charAt(0) || '•').toUpperCase();
-  const thumb = place?.imageUrl
-    ? `<figure class="network-entry-thumb" data-cover-initial="${esc(initial)}" aria-hidden="true"><img src="${esc(place.imageUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-network-thumb></figure>`
+  const coverHref = view.photoHref || place?.imageUrl || '';
+  const thumb = coverHref
+    ? `<figure class="network-entry-thumb" data-cover-initial="${esc(initial)}" aria-hidden="true"><img src="${esc(coverHref)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-network-thumb></figure>`
     : `<figure class="network-entry-thumb cover-placeholder network-entry-thumb-placeholder" data-cover-initial="${esc(initial)}" aria-hidden="true"><span aria-hidden="true">${esc(initial)}</span></figure>`;
   return `<article class="network-entry network-recommendation network-entry-with-thumb${view.recent ? ' is-recent' : ''}${view.trustedEntry ? ' trusted-entry' : ''}${view.selected ? ' is-selected' : ''}" data-network-recommendation${place ? ' data-place-card' : ''}>
     <div class="network-entry-main">
@@ -681,7 +785,9 @@ function groupRecommendations(
   resolvePlace?: NetworkPlaceResolver
 ): RecommendationGroup[] {
   const groups = new Map<string, DiscoveryRecommendation[]>();
-  for (const item of [...items].sort((a, b) => recencyValue(b) - recencyValue(a))) {
+  // Sorted by the fronting order, so each group's first item is the one that
+  // fronts its card — and stays the one across renders.
+  for (const item of [...items].sort(frontingOrder)) {
     const key = recommendationPlaceKey(item, resolvePlace);
     const group = groups.get(key);
     if (group) group.push(item);
@@ -689,21 +795,26 @@ function groupRecommendations(
   }
   return Array.from(groups.values())
     .map((groupItems) => ({ items: groupItems }))
-    .sort((a, b) => recencyValue(b.items[0]) - recencyValue(a.items[0]));
+    .sort((a, b) => frontingOrder(a.items[0], b.items[0]));
 }
 
 /**
  * The one grouped place-card renderer used by home and destination/Explore
  * lists. A place gets one card, one representative note and one combined
  * byline; its place page is where every recommendation is shown in full.
+ *
+ * The representative note is the fronting recommendation. The cover is the
+ * newest visible photo among all of them, which may belong to a different
+ * member — the place keeps showing a picture once any recommender has
+ * contributed one, rather than blanking whenever the newest note has none.
  */
 export function groupedRecommendationCardMarkup(
   items: DiscoveryRecommendation[],
   resolvePlace?: NetworkPlaceResolver,
   options: { trustedEntry?: boolean; selected?: boolean; markRecent?: boolean } = {}
 ): string {
-  const latest = items[0];
-  if (!latest) return '';
+  const fronting = [...items].sort(frontingOrder)[0];
+  if (!fronting) return '';
   const memberLabels = items
     .map((item) => {
       if (item.is_own) return '<strong class="network-pseudo">You</strong>';
@@ -716,18 +827,20 @@ export function groupedRecommendationCardMarkup(
       : `${memberLabels[0]}<span> + ${memberLabels.length - 1} others</span>`;
   return recommendationCardMarkup(
     {
-      venueName: latest.venue_name || 'Recommended food-and-drink destination',
-      city: latest.city,
-      country: latest.country,
-      note: latest.note,
-      created: latest.created,
+      venueName: fronting.venue_name || 'Recommended food-and-drink destination',
+      city: fronting.city,
+      country: fronting.country,
+      note: fronting.note,
+      created: fronting.created,
       bylineHtml,
       recommendationCount: items.length,
       foundingChoice: items.some((item) => item.founding_member),
       // Only the home feed states a 24-hour count, so only it asks for badges.
-      recent: options.markRecent ? isRecent(latest) : false,
+      recent: options.markRecent ? isRecent(fronting) : false,
       trustedEntry: options.trustedEntry,
       selected: options.selected,
+      // Searched across the group, not taken from `fronting`.
+      photoHref: coverPhotoHref(items, CARD_PHOTO_THUMB),
     },
     resolvePlace
   );
@@ -743,6 +856,8 @@ function recommendationMarkup(item: DiscoveryRecommendation, resolvePlace?: Netw
       created: item.created,
       bylineHtml: item.is_own ? '<strong class="network-pseudo">You</strong>' : pseudo(item.recommender_pseudo),
       foundingChoice: item.founding_member,
+      // A single-recommendation card fronts the only recommendation it has.
+      photoHref: recommendationPhotoHref(item.photo_url, CARD_PHOTO_THUMB),
     },
     resolvePlace
   );

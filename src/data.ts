@@ -2,7 +2,6 @@ import { pb } from './pocketbase';
 import type { CityBounds, CityMapSource } from './cities';
 import { knownOccasions } from './occasions';
 import type { Occasion } from './occasions';
-import type { RecordModel } from 'pocketbase';
 
 export interface Venue {
   id: string;
@@ -28,6 +27,12 @@ export interface Venue {
   instagramUrl?: string;
   /** Optional detail content retained for compatibility with the existing UI contract. */
   description?: string;
+  /**
+   * The place's own cover, resolved by the enrichment sweeps from its website or
+   * Instagram profile. Never a member's photograph: a member's picture belongs
+   * to the recommendation they wrote, and this is only the fallback for a card
+   * or hero whose fronting recommendation has no photo of its own.
+   */
   imageUrl?: string;
   /**
    * Factual occasion tags. Owned by the venue record itself — a place has
@@ -98,10 +103,6 @@ type VenueRecord = Record<string, unknown> & {
   official_url?: string;
   instagram_url?: string;
   image_url?: string;
-  curated_image?: string;
-  expand?: {
-    curated_image?: CuratedImageRecord;
-  };
   approx_location?: boolean;
   /**
    * Occasion tags now live on the venue: they are place facts, not properties of
@@ -124,10 +125,6 @@ type VenueRecord = Record<string, unknown> & {
    */
   published?: boolean;
 };
-
-interface CuratedImageRecord extends RecordModel {
-  snapshot?: string;
-}
 
 type MemberContributionRecord = Record<string, unknown> & {
   id: string;
@@ -250,8 +247,7 @@ export function venuePlaceSlug(v: Venue, all: Venue[]): string {
 export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
   const [venueRecords, cityRecords, contributionRecords, detouristSignals] = await Promise.all([
     pb.collection('venues').getFullList<VenueRecord>({
-      fields: 'id,name,city,country,address,lat,lng,category,official_url,instagram_url,image_url,curated_image,approx_location,occasions,suppressed,published,expand.curated_image.id,expand.curated_image.collectionId,expand.curated_image.collectionName,expand.curated_image.snapshot',
-      expand: 'curated_image',
+      fields: 'id,name,city,country,address,lat,lng,category,official_url,instagram_url,image_url,approx_location,occasions,suppressed,published',
       sort: 'city,name',
       requestKey: null,
     }),
@@ -375,12 +371,6 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     const hasCoordinates =
       rawLat !== null && rawLng !== null && !(rawLat === 0 && rawLng === 0);
 
-    const curatedImage = record.expand?.curated_image;
-    const curatedImageUrl =
-      curatedImage?.snapshot
-        ? cleanExternalUrl(pb.files.getURL(curatedImage, curatedImage.snapshot, { thumb: '1200x900' }))
-        : '';
-
     venuesById.set(id, {
       id,
       name,
@@ -396,7 +386,7 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       approxLocation: record.approx_location === true,
       officialUrl: cleanExternalUrl(record.official_url) || undefined,
       instagramUrl: cleanExternalUrl(record.instagram_url) || undefined,
-      imageUrl: curatedImageUrl || cleanExternalUrl(record.image_url) || undefined,
+      imageUrl: cleanExternalUrl(record.image_url) || undefined,
       // The venue owns its occasion tags. Award records are still merged below
       // for backends that predate the move, but this is the authority.
       occasions: knownOccasions(record.occasions),

@@ -40,7 +40,6 @@ interface WaitlistEntry {
   occasions?: string[];
   official_url?: string;
   instagram_url?: string;
-  image_url?: string;
   status?: 'pending' | 'published';
   signal_count?: number;
   published_venue?: string;
@@ -260,15 +259,24 @@ function meaningfulRecommendation(note: string): boolean {
   return cleaned.length >= 24 && words.length >= 5;
 }
 
+/**
+ * The place's public links, plus the photo the member attaches to their own
+ * recommendation.
+ *
+ * The website and Instagram describe the place and are shared with everyone who
+ * recommends it. The photo is not: it goes on this member's recommendation,
+ * appears above their note, and replaces only their own previous photo. Nobody
+ * else's picture is overwritten, and the place's own cover is never touched.
+ */
 function placeLinkFields(values?: {
   officialUrl?: string;
   instagramUrl?: string;
-  imageUrl?: string;
-}, options?: { proposeImage?: boolean }): string {
-  const proposedImage = options?.proposeImage === true;
+}, options?: { replaceImage?: boolean }): string {
+  const replacing = options?.replaceImage === true;
   return `<label>Website<input name="official_url" value="${esc(values?.officialUrl)}" maxlength="300" inputmode="url" autocomplete="off" spellcheck="false" placeholder="restaurant.example"></label>
     <label>Instagram<input name="instagram_url" value="${esc(values?.instagramUrl)}" maxlength="300" autocomplete="off" spellcheck="false" placeholder="@restaurant or instagram.com/restaurant"></label>
-    <label>${proposedImage ? 'Propose a replacement photo' : 'Photo link'} <span class="community-optional">Founder reviewed</span><input name="image_url" value="${proposedImage ? '' : esc(values?.imageUrl)}" maxlength="2048" inputmode="url" autocomplete="off" spellcheck="false" placeholder="${proposedImage ? 'Paste a direct image link for review' : 'Direct link to a photo of the destination'}"></label>`;
+    <label>${replacing ? 'Replace your photo' : 'Your photo'} <span class="community-optional">Optional — reviewed before it appears</span><input name="image_url" value="" maxlength="2048" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Direct link to a photo you took"></label>
+    <p class="community-form-note">Your photo appears with your note${replacing ? ' and replaces the one you added before' : ''}. It never becomes the place's own image, and it goes when your recommendation does.</p>`;
 }
 
 function noticeMarkup(): string {
@@ -280,9 +288,11 @@ function noticeMarkup(): string {
 function deleteRecommendationDialogMarkup(): string {
   const pending = pendingRecommendationDeletion;
   if (!pending) return '';
+  // A photo lives on the recommendation, so deleting one takes the other. The
+  // place keeps its own cover either way — that was never the member's photo.
   const consequence = pending.published
-    ? 'The place will stay live, but your note and attribution will be removed.'
-    : 'Your note and attribution will be removed.';
+    ? 'The place will stay live, but your note, your photo and your attribution will be removed.'
+    : 'Your note, your photo and your attribution will be removed.';
   return `<dialog class="community-confirm-dialog" data-community-delete-dialog aria-labelledby="delete-recommendation-title" aria-describedby="delete-recommendation-description">
     <div class="community-confirm-sheet">
       <p class="community-confirm-kicker">Remove from your detours</p>
@@ -500,10 +510,12 @@ function entryPlaceLocked(entry: WaitlistEntry): boolean {
 }
 
 function entryEditMarkup(entry: WaitlistEntry): string {
+  // Website and Instagram only. A place has no member-supplied photo of its own
+  // any more — a photo belongs to a recommendation — so the entry's legacy
+  // `image_url` is not offered here as though it were the place's picture.
   const links = [
     entry.official_url ? `<a href="${esc(entry.official_url)}" target="_blank" rel="noopener noreferrer">Website</a>` : '',
     entry.instagram_url ? `<a href="${esc(entry.instagram_url)}" target="_blank" rel="noopener noreferrer">Instagram</a>` : '',
-    entry.image_url ? `<a href="${esc(entry.image_url)}" target="_blank" rel="noopener noreferrer">Photo</a>` : '',
   ].filter(Boolean);
   const hasLinks = links.length > 0;
   const rec = recommendationForEntry(entry.id);
@@ -533,8 +545,7 @@ function entryEditMarkup(entry: WaitlistEntry): string {
         ${placeLinkFields({
           officialUrl: entry.official_url,
           instagramUrl: entry.instagram_url,
-          imageUrl: entry.image_url,
-        }, { proposeImage: true })}
+        }, { replaceImage: true })}
         ${placeLocked ? '<p class="community-form-note">This place has confirmed coordinates. Its identity and address are locked; contact Detour for an exceptional correction.</p>' : ''}
         <p class="community-form-note">${esc(editPromise)}</p>
         <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting && !deletingRecommendationId ? 'Saving…' : 'Save changes'}</button>
@@ -656,8 +667,7 @@ function recommendationPanel(): string {
         ${placeLinkFields({
           officialUrl: draft.officialUrl,
           instagramUrl: draft.instagramUrl,
-          imageUrl: draft.imageUrl,
-        }, { proposeImage: true })}
+        })}
         <div class="community-form-actions">
           <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend this place'}</button>
           ${cancelButton}
@@ -852,7 +862,8 @@ function curationImageUrl(item: ImageCurationItem): string {
 function curationPanel(): string {
   return `<section class="community-tab-panel community-curation-panel" id="member-panel-curation" role="tabpanel" aria-labelledby="member-tab-curation" tabindex="0">
     <div class="community-section-heading">
-      <div><p class="community-kicker">Founding circle</p><h3>Image curation</h3></div>
+      <div><p class="community-kicker">Founding circle</p><h3>Photo review</h3></div>
+      <p class="community-form-note">Approving a photo publishes it with the member's own recommendation. It does not become the place's image, and it replaces no one else's photo.</p>
     </div>
     ${
       loadingCuration || !curationLoaded
@@ -875,13 +886,13 @@ function curationPanel(): string {
                     <label>Review note <span class="community-optional">Optional</span><textarea name="note" rows="2" maxlength="1200" placeholder="Reason for approving or rejecting"></textarea></label>
                     <div class="community-curation-actions">
                       <button class="secondary-button" type="submit" name="decision" value="reject" ${curationSavingId ? 'disabled' : ''}>${curationSavingId === item.id ? 'Saving…' : 'Reject'}</button>
-                      <button class="primary-button" type="submit" name="decision" value="approve" ${curationSavingId ? 'disabled' : ''}>${curationSavingId === item.id ? 'Saving…' : 'Approve image'}</button>
+                      <button class="primary-button" type="submit" name="decision" value="approve" ${curationSavingId ? 'disabled' : ''}>${curationSavingId === item.id ? 'Saving…' : 'Approve photo'}</button>
                     </div>
                   </form>
                 </div>
               </article>`;
             }).join('')}</div>`
-          : '<p class="community-empty">No images are waiting for review.</p>'
+          : '<p class="community-empty">No photos are waiting for review.</p>'
     }
   </section>`;
 }
@@ -962,7 +973,7 @@ function memberTabsMarkup(): string {
         (tab) =>
           `<button class="community-member-tab${memberTab === tab ? ' is-active' : ''}" type="button" role="tab" id="member-tab-${tab}" aria-selected="${memberTab === tab}" aria-controls="member-panel-${tab}" tabindex="${memberTab === tab ? '0' : '-1'}" data-member-tab="${tab}">${MEMBER_TAB_LABELS[tab]}${
             tab === 'detours' && unseen ? `<span class="community-tab-badge" aria-label="${unseen} new shares">${unseen}</span>` : ''
-          }${tab === 'curation' && imageCurationCount ? `<span class="community-tab-badge" aria-label="${imageCurationCount} images awaiting review">${imageCurationCount}</span>` : ''}</button>`
+          }${tab === 'curation' && imageCurationCount ? `<span class="community-tab-badge" aria-label="${imageCurationCount} photos awaiting review">${imageCurationCount}</span>` : ''}</button>`
       ).join('')}
     </div>
   </div>`;
@@ -1388,6 +1399,11 @@ function focusNotice(root: HTMLElement): void {
   });
 }
 
+/**
+ * Queues the member's photo for screening and founder review. The server
+ * attaches it to the caller's own recommendation for this place — it is never
+ * applied to the place itself, and never touches another member's photo.
+ */
 async function submitImageForReview(waitlistId: string, imageUrl: string): Promise<void> {
   if (!waitlistId || !imageUrl.trim()) return;
   await pb.send(
@@ -1620,16 +1636,15 @@ export function bindCommunity(
         imageCurationCount = curationItems.length;
         notice = {
           kind: 'success',
-          text: decision === 'approve' ? 'Image approved and published.' : 'Image rejected.',
+          text:
+            decision === 'approve'
+              ? 'Photo approved. It now appears with that member’s recommendation.'
+              : 'Photo rejected.',
         };
         if (decision === 'approve') {
+          // Only the circle feed changes: photos live on recommendations, so an
+          // approval leaves the venue catalogue exactly as it was.
           resetNetworkDiscovery();
-          void refreshCatalogue()
-            .then((venues) => {
-              knownVenues = venues;
-              render();
-            })
-            .catch(() => {});
         }
       } catch (error) {
         notice = {
@@ -1917,7 +1932,7 @@ export function bindCommunity(
           ? { kind: 'info', text: 'Your recommendation is saved. Its line shows whether the place is live.' }
           : notice;
       if (notice && imageQueued) {
-        notice.text += ' The photo is awaiting founding-member review.';
+        notice.text += ' Your photo is awaiting review and will appear with your note.';
       } else if (imageQueueError) {
         notice = { kind: 'info', text: `${notice?.text || 'Recommendation saved.'} ${imageQueueError}` };
       }
@@ -1969,7 +1984,7 @@ export function bindCommunity(
         if (proposedImage) {
           try {
             await submitImageForReview(entryId, proposedImage);
-            notice.text += ' The photo is awaiting founding-member review.';
+            notice.text += ' Your photo is awaiting review and will appear with your note.';
           } catch (error) {
             notice = {
               kind: 'info',
@@ -2053,7 +2068,7 @@ export function bindCommunity(
         notice = {
           kind: 'success',
           text: published
-            ? 'Your recommendation was deleted. The place remains live without your note or attribution.'
+            ? 'Your recommendation was deleted. The place remains live without your note, photo or attribution.'
             : 'Your recommendation was deleted.',
         };
         focusWaitlistEntry(entryId);
