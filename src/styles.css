@@ -429,6 +429,9 @@ a.account-brand:hover,
   flex: none;
   border-radius: 0;
 }
+/* The wordmark is a span so the phone layout can drop it and keep the mark —
+   see the 620px breakpoint. Nothing else styles it. */
+.brand-word { white-space: nowrap; }
 /* the survey used to scale its mark to 34px; keep one size everywhere */
 .survey-brand .brand-mark { width: 18px; height: 18px; }
 .brand-mark rect { fill: var(--tape-surface); }
@@ -541,7 +544,17 @@ a.account-brand:hover,
 }
 .community-toggle:hover .nav-arrow-external { color: var(--tape-ink); }
 .community-toggle:active { box-shadow: none; transform: translate(3px, 3px); }
-.community-toggle span { color: var(--tape-accent); font-size: 1.1rem; line-height: 1; }
+/* The caret / arrow only — the label beside it is a span too now, and it must
+   keep the button's own type. */
+.community-toggle > span[aria-hidden='true'] { color: var(--tape-accent); font-size: 1.1rem; line-height: 1; }
+/* The name is member-supplied, so the control needs a way to give up width
+   instead of pushing the wordmark out of the masthead. */
+.community-toggle-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 /* the "you are here" chip stays quiet rather than reading as an action */
 .community-toggle.is-current,
 .community-toggle.is-current:visited,
@@ -4330,6 +4343,16 @@ legend { color: var(--tape-text); }
 .community-share-place-form { max-width: 34rem; }
 
 /* ---- settings: session, pseudonym, visibility, danger ---- */
+/* Who you are signed in as, and the badge that says what kind of member that
+   is — it used to sit in the tab bar, where it cost the row width the tabs
+   needed. It belongs with the account facts. */
+.community-session-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.85rem;
+  max-width: 46rem;
+}
 .community-session-note { max-width: 46rem; margin: 0; font-size: 0.86rem; overflow-wrap: anywhere; }
 .community-session-note strong { color: var(--tape-accent-strong); }
 .community-pseudo-row { display: grid; gap: 0.5rem; max-width: 46rem; margin-top: 1.25rem; }
@@ -4754,8 +4777,40 @@ legend { color: var(--tape-text); }
   .place-note-carousel { grid-auto-columns: min(88%, 32rem); }
 }
 
+@media (max-width: 700px) {
+  .community-curation-card { grid-template-columns: 1fr; }
+  .community-curation-card > img { min-height: 13rem; max-height: 20rem; }
+  /* The tab strip and the status pair cannot share a row this narrow: their
+     labels alone are wider than the screen and the bar does not wrap, so Sign
+     out was pushed past the edge and the whole page overflowed sideways with
+     it. Stack them into two bands inside the same chrome, and wrap the tabs
+     rather than scroll them — four is few enough that none should sit
+     off-screen behind a scroll nobody sees. */
+  .community-member-bar { flex-direction: column; gap: 0; padding-inline: 0; }
+  .community-member-tabs {
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: 0;
+    padding-inline: clamp(1rem, 4vw, 2.5rem);
+  }
+  /* Every label holds one line: a two-line "My detours" beside single-line tabs
+     is what made the row look ragged. The strip wraps between tabs instead. */
+  .community-member-tab { flex: 0 0 auto; white-space: nowrap; }
+  /* Sign out alone in its own band, left-aligned with the tab strip above it. */
+  .community-member-status {
+    width: 100%;
+    justify-content: flex-start;
+    padding: 0.5rem clamp(1rem, 4vw, 2.5rem) 0.6rem;
+    border-top: 1px solid var(--tape-hairline);
+  }
+}
+
 @media (max-width: 620px) {
   #app { padding-inline: 0.75rem; }
+  /* Every headline wraps at this width, and Anton at line-height 0.95 drops the
+     3px print ghost of one line into the caps of the next. Loosen the leading
+     just enough to keep the two apart; the desktop ramp is untouched. */
+  h1 { line-height: 1.06; }
   .network-recommendation-grid { grid-template-columns: 1fr; }
   .signal-badge-plate .signal-tooltip {
     right: auto;
@@ -4792,48 +4847,106 @@ legend { color: var(--tape-text); }
   .network-public-list .network-entry:nth-child(1) { transform: translate(0.65rem, -0.35rem) rotate(3deg); }
   .network-public-list .network-entry:nth-child(2) { transform: translate(-0.65rem, 80%) rotate(-4deg); }
   .network-public-list .network-entry:nth-child(3) { transform: translate(0.4rem, 160%) rotate(2deg); }
-  .account-nav-row { display: grid; }
-  .account-brand { justify-self: start; }
-  .account-nav { flex-wrap: nowrap; justify-content: space-between; }
+  /* Only the mark carries the brand on a phone: the wordmark and three nav
+     items are wider than the screen together, and what that cost was the
+     masthead — the nav ended up printed over the wordmark. Clipped rather than
+     display: none so the link keeps its accessible name. */
+  .brand-word,
+  .community-toggle-prefix {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    border: 0;
+  }
+  /* With "Member:" gone the control is the name and its caret, and it may now
+     shrink — a long name ellipsises rather than shoving the row off-screen. */
+  .network-masthead .community-toggle,
+  .account-nav .community-toggle { flex: 0 1 auto; min-width: 0; }
+  /* Alone in the corner an 18px chip reads as a stray dot, and it is now the
+     only way home — it needs to be both visible and tappable. */
+  .brand-mark,
+  .survey-brand .brand-mark { width: 26px; height: 26px; }
+  .network-brand { min-height: 44px; }
+  /* One row, the same as every other masthead. This used to stack the brand
+     above the nav because the wordmark and three nav items could not share a
+     phone row — with the wordmark clipped above, they fit. */
+  .account-nav { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; }
   .community-panel { padding: 0; }
   .community-panel-intro,
   .community-form-wrap { padding: 1.25rem; }
   .community-panel-member { padding: 1rem 0; }
-  .community-member-bar { gap: 0.5rem; padding-inline: 1rem; }
-  .community-member-tabs { flex: 1 1 auto; justify-content: space-between; gap: 0; }
-  .community-member-tab { min-height: 50px; padding-inline: 0.35rem; }
-  .community-tab-panel { min-height: 17rem; padding: 1.25rem; }
+  .community-member-tabs { padding-inline: 1rem; }
+  .community-member-tab { min-height: 48px; padding-inline: 0.45rem; }
+  .community-member-status { padding-inline: 1rem; }
+  /* No reserved height: a phone panel holding two lines and a button should be
+     two lines and a button tall, not a screen of empty grid paper. */
+  .community-tab-panel { min-height: 0; padding: 1.25rem; }
   .community-invite-bar { align-items: center; flex-wrap: wrap; }
+  /* A 24-character code and four send-it-onward controls do not share a line;
+     the code takes the first, its actions the second. */
+  .community-invite-codes li { align-items: flex-start; flex-direction: column; gap: 0.5rem; }
+  .community-invite-row-actions { justify-content: flex-start; width: 100%; }
   .community-pseudo-form .secondary-button { width: 100%; }
   .community-visibility-row { grid-template-columns: 1fr; align-items: start; }
-  .community-subheading { justify-content: flex-start; gap: 0.2rem 0.6rem; }
+  /* The counter keeps the right edge, centred against the title instead of
+     baseline-aligned to it — a bordered chip on the title's baseline hangs its
+     padding and border below the heading and reads as sunk. */
+  .community-subheading { align-items: center; justify-content: space-between; gap: 0.2rem 0.6rem; }
+  /* A subheading carrying an action cluster stacks instead: the title on its own
+     line, then the controls with real air between the two. Reversed so the flip
+     control takes the left and the counter keeps the right edge — the same edge
+     the counter on My recommendations sits against. */
+  .community-subheading:has(.network-section-actions) { align-items: stretch; flex-direction: column; gap: 1.25rem; }
+  .community-subheading .network-section-actions {
+    align-self: stretch;
+    flex-direction: row-reverse;
+    justify-content: space-between;
+  }
   .community-subheading p { text-align: left; }
   .community-share-heading { align-items: flex-start; flex-direction: column; gap: 0.55rem; }
   .community-queue-status,
   .community-share-heading > span { align-self: flex-start; }
-  /* the line stacks its trailing Open / status under the name */
+  /* Name, address, then all three controls on one line under it. Edit is the
+     disclosure summary and Delete / Open are its sibling element, so the three
+     cannot share a flex row; instead the entry and the pair take the same grid
+     cell and align to its bottom edge — Edit at the left of that last line,
+     the pair at the right. Equal 44px boxes put them on one optical line. */
   .community-queue-row { grid-template-columns: minmax(0, 1fr); gap: 0; }
-  .community-queue-open,
-  .community-queue-row > .community-queue-status { margin: 0 0 0.85rem; }
+  .community-queue-entry { grid-area: 1 / 1; }
+  .community-queue-actions { grid-area: 1 / 1; align-self: end; justify-self: end; gap: 0.35rem 1.4rem; }
+  .community-queue-line { display: grid; gap: 0.2rem; padding-block: 0.55rem 0; }
+  .community-queue-edit {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    justify-self: start;
+    margin-left: 0;
+  }
+  /* Open, the edit form owns the full width and the pair drops below it. */
+  .community-queue-entry[open] + .community-queue-actions {
+    grid-area: 2 / 1;
+    align-self: start;
+    justify-self: start;
+  }
 }
 
 @media (max-width: 560px) {
-  .network-primary-nav { gap: 0.2rem; }
+  /* 0.2rem was what the row cost when the wordmark was still in it; the two
+     links no longer have to sit on top of each other to fit. */
+  .network-primary-nav { gap: 0.5rem; }
   .network-explore-link { padding-inline: 7px; letter-spacing: 0.1em; }
   .circle-person-provenance { white-space: normal; }
 }
 
-@media (max-width: 700px) {
-  .community-curation-card { grid-template-columns: 1fr; }
-  .community-curation-card > img { min-height: 13rem; max-height: 20rem; }
-  .community-member-status { width: 100%; justify-content: space-between; }
-}
-
 @media (max-width: 520px) {
   .network-masthead .community-toggle { max-width: 13rem; min-height: 40px; }
-  /* Three nav items now share the row with the wordmark, and "My Circle" is
-     the longest of them; tighten the links before the member control, which
-     already has its own max-width above. */
+  /* Three nav items share the row with the brand mark, and "My Circle" is the
+     longest of them; tighten the links before the member control, which already
+     has its own max-width above. */
   .network-explore-link { padding-inline: 5px; font-size: 10px; letter-spacing: 0.06em; }
   .network-home,
   .network-invitation { padding-top: 2.4rem; }

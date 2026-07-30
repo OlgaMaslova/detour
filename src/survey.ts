@@ -559,7 +559,7 @@ export function renderSurvey(root: HTMLElement, options: SurveyRenderOptions): v
   const form = forms[formId];
   const state = stateFor(formId);
   const masthead = `<header class="survey-masthead">
-      <a class="survey-brand" href="${esc(options.homeHref)}" data-home>${options.brandMark}<span>Detour</span></a>
+      <a class="survey-brand" href="${esc(options.homeHref)}" data-home>${options.brandMark}<span class="brand-word">Detour</span></a>
       <a class="secondary-button survey-home-link" href="${esc(options.homeHref)}" data-home>Back to Detour</a>
     </header>`;
 

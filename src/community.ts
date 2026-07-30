@@ -912,7 +912,10 @@ function detoursPanel(): string {
 function settingsPanel(record: MemberRecord): string {
   const keepPrivate = visibilityPending ?? record.discovery_visible === false;
   return `<section class="community-tab-panel community-settings-panel" id="member-panel-settings" role="tabpanel" aria-labelledby="member-tab-settings" tabindex="0">
-    <p class="community-session-note">Signed in as <strong>${esc(record.email || memberName(record))}</strong></p>
+    <div class="community-session-row">
+      <p class="community-session-note">Signed in as <strong>${esc(record.email || memberName(record))}</strong></p>
+      ${foundingMember ? '<span class="community-founder-badge">Founding member</span>' : ''}
+    </div>
     <div class="community-pseudo-row">
       <form class="community-form community-pseudo-form" data-community-pseudo>
         <label>My pseudo<input name="pseudo" value="${esc(record.pseudo || '')}" autocomplete="off" spellcheck="false" minlength="3" maxlength="30" pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens" required></label>
@@ -961,7 +964,7 @@ function memberTabsMarkup(): string {
           }${tab === 'curation' && imageCurationCount ? `<span class="community-tab-badge" aria-label="${imageCurationCount} images awaiting review">${imageCurationCount}</span>` : ''}</button>`
       ).join('')}
     </div>
-    <div class="community-member-status">${foundingMember ? '<span class="community-founder-badge">Founding member</span>' : ''}<button class="secondary-button community-tab-signout" type="button" data-community-sign-out>Sign out</button></div>
+    <div class="community-member-status"><button class="secondary-button community-tab-signout" type="button" data-community-sign-out>Sign out</button></div>
   </div>`;
 }
 
@@ -1098,7 +1101,7 @@ export function communityControl(href: string, current = false): string {
   return `<div class="community-menu" data-community-menu>
     <button class="community-toggle${current ? ' is-current' : ''}" type="button" data-community-menu-toggle
       aria-haspopup="true" aria-expanded="false" aria-controls="community-menu-items">
-      ${esc(`Member: ${memberName(record)}`)}<span aria-hidden="true">▾</span>
+      <span class="community-toggle-label"><span class="community-toggle-prefix">Member: </span>${esc(memberName(record))}</span><span aria-hidden="true">▾</span>
     </button>
     <div class="community-menu-items" id="community-menu-items" role="menu" aria-label="Member menu" hidden>
       ${items}

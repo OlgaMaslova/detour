@@ -1532,7 +1532,7 @@ function renderAccount(root: HTMLElement): void {
     <a class="skip-link" href="#community-area">Skip to member area</a>
     <header class="account-masthead">
       <div class="account-nav-row">
-        <a class="account-brand" href="${esc(homeHref())}" data-return-discovery>${brandMark()}Detour</a>
+        <a class="account-brand" href="${esc(homeHref())}" data-return-discovery>${brandMark()}<span class="brand-word">Detour</span></a>
         <nav class="account-nav" aria-label="Member navigation">
           ${memberCanExplore() ? memberNavLinks('other') : ''}
           ${communityControl(accountHref(), true)}
@@ -1587,8 +1587,8 @@ function resolveSearch(query: string): { slug: string; venueId?: string } | null
 function mastheadMarkup(active: 'home' | 'explore' | 'circle' | 'other' = 'other'): string {
   const brand =
     active === 'home'
-      ? `<p class="network-brand">${brandMark()}Detour</p>`
-      : `<a class="network-brand" href="${esc(homeHref())}" data-home>${brandMark()}Detour</a>`;
+      ? `<p class="network-brand">${brandMark()}<span class="brand-word">Detour</span></p>`
+      : `<a class="network-brand" href="${esc(homeHref())}" data-home>${brandMark()}<span class="brand-word">Detour</span></a>`;
   return `<header class="network-masthead">
     ${brand}
     <nav class="network-primary-nav" aria-label="Primary navigation">
