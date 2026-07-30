@@ -3642,14 +3642,17 @@ legend { color: var(--tape-text); }
   text-transform: uppercase;
 }
 
+/* align-content: start so the panel's min-height doesn't stretch the heading
+   and the queue apart — an empty queue is one line, not half a panel. */
 .community-curation-panel {
+  align-content: start;
   padding: clamp(1.25rem, 4vw, 2.5rem);
 }
 
+/* the panel gap already separates the heading from the queue */
 .community-curation-grid {
   display: grid;
   gap: 1rem;
-  margin-top: 1.25rem;
 }
 
 .community-curation-card {
@@ -3660,11 +3663,13 @@ legend { color: var(--tape-text); }
   background: var(--tape-paper);
 }
 
+/* contain, not cover: a reviewer has to judge the whole submitted frame, so
+   letterboxing beats cropping the edges away. */
 .community-curation-card > img {
   width: 100%;
   height: 100%;
   min-height: 18rem;
-  object-fit: cover;
+  object-fit: contain;
   background: var(--tape-paper-deep);
 }
 
@@ -3879,7 +3884,10 @@ legend { color: var(--tape-text); }
 .community-optional { font-size: 0.75rem; font-weight: 500; }
 .community-loading,
 .community-empty { margin: 0; font-size: 0.9rem; font-style: italic; }
+/* The dashed frame is a box, so it needs the inset every other card has —
+   without it the message sits on the dashes. */
 .community-empty {
+  padding: clamp(0.85rem, 2.5vw, 1.15rem) clamp(0.9rem, 2.5vw, 1.25rem);
   color: var(--tape-muted);
   background: none;
   border: 2px dashed var(--tape-hairline-strong);

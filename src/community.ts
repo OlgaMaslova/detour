@@ -842,7 +842,9 @@ function curationImageUrl(item: ImageCurationItem): string {
       collectionName: 'community_place_images',
     } as RecordModel,
     item.snapshot,
-    { thumb: '480x360' }
+    // the `f` suffix fits the image inside the box; plain WxH center-crops it,
+    // which hid parts of the frame the reviewer has to judge
+    { thumb: '720x540f' }
   );
 }
 
