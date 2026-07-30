@@ -3,6 +3,7 @@ import { bindMemberShares, markNetworkSharesSeen, memberSharesMarkup, resetNetwo
 import { venueCitySlug, venuePlaceSlug } from './data';
 import type { Venue } from './data';
 import { OCCASION_OPTIONS } from './occasions';
+import { bindInviteShare, inviteShareMarkup } from './share';
 import { countryOptions } from './countries';
 import type { RecordModel } from 'pocketbase';
 
@@ -815,7 +816,7 @@ function invitesPanel(): string {
             ? `<div class="community-invite-list"><h4>Unclaimed invitations</h4><ul class="community-invite-codes" aria-label="Your unclaimed invitation links">${unclaimed
                 .map(
                   (invite) =>
-                    `<li><code>${esc(invite.code || '')}</code><button class="secondary-button community-invite-copy" type="button" data-copy-invite="${esc(invite.code || '')}" aria-live="polite" aria-label="Copy invitation link for ${esc(invite.code || '')}">Copy link</button></li>`
+                    `<li><code>${esc(invite.code || '')}</code><div class="community-invite-row-actions"><button class="secondary-button community-invite-copy" type="button" data-copy-invite="${esc(invite.code || '')}" aria-live="polite" aria-label="Copy invitation link for ${esc(invite.code || '')}">Copy link</button>${invite.code ? inviteShareMarkup(invitationLink(invite.code), true) : ''}</div></li>`
                 )
                 .join('')}</ul></div>`
             : '<p class="community-empty">No unclaimed invitations. Create one to invite someone.</p>'
@@ -1830,6 +1831,8 @@ export function bindCommunity(
       render();
     }
   });
+
+  bindInviteShare(root);
 
   root.querySelectorAll<HTMLButtonElement>('[data-copy-invite]').forEach((button) => {
     button.addEventListener('click', async () => {

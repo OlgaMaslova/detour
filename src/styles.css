@@ -3968,6 +3968,55 @@ legend { color: var(--tape-text); }
 .community-invite-claimed .community-invite-codes code,
 .community-invite-claimed .community-invite-codes span { color: var(--tape-muted); font-weight: 600; }
 
+/* ---- sending an invitation onward ----
+   Shared by My Circle and the Invitations tab. Quieter than the copy button
+   beside it: copying is the neutral act, and these are the two apps most
+   invitations actually travel in, plus the system sheet where one exists. */
+.invite-share {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.55rem;
+}
+.invite-share-label {
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.invite-share-link {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  padding: 0 0.15rem;
+  color: var(--tape-accent);
+  background: none;
+  border: 0;
+  font-family: var(--tape-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.invite-share-link:hover { color: var(--tape-accent-strong); }
+/* In a row of invitation codes the actions already read as a group, so the
+   links sit tight against the copy button without a second label. */
+.community-invite-row-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem 0.6rem;
+}
+.invite-share.is-compact { gap: 0.3rem 0.5rem; }
+
 /* ---- section intros ----
    The base floated the description right in a 32ch column; stack it under the
    heading at full width instead. */

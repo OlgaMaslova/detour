@@ -1,6 +1,7 @@
 import { pb } from './pocketbase';
 import { ensureInvitationLink, openInvitationLink } from './community';
 import { groupedRecommendationCardMarkup } from './network';
+import { bindInviteShare, inviteShareMarkup } from './share';
 import type { DiscoveryRecommendation, NetworkPlaceResolver } from './network';
 
 /**
@@ -726,7 +727,9 @@ function allowanceMarkup(invitationsHref: string): string {
   const note = limit
     ? `<p class="circle-allowance-note">${available ? `${available} to give` : 'none left to give'}</p>`
     : '';
-  return `<div class="circle-allowance">${control}${note}</div>`;
+  // Once a link is in hand — primed on load, or created by the copy above — the
+  // ways to send it sit beside the button, so the errand finishes on this page.
+  return `<div class="circle-allowance">${control}${note}${inviteReady ? inviteShareMarkup(inviteReady) : ''}</div>`;
 }
 
 /**
@@ -843,6 +846,7 @@ function bindTips(root: HTMLElement): void {
 export function bindCircle(root: HTMLElement, render: () => void): void {
   ensureCircle(render);
   bindTips(root);
+  bindInviteShare(root);
   latestRender = render;
   if (!panelDismissBound) {
     panelDismissBound = true;
