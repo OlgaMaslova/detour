@@ -4475,7 +4475,9 @@ legend { color: var(--tape-text); }
      would upscale the same modest source the two-column layout protects. */
   .place-hero { grid-template-columns: 1fr; }
   .place-cover { max-width: 34rem; aspect-ratio: 16 / 10; max-height: 15rem; }
-  .network-recommendation-grid { grid-template-columns: 1fr; }
+  /* Tablets keep two columns — a single full-width card is oversized here;
+     the drop to one column happens at the 620px phone breakpoint. */
+  .network-recommendation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .network-layout-picker { display: none; }
   .network-invitation {
     grid-template-columns: 1fr;
@@ -4509,6 +4511,7 @@ legend { color: var(--tape-text); }
 
 @media (max-width: 620px) {
   #app { padding-inline: 0.75rem; }
+  .network-recommendation-grid { grid-template-columns: 1fr; }
   .signal-badge-plate .signal-tooltip {
     right: auto;
     left: 0;
