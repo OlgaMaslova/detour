@@ -90,7 +90,12 @@ onRecordCreateRequest((e) => {
   if (!name) {
     throw new BadRequestError("Enter your name.");
   }
+  // The home city is asked in every signup flow, this one included: it is how
+  // the team reads where the circle is growing before an invitation goes out.
   const city = normalizeBounded(e.record.getString("city"), "City", 120, 544);
+  if (city.length < 2) {
+    throw new BadRequestError("Tell us where you live — the city you live in.");
+  }
   const why = normalizeBounded(e.record.getString("why"), "Reason", 500, 2064);
   // The recommendation is the only thing the team actually reads, so it is
   // enforced here as well as in the browser form.

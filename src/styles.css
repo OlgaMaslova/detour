@@ -3064,21 +3064,73 @@ legend { color: var(--tape-text); }
 
 /* ================= MY CIRCLE =================
    The invitation graph, drawn by default: rings with the member at the
-   centre, contribution as node size and fill, the Founding 50 as a toolbar
-   stat. The list is the alternative reading behind a toggle — stacked rows
+   centre, contribution as node size and fill, and a headcount above the
+   toolbar. The list is the alternative reading behind a toggle — stacked rows
    with the member's latest place, grouped by tiny labels. The page carries
    no explanatory copy: hovering a person (node or row) speaks the
    relationship through the shared instant tooltip. */
-.circle-page { padding-top: clamp(1.75rem, 5vw, 4rem); padding-bottom: clamp(1rem, 2.5vw, 2rem); }
+.circle-page { padding-top: clamp(1.75rem, 5vw, 4rem); padding-bottom: clamp(0.3rem, 0.8vw, 0.6rem); }
+/* The drawing already carries its own margin of empty ground inside the viewBox,
+   so the page's default 44px run-up to the footer rule reads as a hole under the
+   circle. Close most of it. */
+.circle-page + .footer { margin-top: 16px; }
 .circle-hero { padding-bottom: 1.1rem; }
 .circle-hero h1 { max-width: 12ch; }
+/* The headcount, in the same small mono register as the kicker above it. No
+   margins of its own: it shares the lead line with the invite control, and the
+   line's own padding provides the air. */
+.circle-summary {
+  margin: 0;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+/* Three columns, not space-between: the side columns are equal, so the legend
+   in the middle lands on the page's centre line — the same line the drawing
+   below is centred on. space-between would park it halfway between two controls
+   of unequal width instead. */
 .circle-toolbar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  padding: 1rem 0 1.1rem;
+}
+/* Grid items stretch by default, which would blow the view switch out to its full
+   column width: each control keeps its own size in its own column. */
+.circle-toolbar .circle-view-switch { justify-self: start; }
+.circle-toolbar .circle-legend { justify-self: center; }
+/* The lead, one line above the view switch and identical in both views: the
+   headcount holds the left, the invite control and its arithmetic the right.
+   The line's top air lives here rather than on any item, so nothing carries a
+   margin that would knock it off the shared centre line. It wraps rather than
+   overflows when the line runs out of room. */
+.circle-lead {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem 1.25rem;
-  padding: 1rem 0 1.1rem;
+  gap: 0.6rem 1.15rem;
+  padding-top: clamp(0.6rem, 1.8vw, 1.35rem);
+}
+.circle-allowance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.95rem;
+}
+.circle-allowance-note {
+  margin: 0;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 .circle-view-switch { display: inline-flex; border: 2.5px solid var(--tape-chrome); }
 .circle-view-btn {
@@ -3113,13 +3165,13 @@ legend { color: var(--tape-text); }
 .circle-legend-line.is-second { border-top-style: dashed; border-top-color: var(--tape-accent-strong); }
 /* The list: stacked rows with mass, separated by space rather than rules —
    row hairlines over the graph-paper ground read as an unfilled table. One
-   opening rule, one divider per section, nothing per row. */
+   divider per section, nothing per row, and no rule across the top: the first
+   group label opens the list on its own. */
 .circle-people {
   display: grid;
   margin: 0;
   padding: 0;
   list-style: none;
-  border-top: 2.5px solid var(--tape-chrome);
 }
 .circle-group-label {
   padding: 1.3rem 0 0.55rem;
@@ -3130,26 +3182,45 @@ legend { color: var(--tape-text); }
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
+/* The opening label starts the list flush with the small print beside it: its
+   top padding existed to clear the rule that used to run above it. */
+.circle-group-label:first-child { padding-top: 0; }
 .circle-group-label:not(:first-child) {
   margin-top: 1.1rem;
   border-top: 1px solid var(--tape-hairline-strong);
 }
+/* The row: the person on the left — name, then geography and footprint — and one
+   action pinned right. A bare number used to hold that edge, which only worked
+   while the list was a narrow column; a labelled control earns it. */
 .circle-person {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 0 1.25rem;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
   padding: 0.55rem 0 0.8rem;
 }
 .circle-person-main { display: grid; gap: 0.18rem; justify-items: start; }
-/* The right edge carries one thing: the place count. */
-.circle-person-count {
-  color: var(--tape-accent-strong);
-  font-family: var(--tape-anton);
-  font-size: 24px;
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
+/* Share a place with this member: quiet until wanted, since it repeats down the
+   whole list, and the same tape-button shape as every other action. */
+.circle-person-share {
+  justify-self: end;
+  padding: 8px 13px;
+  color: var(--tape-text);
+  background: transparent;
+  border: 2px solid var(--tape-chrome);
+  font-family: var(--tape-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-decoration: none;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.circle-person-share:hover,
+.circle-person-share:focus-visible {
+  color: var(--tape-ink);
+  background: var(--tape-orange);
+  border-color: var(--tape-orange);
 }
 .circle-person-name {
   margin: 0;
@@ -3185,6 +3256,49 @@ legend { color: var(--tape-text); }
   line-height: 1.45;
   text-transform: uppercase;
 }
+/* The small print sits in a left gutter with an equal empty gutter mirrored on
+   the right, so the circle keeps the page's centre line instead of being pushed
+   off it by the note. The note explains what the graph is for: it is the reach
+   of the member's list, not decoration. */
+.circle-body {
+  --circle-gutter: clamp(185px, 21vw, 245px);
+  display: grid;
+  grid-template-columns: var(--circle-gutter) minmax(0, 1fr) var(--circle-gutter);
+  align-items: start;
+  gap: clamp(1rem, 3vw, 2.25rem);
+}
+.circle-body-main { min-width: 0; }
+.circle-note {
+  padding: 0.1rem 0 0.2rem 0.9rem;
+  border-left: 3px solid var(--tape-orange);
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+.circle-note p { margin: 0; }
+.circle-note .circle-note-title {
+  margin-bottom: 0.45rem;
+  color: var(--tape-text);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+/* The mirror gutter exists only to hold the drawing on the page's centre line.
+   The list has no centre to keep, so it runs to the right edge instead of
+   stopping a gutter short of it. */
+.circle-body.is-list { grid-template-columns: var(--circle-gutter) minmax(0, 1fr); }
+/* Narrower than this the empty right gutter costs the drawing more width than
+   the centring is worth, so the note stacks above the circle instead. */
+@media (max-width: 1040px) {
+  .circle-body { grid-template-columns: minmax(0, 1fr); }
+  .circle-note { max-width: 62ch; }
+}
+/* Three toolbar columns stop fitting: back to a wrapping row. */
+@media (max-width: 860px) {
+  .circle-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; }
+}
 .circle-empty {
   max-width: 62ch;
   margin: 0;
@@ -3196,14 +3310,12 @@ legend { color: var(--tape-text); }
   font-size: 12.5px;
   line-height: 1.6;
 }
-/* The rings: the graph drawn literally, the Founding 50 as its own small SVG
-   beside it. On a phone the satellite is dropped and the main drawing takes
-   the full width, so nothing needs sideways scrolling. */
+/* The rings: the graph drawn literally, centred and never wider than the
+   column, so nothing needs sideways scrolling. */
 .circle-map {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  gap: 1rem;
 }
 .circle-map-main {
   display: block;
@@ -3212,7 +3324,6 @@ legend { color: var(--tape-text); }
   /* Sized so hero + toolbar + drawing fit a 15" laptop without scrolling. */
   max-width: min(560px, 62vh);
 }
-.circle-map-sat { flex: 0 0 clamp(170px, 20vw, 210px); }
 .circle-map-ring {
   fill: none;
   stroke: var(--tape-muted);
@@ -3263,27 +3374,19 @@ legend { color: var(--tape-text); }
   letter-spacing: 1px;
   text-transform: uppercase;
 }
-.circle-map-caption {
-  fill: var(--tape-muted);
-  font-family: var(--tape-mono);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
 .circle-map-person { cursor: default; }
 .circle-map-person[data-circle-person] { cursor: pointer; }
 .circle-map-person[data-circle-person]:focus-visible {
   outline: 2px solid var(--tape-accent-strong);
   outline-offset: 2px;
 }
-/* Invisible hover pad around targets too small to hit (satellite seats). */
-.circle-map-hit { fill: transparent; stroke: none; }
-/* Clickable list rows: the pointer and a name-color shift say "opens". */
-.circle-person[data-circle-person] { cursor: pointer; }
-.circle-person[data-circle-person]:hover .circle-person-name,
-.circle-person[data-circle-person]:focus-visible .circle-person-name { color: var(--tape-stack-title-hover); }
-.circle-person[data-circle-person]:focus-visible {
+/* The person block opens their places: the pointer and a name-colour shift say
+   so. It is the trigger rather than the whole row, so the share link beside it
+   stays its own control. */
+.circle-person-main[data-circle-person] { cursor: pointer; }
+.circle-person-main[data-circle-person]:hover .circle-person-name,
+.circle-person-main[data-circle-person]:focus-visible .circle-person-name { color: var(--tape-stack-title-hover); }
+.circle-person-main[data-circle-person]:focus-visible {
   outline: 2px solid var(--tape-accent-strong);
   outline-offset: 2px;
 }
@@ -3440,14 +3543,11 @@ legend { color: var(--tape-text); }
     border-top: 3px solid var(--tape-chrome);
     animation: circle-sheet-in 0.22s ease-out;
   }
-  /* The main rings take the full phone width instead of scrolling sideways;
-     the Founding 50 satellite steps out (its stat stays one tap away in the
-     list of seats on wider screens). Type scales up in viewBox units so the
-     smaller physical drawing keeps legible names. */
-  .circle-map-sat { display: none; }
+  /* The rings take the full phone width instead of scrolling sideways. Type
+     scales up in viewBox units so the smaller physical drawing keeps legible
+     names. */
   .circle-map-name { font-size: 19px; }
   .circle-map-node-count { font-size: 16px; }
-  .circle-map-caption { font-size: 14px; }
   /* The sheet exits downward, the way it came in. */
   .circle-panel.is-closing { transform: translateY(100%); }
 }
@@ -3471,32 +3571,6 @@ legend { color: var(--tape-text); }
   line-height: 1.5;
   pointer-events: none;
 }
-/* The Founding 50 satellite: the empty seats themselves trace the ring, so it
-   needs no guide circle — a hollow dot is a seat waiting to be taken. */
-.circle-map-seat {
-  fill: none;
-  stroke: var(--tape-muted);
-  stroke-width: 1.5;
-}
-.circle-map-seat.is-taken {
-  fill: var(--tape-accent-strong);
-  stroke: var(--tape-accent-strong);
-}
-.circle-map-sat-count {
-  fill: var(--tape-text);
-  font-family: var(--tape-anton);
-  font-size: 34px;
-  letter-spacing: 1px;
-}
-.circle-map-sat-label {
-  fill: var(--tape-muted);
-  font-family: var(--tape-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
 .circle-status {
   margin: clamp(1.9rem, 4.5vw, 3rem) 0 0;
   color: var(--tape-muted);
@@ -3781,6 +3855,12 @@ legend { color: var(--tape-text); }
 /* Share new follows the share deck, which ends in cards with offset shadows —
    it needs more air above it than the ledger default. */
 .community-share-new { margin-top: clamp(1.2rem, 3vw, 2.2rem); }
+/* Open, the form is a section of its own and needs air above it: the deck of
+   shares ends on a card edge, and a heading landing straight against that edge
+   reads as part of the last card rather than the start of something new. The
+   member-area override that strips ledger padding is what leaves it flush. */
+.community-share-new.is-open { margin-top: clamp(1.8rem, 4vw, 3rem); }
+.community-detours-panel .community-share-new.is-open { padding-top: clamp(1.5rem, 4vw, 2.6rem); }
 .community-form input:focus-visible,
 .community-form select:focus-visible,
 .community-form textarea:focus-visible {
@@ -4424,15 +4504,15 @@ legend { color: var(--tape-text); }
   line-height: 1.45;
 }
 
+/* The card is sized by its confirmation, not by the viewport: a full-height
+   panel around four lines of text is mostly empty box. */
 .survey-success {
   display: grid;
-  min-height: calc(100vh - 152px - env(safe-area-inset-top));
-  place-content: center;
   justify-items: start;
   gap: 1rem;
   max-width: 40rem;
-  margin: 0 auto;
-  padding: clamp(2rem, 6vw, 4.5rem) 1rem;
+  margin: clamp(1.5rem, 5vh, 3rem) auto;
+  padding: clamp(1.5rem, 4vw, 2.25rem);
   background: var(--tape-surface);
   border: 3px solid var(--tape-chrome);
   border-radius: 0;
@@ -4451,8 +4531,19 @@ legend { color: var(--tape-text); }
   font-weight: 900;
   transform: rotate(-4deg);
 }
-.survey-success h1 { max-width: 14ch; margin: 0; font-size: clamp(22px, 4vw, 34px); text-wrap: balance; }
+.survey-success h1 { max-width: 22ch; margin: 0; font-size: clamp(22px, 3vw, 30px); text-wrap: balance; }
 .survey-success > p:not(.survey-kicker) { max-width: 52ch; margin: 0; color: var(--tape-muted); }
+.survey-success .survey-success-invite-lead { color: var(--tape-text); }
+/* The two exits sit on one line; the primary link's own top margin is the
+   grid gap's job here, so it is dropped rather than added to it. */
+.survey-success-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+.survey-success-actions .survey-primary-link { margin-top: 0; }
 
 /* ============================================================
    RESPONSIVE — widest breakpoint first, so narrower rules win
@@ -4655,7 +4746,7 @@ legend { color: var(--tape-text); }
   .survey-choice-list-compact .survey-choice { flex-basis: calc(33.333% - 0.4rem); justify-content: center; padding-inline: 0.45rem; }
   .survey-submit-row { align-items: stretch; flex-direction: column; }
   .survey-submit { width: 100%; }
-  .survey-success { padding-inline: 0.25rem; }
+  .survey-success { padding-inline: 1rem; }
 }
 
 @media (max-width: 480px) {

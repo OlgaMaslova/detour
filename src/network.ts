@@ -315,6 +315,7 @@ function inviteRequestFieldError(field: InviteRequestField, element: HTMLInputEl
     if (element.validity.typeMismatch) return 'Enter an email address in the usual name@example.com format.';
   }
   if (field === 'name' && !value) return 'Enter your name — every place here has a person behind it.';
+  if (field === 'city' && value.length < 2) return 'Tell us where you live — the city you live in.';
   if (field === 'why' && !value) return "Name one place you'd recommend, and why — this is the part we read.";
   const limits: Record<InviteRequestField, number> = { name: 120, email: 0, city: 120, why: 500 };
   const limit = limits[field];
@@ -361,8 +362,8 @@ function inviteRequestFormMarkup(accountHref: string): string {
             <p class="network-invite-field-error" id="invite-request-name-error">${esc(inviteRequestState.fieldErrors.name)}</p>
           </div>
           <div class="network-invite-field">
-            <label for="invite-request-city">City <span>(optional)</span></label>
-            <input id="invite-request-city" name="city" type="text" autocomplete="address-level2" maxlength="120" value="${esc(inviteRequestState.city)}" aria-describedby="invite-request-city-error"${inviteRequestState.fieldErrors.city ? ' aria-invalid="true"' : ''}>
+            <label for="invite-request-city">Where do you live?</label>
+            <input id="invite-request-city" name="city" type="text" autocomplete="address-level2" maxlength="120" required placeholder="City — e.g. Lisbon" value="${esc(inviteRequestState.city)}" aria-describedby="invite-request-city-error"${inviteRequestState.fieldErrors.city ? ' aria-invalid="true"' : ''}>
             <p class="network-invite-field-error" id="invite-request-city-error">${esc(inviteRequestState.fieldErrors.city)}</p>
           </div>
           <div class="network-invite-field network-invite-field-wide">
@@ -953,7 +954,7 @@ export function networkDiscoveryMarkup(
         <p class="network-invitation-lead">Members publish straight to the circle: no approval queue, no editors, no minimum. We trust you.</p>
       </div>
       ${publicRecommendationSampleMarkup(resolvePlace)}
-      <aside class="network-invitation-action" aria-label="Founding membership and member sign-in">
+      <aside class="network-invitation-action" data-invite-request-section aria-label="Founding membership and member sign-in">
         ${inviteRequestFormMarkup(accountHref)}
       </aside>
     </section>`;

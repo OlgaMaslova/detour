@@ -243,7 +243,7 @@ routerAdd(
     // invitation_limit is the member's computed allowance, not their tier: the
     // founding markers it derives from are hidden fields and stay server-side.
     const founding = require(__hooks + "/founding_cap.js");
-    const foundingMember = founding.isFoundingMember(e.auth);
+    const foundingMember = founding.isFoundingMember(e.app, e.auth);
     const imageCurationCount = foundingMember
       ? e.app.findRecordsByFilter(
           "community_place_images",
@@ -259,7 +259,7 @@ routerAdd(
         display_name: e.auth.getString("pseudo") || e.auth.getString("display_name"),
         pseudo: e.auth.getString("pseudo"),
         community_status: e.auth.getString("community_status"),
-        invitation_limit: founding.invitationLimitFor(e.auth),
+        invitation_limit: founding.invitationLimitFor(e.app, e.auth),
         founding_member: foundingMember,
         image_curation_count: imageCurationCount,
       },
@@ -306,6 +306,7 @@ routerAdd(
 // recommendations, one per city. The private source collections have no public
 // CRUD rules, so independently enforce visibility and fixture exclusions here.
 routerAdd("GET", "/api/detour/public-recommendations", (e) => {
+  const founding = require(__hooks + "/founding_cap.js");
   function meaningfulText(value) {
     if (typeof value !== "string") return "";
     const normalized = value.replace(/\s+/g, " ").trim();
@@ -374,9 +375,7 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
       "COALESCE(TRIM(v.country), '') AS country, " +
       "COALESCE(TRIM(r.note), '') AS note, " +
       "COALESCE(TRIM(m.pseudo), '') AS recommender_pseudo, " +
-      "CASE WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
-      "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE " +
-      "THEN TRUE ELSE FALSE END AS founding_member, " +
+      "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
       "COALESCE(v.id, '') AS venue_id ";
     const joinsAndFilters =
       "FROM community_recommendations r " +
@@ -403,10 +402,9 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
         "AND LOWER(TRIM(v.city)) = LOWER({:city}) " +
         "ORDER BY r.created DESC, r.id DESC LIMIT 24";
     } else {
-      // direct_founder_invited is the capped founding-membership marker.
-      // Include the authorized Founder issuer as part of the same circle.
-      // Rank before limiting so a busy city can never occupy two of the three
-      // anonymous preview slots.
+      // The landing preview speaks only for the founding circle: the Founder
+      // and the members the Founder invited. Rank before limiting so a busy
+      // city can never occupy two of the three anonymous preview slots.
       sql =
         "WITH ranked AS (" +
         "SELECT " + projection +
@@ -416,10 +414,7 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
         "ORDER BY r.created DESC, r.id DESC" +
         ") AS city_rank " +
         joinsAndFilters +
-        "AND (" +
-        "COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
-        "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE" +
-        ")" +
+        "AND " + founding.foundingMemberSql("m") + " " +
         ") " +
         "SELECT venue_name, city, country, note, recommender_pseudo, founding_member, venue_id " +
         "FROM ranked WHERE city_rank = 1 " +
@@ -445,6 +440,7 @@ routerAdd(
   "GET",
   "/api/detour/network-discovery",
   (e) => {
+    const founding = require(__hooks + "/founding_cap.js");
     // Route handlers run in isolated VMs, so all route-specific helpers and
     // query models live inside this handler.
     function projectReply(row) {
@@ -511,9 +507,7 @@ routerAdd(
           .db()
           .newQuery(
             "SELECT m.pseudo AS recommender_pseudo, m.id AS member_id, " +
-              "CASE WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
-              "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE " +
-              "THEN TRUE ELSE FALSE END AS founding_member, " +
+              "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
               "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
               "FROM community_recommendations r " +
               "JOIN members m ON m.id = r.member " +
@@ -534,7 +528,7 @@ routerAdd(
 
       let sampleRows = sampleRecommendations("COALESCE(m.discovery_visible, FALSE) = TRUE");
       if (!sampleRows.length) {
-        sampleRows = sampleRecommendations("COALESCE(m.founder_invitation_issuer, FALSE) = TRUE");
+        sampleRows = sampleRecommendations(founding.rootFounderSql("m"));
       }
       const sample = [];
       for (const row of sampleRows) {
@@ -640,9 +634,7 @@ routerAdd(
       .db()
       .newQuery(
         "SELECT m.pseudo AS recommender_pseudo, m.id AS member_id, " +
-          "CASE WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
-          "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE " +
-          "THEN TRUE ELSE FALSE END AS founding_member, " +
+          "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
           "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
           "FROM community_recommendations r " +
           "JOIN members m ON m.id = r.member " +
@@ -677,6 +669,7 @@ routerAdd(
   "GET",
   "/api/detour/member-place-contributions",
   (e) => {
+    const founding = require(__hooks + "/founding_cap.js");
     const records = e.app.findRecordsByFilter(
       "member_place_contributions",
       "member = {:member}",
@@ -713,6 +706,7 @@ routerAdd(
 // leaves the server. Shares stay completely private: sending a place to
 // someone is never social proof and never moves a count here.
 routerAdd("GET", "/api/detour/place-detourists", (e) => {
+  const foundingPolicy = require(__hooks + "/founding_cap.js");
   const { normalizePlacePart } = require(__hooks + "/community_waitlist.js");
 
   // Distinct (venue, member) pairs from recommendation signals only. Waiting-
@@ -727,9 +721,7 @@ routerAdd("GET", "/api/detour/place-detourists", (e) => {
       "SELECT venue_id, member_id, founding_member FROM (" +
         "SELECT COALESCE(NULLIF(w.published_venue, ''), w.canonical_venue) AS venue_id, " +
         "r.member AS member_id, " +
-        "CASE WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
-        "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE " +
-        "THEN TRUE ELSE FALSE END AS founding_member " +
+        "CASE WHEN " + foundingPolicy.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member " +
         "FROM community_recommendations r " +
         "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
         "JOIN members m ON m.id = r.member " +
@@ -756,9 +748,7 @@ routerAdd("GET", "/api/detour/place-detourists", (e) => {
     .newQuery(
       "SELECT c.id AS contribution_id, c.member AS member_id, " +
         "c.normalized_name, c.normalized_city, " +
-        "CASE WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
-        "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE " +
-        "THEN TRUE ELSE FALSE END AS founding_member " +
+        "CASE WHEN " + foundingPolicy.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member " +
         "FROM member_place_contributions c " +
         "JOIN members m ON m.id = c.member " +
         "WHERE c.status = 'approved' " +
@@ -1047,7 +1037,7 @@ routerAdd(
       .db()
       .newQuery(
         "SELECT m.id AS member_id, m.display_name, m.pseudo, m.home_city FROM members m " +
-          "WHERE COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
+          "WHERE " + founding.foundingMemberSql("m") + " " +
           "AND " + realMember("m") + " " +
           "ORDER BY COALESCE(m.joined_at, '') ASC, m.id ASC LIMIT 100"
       )
@@ -1062,7 +1052,7 @@ routerAdd(
       )
       .bind({ caller: callerId })
       .one(unclaimed);
-    const invitationLimit = founding.invitationLimitFor(e.auth);
+    const invitationLimit = founding.invitationLimitFor(e.app, e.auth);
     const unclaimedCount = Number(unclaimed.total || 0);
 
     const invited = [];
@@ -1100,7 +1090,6 @@ routerAdd(
       invited: invited,
       second_degree: secondDegree,
       founding: {
-        cap: founding.FOUNDING_MEMBER_CAP,
         seated: founding.countFoundingMembers(e.app),
         members: foundingMembers,
       },
@@ -1122,6 +1111,7 @@ routerAdd(
   "GET",
   "/api/detour/circle/places",
   (e) => {
+    const founding = require(__hooks + "/founding_cap.js");
     const who = e.request.url.query().get("who") || "";
     if (!/^(inviter|invited:\d{1,3}|second:\d{1,3}|founding:\d{1,3})$/.test(who)) {
       throw new BadRequestError("who must reference a member of your circle.");
@@ -1181,7 +1171,7 @@ routerAdd(
           .db()
           .newQuery(
             "SELECT m.id AS member_id FROM members m " +
-              "WHERE COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
+              "WHERE " + founding.foundingMemberSql("m") + " " +
               "AND " + realMember("m") + " " +
               "ORDER BY COALESCE(m.joined_at, '') ASC, m.id ASC LIMIT 100"
           )
@@ -1221,9 +1211,7 @@ routerAdd(
       .db()
       .newQuery(
         "SELECT m.pseudo AS recommender_pseudo, " +
-          "CASE WHEN COALESCE(m.direct_founder_invited, FALSE) = TRUE " +
-          "OR COALESCE(m.founder_invitation_issuer, FALSE) = TRUE " +
-          "THEN TRUE ELSE FALSE END AS founding_member, " +
+          "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
           "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
           "FROM community_recommendations r " +
           "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
@@ -1296,11 +1284,14 @@ onRecordCreateRequest((e) => {
     throw new BadRequestError("This invitation code is invalid or has already been used.");
   }
 
-  const { assertPseudoAvailable, normalizeMemberPseudo } = require(
+  const { assertPseudoAvailable, normalizeHomeCity, normalizeMemberPseudo } = require(
     __hooks + "/member_profile.js"
   );
   const pseudo = normalizeMemberPseudo(e.record.getString("pseudo"));
   assertPseudoAvailable(e.app, pseudo, "");
+  // Every signup flow asks for a home city, so no public account is created
+  // without one. Superuser-created fixtures returned above and are exempt.
+  e.record.set("home_city", normalizeHomeCity(e.record.getString("home_city")));
 
   const issuerId = invite.getString("issued_by");
   const issuer = e.app.findRecordById("members", issuerId);
@@ -1314,19 +1305,9 @@ onRecordCreateRequest((e) => {
   e.record.set("invited_by", issuerId);
   e.record.set("redeemed_invite", invite.id);
   e.record.set("community_status", "verified");
-  // Derive from the invitation's actual issuer marker, not ancestry: a direct
-  // Founder invitee does not confer Founder status on people they later invite.
-  // Founding seats are capped; once the cap is reached a founder-issued code
-  // still admits the invitee, as a regular verified member, so a personally
-  // sent invitation never fails at the door. The count-then-grant pair is not
-  // serialized, so two simultaneous redemptions at the boundary could seat one
-  // member over the cap — acceptable for a hand-issued, human-paced flow.
-  const founding = require(__hooks + "/founding_cap.js");
-  e.record.set(
-    "direct_founder_invited",
-    issuer.getBool("founder_invitation_issuer") &&
-      founding.countFoundingMembers(e.app) < founding.FOUNDING_MEMBER_CAP
-  );
+  // Founding membership is not granted here and is not stored: it is derived
+  // from invited_by — the Founder's own account and everyone the Founder
+  // invited (see founding_cap.js). Setting invited_by above is the whole of it.
   e.next();
 }, "members");
 
@@ -1518,6 +1499,13 @@ onRecordUpdateRequest((e) => {
     assertPseudoAvailable(e.app, pseudo, e.record.id);
     e.record.set("pseudo", pseudo);
   }
+  // A member may correct their home city but never blank it: signup asked for
+  // it, and the circle projection names it. Accounts that predate the required
+  // field keep their empty value until they edit it.
+  if (e.record.getString("home_city") !== original.getString("home_city")) {
+    const { normalizeHomeCity } = require(__hooks + "/member_profile.js");
+    e.record.set("home_city", normalizeHomeCity(e.record.getString("home_city")));
+  }
   e.record.set("invite_code", "");
   e.next();
 }, "members");
@@ -1535,7 +1523,7 @@ onRecordCreateRequest((e) => {
   }
 
   const founding = require(__hooks + "/founding_cap.js");
-  const limit = founding.invitationLimitFor(e.auth);
+  const limit = founding.invitationLimitFor(e.app, e.auth);
   const openInviteCount = e.app.countRecords(
     "invites",
     $dbx.hashExp({ issued_by: e.auth.id, claimed_by: "" })
@@ -2145,7 +2133,7 @@ routerAdd(
   "/api/detour/curation/images",
   (e) => {
     const founding = require(__hooks + "/founding_cap.js");
-    founding.requireFoundingMember(e.auth, "reviewing place images");
+    founding.requireFoundingMember(e.app, e.auth, "reviewing place images");
     const records = e.app.findRecordsByFilter(
       "community_place_images",
       "(status = 'pending' || status = 'screening_failed') && safety_flagged = false",
@@ -2194,7 +2182,7 @@ routerAdd(
   "/api/detour/curation/images/{id}/approve",
   (e) => {
     const founding = require(__hooks + "/founding_cap.js");
-    founding.requireFoundingMember(e.auth, "approving a place image");
+    founding.requireFoundingMember(e.app, e.auth, "approving a place image");
     const imageId = e.request.pathValue("id");
     const body = e.requestInfo().body || {};
     const curatorNote =
@@ -2258,7 +2246,7 @@ routerAdd(
   "/api/detour/curation/images/{id}/reject",
   (e) => {
     const founding = require(__hooks + "/founding_cap.js");
-    founding.requireFoundingMember(e.auth, "rejecting a place image");
+    founding.requireFoundingMember(e.app, e.auth, "rejecting a place image");
     const image = e.app.findRecordById(
       "community_place_images",
       e.request.pathValue("id")

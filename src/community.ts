@@ -167,6 +167,9 @@ let shareFormOpen = false;
 // Set when a route intent — a landing CTA, a place page, a ?recommend= link —
 // opened one of those forms, so the render that follows can reveal it.
 let pendingFormReveal: 'recommendation' | 'share' | null = null;
+// A pseudo a deep link asked to share with, held until the next bind can turn it
+// into a picked member through the directory.
+let pendingShareRecipient: string | null = null;
 let notice: Notice | null = null;
 let knownVenues: Venue[] = [];
 let waitlistEntries: WaitlistEntry[] = [];
@@ -308,6 +311,38 @@ function invitationLink(code: string): string {
   return url.href;
 }
 
+/**
+ * The invitation the member already has open, as a link — or null when every code
+ * they hold has been claimed. Never creates one, so a caller can ask ahead of
+ * time and have the link ready before it is wanted.
+ */
+export async function openInvitationLink(): Promise<string | null> {
+  const own = await pb
+    .collection('invites')
+    .getFullList<InviteRecord>({ sort: 'created', requestKey: null });
+  const open = own.find((invite) => !invite.claimed_by && invite.code);
+  return open?.code ? invitationLink(open.code) : null;
+}
+
+/**
+ * The link a member hands to someone they trust, obtainable from anywhere in the
+ * app — My Circle asks for it too, not just the Invitations tab.
+ *
+ * An unclaimed code is reused rather than replaced: the allowance is codes left
+ * outstanding, so asking twice must not spend two of them. A fresh code is
+ * created only when the member has none open, and the server enforces the limit
+ * either way. Throws if the code cannot be prepared, so callers can say so.
+ */
+export async function ensureInvitationLink(): Promise<string> {
+  const open = await openInvitationLink();
+  if (open) return open;
+  const created = await pb.collection('invites').create<InviteRecord>({});
+  if (!created.code) throw new Error('That invitation link could not be prepared. Please try again.');
+  // A code created here has to show up on the Invitations tab as well.
+  invitesLoaded = false;
+  return invitationLink(created.code);
+}
+
 function clearInvitationRoute(): void {
   invitationCodePrefill = '';
   routedInvitationCode = null;
@@ -392,10 +427,10 @@ function signedOutPanel(): string {
                 <label>Confirm password<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" required></label>
               </div>
               <div class="community-form-grid">
-                <label>Where do you live?<input name="home_city" autocomplete="address-level2" maxlength="120" placeholder="City — e.g. San Francisco"></label>
+                <label>Where do you live?<input name="home_city" autocomplete="address-level2" minlength="2" maxlength="120" required placeholder="City — e.g. San Francisco"></label>
                 <label>Country<select name="home_country" autocomplete="country-name">${countryOptions()}</select></label>
               </div>
-              <p class="community-form-note">Optional — it helps us understand where the Detour circle is growing.</p>
+              <p class="community-form-note">The city you live in is where the circle sees you recommending from. Country is optional.</p>
               <label>Invitation code<input name="invite_code" value="${esc(invitationCodePrefill)}" autocomplete="off" spellcheck="false" maxlength="80" placeholder="DTR-…" required></label>
               <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Joining…' : 'Join Detour'}</button>
             </form>`
@@ -745,7 +780,7 @@ function sharesPanel(): string {
   return `${memberSharesMarkup()}
   ${
     shareFormOpen
-      ? `<section class="community-ledger-section community-share-new" id="community-share-new" aria-labelledby="private-shares-title">
+      ? `<section class="community-ledger-section community-share-new is-open" id="community-share-new" aria-labelledby="private-shares-title">
           <div class="community-section-heading">
             <div><h3 id="private-shares-title">Share a food-and-drink destination</h3></div>
             <p>Send a restaurant, café, bar, or other food-and-drink destination to a member with a note — from the list, or one of your own.</p>
@@ -882,6 +917,13 @@ function settingsPanel(record: MemberRecord): string {
       </form>
       <p class="community-form-note">Your unique handle — other members search for it to share food-and-drink destinations with you.</p>
     </div>
+    <div class="community-pseudo-row">
+      <form class="community-form community-pseudo-form" data-community-home-city>
+        <label>Where do you live?<input name="home_city" value="${esc(record.home_city || '')}" autocomplete="address-level2" minlength="2" maxlength="120" required placeholder="City — e.g. San Francisco"></label>
+        <button class="secondary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Saving…' : 'Save city'}</button>
+      </form>
+      <p class="community-form-note">Signup asks every member where they live; this is where members who joined before it was asked can answer.</p>
+    </div>
     <div class="community-visibility-row">
       <div class="community-visibility-copy">
         <h3>Food-and-drink discovery</h3>
@@ -950,13 +992,70 @@ export function applyInvitationRoute(code: string | null): void {
   else if (leavingInvitationRoute) mode = 'sign-in';
 }
 
-/** Point the member area at the Share a place form (My detours → Shares) before it renders. */
-export function openSharePlace(): void {
+/**
+ * Point the member area at the Share a place form (My detours → Shares) before it
+ * renders. A pseudo names who the share is for — My Circle sends one, since a row
+ * there is already a specific person — and the recipient picker resolves it to
+ * that member on the next bind. Only the pseudo travels: the circle payload
+ * carries no member ids, and the directory is the one place allowed to turn a
+ * pseudo into an id.
+ */
+export function openSharePlace(recipientPseudo?: string): void {
   memberTab = 'detours';
   detourTab = 'shares';
   // Arriving via "Share privately" is an explicit ask for the form.
   shareFormOpen = true;
   pendingFormReveal = 'share';
+  const pseudo = pseudoLabel(recipientPseudo, '');
+  if (!pseudo) return;
+  const state = directoryState('share-place');
+  state.query = pseudo;
+  state.selected = null;
+  state.items = [];
+  state.error = '';
+  state.activeIndex = -1;
+  pendingShareRecipient = pseudo;
+}
+
+/**
+ * Turns the pseudo a deep link arrived with into the picker's selected member.
+ * An exact pseudo match selects itself; anything else is left as search results
+ * for the member to choose from, so a renamed or ambiguous handle degrades into
+ * the ordinary lookup rather than sending to the wrong person.
+ */
+async function resolveShareRecipient(render: () => void): Promise<void> {
+  const pseudo = pendingShareRecipient;
+  pendingShareRecipient = null;
+  if (!pseudo) return;
+  const state = directoryState('share-place');
+  state.loading = true;
+  render();
+  try {
+    const response = await pb.send<{ items: DirectoryMember[] }>(
+      `/api/detour/member-directory?q=${encodeURIComponent(pseudo)}`,
+      { requestKey: null }
+    );
+    const ownId = member()?.id;
+    const items = (response.items || []).filter((item) => item.id !== ownId && item.pseudo?.trim());
+    const exact = items.find(
+      (item) => pseudoLabel(item.pseudo).toLowerCase() === pseudo.toLowerCase()
+    );
+    if (exact) {
+      state.selected = exact;
+      state.query = pseudoLabel(exact.pseudo);
+      state.items = [];
+    } else {
+      state.items = items;
+    }
+    state.error = '';
+  } catch (error) {
+    state.items = [];
+    state.error = readableError(error, 'Member search is unavailable. Please try again.');
+  } finally {
+    state.loading = false;
+    state.activeIndex = -1;
+    render();
+  }
 }
 
 /** Point the member area at the Recommend form, optionally fixed to one published place. */
@@ -1032,6 +1131,7 @@ function resetCommunityState(): void {
   recommendationFormOpen = false;
   shareFormOpen = false;
   pendingFormReveal = null;
+  pendingShareRecipient = null;
   waitlistEntries = [];
   recommendations = [];
   shares = [];
@@ -1345,6 +1445,7 @@ export function bindCommunity(
     bindMemberShares(root, render, (shareId) => {
       shares = shares.filter((share) => share.id !== shareId);
     });
+    if (pendingShareRecipient) void resolveShareRecipient(render);
   }
   root.querySelectorAll<HTMLButtonElement>('[data-community-mode]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -1548,6 +1649,14 @@ export function bindCommunity(
       return;
     }
     const email = String(values.get('email') || '').trim();
+    // `required` lets a space through; the home city is asked for real, so check
+    // the trimmed value here rather than sending it for the server to reject.
+    const homeCity = String(values.get('home_city') || '').trim();
+    if (homeCity.length < 2) {
+      notice = { kind: 'error', text: 'Tell us where you live — the city you live in.' };
+      render();
+      return;
+    }
     submitting = true;
     notice = null;
     render();
@@ -1557,7 +1666,7 @@ export function bindCommunity(
         email,
         password,
         passwordConfirm,
-        home_city: String(values.get('home_city') || '').trim(),
+        home_city: homeCity,
         home_country: String(values.get('home_country') || '').trim(),
         invite_code: String(values.get('invite_code') || '').trim().toUpperCase(),
       });
@@ -1617,6 +1726,33 @@ export function bindCommunity(
       notice = { kind: 'success', text: `Your pseudo is now ${pseudo}.` };
     } catch (error) {
       notice = { kind: 'error', text: readableError(error, 'Your pseudo could not be updated. Please try again.') };
+    } finally {
+      submitting = false;
+      render();
+    }
+  });
+
+  root.querySelector<HTMLFormElement>('[data-community-home-city]')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const record = member();
+    if (!record || submitting) return;
+    const values = new FormData(event.currentTarget as HTMLFormElement);
+    const homeCity = String(values.get('home_city') || '').trim();
+    if (homeCity === (record.home_city || '')) return;
+    if (homeCity.length < 2) {
+      notice = { kind: 'error', text: 'Tell us where you live — the city you live in.' };
+      render();
+      return;
+    }
+    submitting = true;
+    notice = null;
+    render();
+    try {
+      const updated = await pb.collection('members').update<MemberRecord>(record.id, { home_city: homeCity }, { requestKey: null });
+      if (!syncMemberRecord(record, updated)) return;
+      notice = { kind: 'success', text: `Your circle now sees you in ${updated.home_city || homeCity}.` };
+    } catch (error) {
+      notice = { kind: 'error', text: readableError(error, 'Your city could not be updated. Please try again.') };
     } finally {
       submitting = false;
       render();

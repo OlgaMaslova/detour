@@ -19,6 +19,10 @@
     "`audience`: 'public' accepts anonymous submissions; 'member' requires an",
     "authenticated member and records who answered — say so in `privacyNote`,",
     "because an attributed survey must not read as an anonymous one.",
+    "`success.inviteCta`: the confirmation offers a way into the invite form on",
+    "the home page, labelled with this text and introduced by `inviteLead`. Only",
+    "surveys whose audience can still be outside the circle should set it, and it",
+    "is hidden anyway from a visitor who is already signed in.",
     "`appliesWhen`: the question is asked, and required, only while the named",
     "question's answer satisfies `in` / `notIn`. Otherwise it is skipped and",
     "stored as absent rather than empty. A question may only depend on one asked",
@@ -145,7 +149,9 @@
       "success": {
         "kicker": "Answers received",
         "title": "Thank you — that genuinely helps.",
-        "body": "Nothing else happens now: there’s no account to confirm and no email to expect. Your answers go straight to the people building Detour."
+        "body": "Nothing else happens now: there’s no account to confirm and no email to expect. Your answers go straight to the people building Detour.",
+        "inviteLead": "If you’d like a place in the circle, that’s a separate ask — and it’s open.",
+        "inviteCta": "Ask for invitation"
       }
     },
     "friends": {

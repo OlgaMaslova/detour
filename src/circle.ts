@@ -1,4 +1,5 @@
 import { pb } from './pocketbase';
+import { ensureInvitationLink, openInvitationLink } from './community';
 import { groupedRecommendationCardMarkup } from './network';
 import type { DiscoveryRecommendation, NetworkPlaceResolver } from './network';
 
@@ -7,9 +8,9 @@ import type { DiscoveryRecommendation, NetworkPlaceResolver } from './network';
  *
  * Detour only grows by personal invitation, so this is the trust structure of
  * the app made legible: who brought you in, who you brought in, and who is one
- * invitation further out with the connecting member named on the row. The
- * founding circle sits apart from all of that: it is not relational and reads
- * the same for every member.
+ * invitation further out with the connecting member named on the row. Only
+ * relational rows appear — anything that reads the same for every member says
+ * nothing about the caller's own circle and has no place here.
  *
  * All of it comes from one server projection (`/api/detour/circle`), which
  * decides what is visible. Nothing here re-derives membership from collection
@@ -48,7 +49,6 @@ interface CircleData {
   inviter: CirclePerson | null;
   invited: CirclePerson[];
   secondDegree: CirclePerson[];
-  founding: { cap: number; seated: number; members: CirclePerson[] };
 }
 
 const EMPTY: CircleData = {
@@ -56,7 +56,6 @@ const EMPTY: CircleData = {
   inviter: null,
   invited: [],
   secondDegree: [],
-  founding: { cap: 0, seated: 0, members: [] },
 };
 
 /** The drawing is the page; the list is the alternative reading of it. */
@@ -67,6 +66,16 @@ let loadedFor = '';
 let errorMessage = '';
 let circle: CircleData = EMPTY;
 let view: CircleView = 'rings';
+
+/** The invite button's own small state machine, reset once the copy has been read. */
+type InviteLinkState = 'idle' | 'working' | 'copied' | 'error';
+let inviteLink: InviteLinkState = 'idle';
+let inviteLinkTimer = 0;
+/* An already-open invitation, fetched when the circle loads. Browsers only trust
+   a clipboard write that starts in the click's own task, so the link the member
+   most likely wants is in hand before they ask for it; only a member with no open
+   code pays a round-trip on the click. */
+let inviteReady: string | null = null;
 
 /* Slide-over panel: which circle member is open, addressed by the same
    positional reference the payload uses, and a per-person cache of their
@@ -153,9 +162,6 @@ function cleanPayload(value: unknown): CircleData {
   const invitations = (
     payload.invitations && typeof payload.invitations === 'object' ? payload.invitations : {}
   ) as Record<string, unknown>;
-  const founding = (
-    payload.founding && typeof payload.founding === 'object' ? payload.founding : {}
-  ) as Record<string, unknown>;
   return {
     invitations: {
       limit: cleanCount(invitations.limit),
@@ -165,11 +171,6 @@ function cleanPayload(value: unknown): CircleData {
     inviter: cleanPerson(payload.inviter),
     invited: cleanPeople(payload.invited),
     secondDegree: cleanPeople(payload.second_degree),
-    founding: {
-      cap: cleanCount(founding.cap),
-      seated: cleanCount(founding.seated),
-      members: cleanPeople(founding.members),
-    },
   };
 }
 
@@ -196,6 +197,7 @@ async function loadCircle(render: () => void): Promise<void> {
     if (memberId() !== identity) return;
     circle = cleanPayload(payload);
     status = 'ready';
+    if (circle.invitations.unclaimed && !inviteReady) void primeInviteLink();
   } catch (error) {
     if (memberId() !== identity) return;
     circle = EMPTY;
@@ -222,6 +224,36 @@ export function resetCircle(): void {
   circle = EMPTY;
   panelRef = null;
   panelPlaces.clear();
+  window.clearTimeout(inviteLinkTimer);
+  inviteLink = 'idle';
+  inviteReady = null;
+}
+
+/**
+ * Re-reads the projection in place after a code is created, so the allowance line
+ * under the button stays true. Deliberately quiet: no 'loading' status, because
+ * the page is already drawn and only three numbers are changing.
+ */
+async function refreshInvitations(render: () => void): Promise<void> {
+  const identity = memberId();
+  if (!identity) return;
+  try {
+    const payload = await pb.send<unknown>('/api/detour/circle', { requestKey: null });
+    if (memberId() !== identity) return;
+    circle = cleanPayload(payload);
+    render();
+  } catch {
+    // The counts stay as they were; the server is still the guard.
+  }
+}
+
+/** Best effort: a failure here just means the click does the work instead. */
+async function primeInviteLink(): Promise<void> {
+  try {
+    inviteReady = await openInvitationLink();
+  } catch {
+    inviteReady = null;
+  }
 }
 
 /* ---------- markup ---------- */
@@ -254,14 +286,12 @@ function personGeography(person: CirclePerson): string {
  * hover — its rows print all of this.
  */
 /** The relationship as one short sentence — the panel kicker and the start of a node hover. */
-function personSentence(person: CirclePerson, relation: CircleRelation | 'founding'): string {
+function personSentence(person: CirclePerson, relation: CircleRelation): string {
   return relation === 'inviter'
     ? `${person.name} invited you`
     : relation === 'invited'
       ? `You invited ${person.name}`
-      : relation === 'second'
-        ? `${person.connector || 'A member'} invited ${person.name}`
-        : `${person.name} — founding member`;
+      : `${person.connector || 'A member'} invited ${person.name}`;
 }
 
 function personTitle(person: CirclePerson, relation: CircleRelation): string {
@@ -279,14 +309,24 @@ function personTitle(person: CirclePerson, relation: CircleRelation): string {
 }
 
 /**
- * Two tight lines, all left-aligned: name, then geography in small mono. The
- * right edge carries one thing only: the place count. No hover here — a row
- * already says everything the tooltip would; the places themselves are one
- * click away in the panel.
+ * Two tight lines on the left — name, then geography and footprint in small mono
+ * — and one action on the right: share a place with this person. The person block
+ * is the panel trigger and the share link is its sibling, never nested inside it:
+ * one interactive control may not contain another, and a click on Share must not
+ * also open the panel behind it.
+ *
+ * The footprint used to ride the right edge as a bare number; across a full-width
+ * row it sat an inch of empty ground from its name and read as unlabelled, so the
+ * meta line says "4 cities · 8 places" in words instead.
  */
-function personRow(person: CirclePerson, relation: CircleRelation, ref: string): string {
-  return `<li class="circle-person" data-circle-person="${esc(ref)}" role="button" tabindex="0" aria-haspopup="dialog" aria-label="${esc(`${personSentence(person, relation)} — open their places`)}">
-    <div class="circle-person-main">
+function personRow(
+  person: CirclePerson,
+  relation: CircleRelation,
+  ref: string,
+  memberHref: string
+): string {
+  return `<li class="circle-person">
+    <div class="circle-person-main" data-circle-person="${esc(ref)}" role="button" tabindex="0" aria-haspopup="dialog" aria-label="${esc(`${personSentence(person, relation)} — open their places`)}">
       <span class="circle-person-name">${esc(person.name)}${
         relation === 'second' && person.connector
           ? ` <span class="circle-person-provenance">· invited by ${esc(person.connector)}</span>`
@@ -294,7 +334,7 @@ function personRow(person: CirclePerson, relation: CircleRelation, ref: string):
       }</span>
       <span class="circle-person-meta">${esc(personGeography(person))}</span>
     </div>
-    ${person.places ? `<span class="circle-person-count">${person.places}</span>` : ''}
+    <a class="circle-person-share" href="${esc(memberHref)}" data-community-route="share-place" data-share-recipient="${esc(person.name)}" aria-label="${esc(`Share a place with ${person.name}`)}">Share a place</a>
   </li>`;
 }
 
@@ -303,16 +343,15 @@ function emptyNote(text: string): string {
 }
 
 /**
- * The list view: one ruled list, tiny group labels, one line per person.
- * Relational rows only — the Founding 50 lives on the satellite in the
- * rings view, not here.
+ * The list view: one ruled list, tiny group labels, one line per person. Rows
+ * carry a share link, so the member-area href travels down with them.
  */
-function listMarkup(): string {
+function listMarkup(memberHref: string): string {
   const { inviter, invited, secondDegree } = circle;
   const allGroups: { label: string; relation: CircleRelation; refPrefix: string; people: CirclePerson[] }[] = [
     { label: 'Your inviter', relation: 'inviter', refPrefix: 'inviter', people: inviter ? [inviter] : [] },
     { label: `You invited · ${invited.length}`, relation: 'invited', refPrefix: 'invited', people: invited },
-    { label: `One hop out · ${secondDegree.length}`, relation: 'second', refPrefix: 'second', people: secondDegree },
+    { label: `Friends of friends · ${secondDegree.length}`, relation: 'second', refPrefix: 'second', people: secondDegree },
   ];
   const groups = allGroups.filter((group) => group.people.length);
   if (!groups.length) return emptyNote('No one in your circle yet.');
@@ -324,7 +363,8 @@ function listMarkup(): string {
             personRow(
               person,
               group.relation,
-              group.refPrefix === 'inviter' ? 'inviter' : `${group.refPrefix}:${index}`
+              group.refPrefix === 'inviter' ? 'inviter' : `${group.refPrefix}:${index}`,
+              memberHref
             )
           )
           .join('')}`
@@ -360,14 +400,6 @@ const DRAW_CX = 380;
 const DRAW_CY = 322;
 const INNER_RADIUS = 155;
 const OUTER_RADIUS = 268;
-/* The Founding 50 satellite is its own small SVG beside the main drawing —
-   apart, the way it sits in the product, and droppable on a phone where the
-   main rings need the full width. */
-const SAT_WIDTH = 240;
-const SAT_HEIGHT = 250;
-const SATELLITE_X = 120;
-const SATELLITE_Y = 140;
-const SATELLITE_RADIUS = 90;
 
 function polar(radius: number, angle: number): { x: number; y: number } {
   return {
@@ -406,46 +438,6 @@ function nodeMarkup(node: DrawnNode): string {
 
 function spokeMarkup(from: { x: number; y: number }, to: { x: number; y: number }, second: boolean): string {
   return `<line class="circle-map-spoke${second ? ' circle-map-spoke-second' : ''}" x1="${from.x.toFixed(1)}" y1="${from.y.toFixed(1)}" x2="${to.x.toFixed(1)}" y2="${to.y.toFixed(1)}"></line>`;
-}
-
-/**
- * The Founding 50 as a satellite: one small ring of exactly 50 seats, a dot
- * per seat, filled as they are taken — hovering a taken seat names the
- * member, in seating order. The centre reads as scarcity ("43 left"), not as
- * a tally of empty circles. Seats, not names: the cap is the shape.
- */
-function satelliteMarkup(): string {
-  const { cap, seated, members } = circle.founding;
-  const taken = Math.max(seated, members.length);
-  // The cap is policy; a boundary race could seat one member over it. Draw
-  // whichever is larger so a taken seat is never silently dropped.
-  const seats = Math.max(cap || 50, taken);
-  const left = Math.max(0, seats - taken);
-  let dots = '';
-  for (let i = 0; i < seats; i++) {
-    const angle = -Math.PI / 2 + (i * Math.PI * 2) / seats;
-    const x = SATELLITE_X + SATELLITE_RADIUS * Math.cos(angle);
-    const y = SATELLITE_Y + SATELLITE_RADIUS * Math.sin(angle);
-    const dot = `<circle class="circle-map-seat${i < taken ? ' is-taken' : ''}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.4"></circle>`;
-    // A taken seat is a person: the invisible wider circle is the hover pad —
-    // a 3.4px dot is no hover target. The tip keeps to name, home, and
-    // footprint: "Olga from Annecy, 2 places" — and clicking opens their
-    // places like any other member of the circle.
-    const seatTip = (person: CirclePerson): string =>
-      `${person.name}${person.home ? ` from ${person.home}` : ''}, ${
-        person.places ? placeCount(person.places) : 'no places yet'
-      }`;
-    dots +=
-      i < taken && members[i]
-        ? `<g class="circle-map-person" data-tip="${esc(seatTip(members[i]))}" data-circle-person="founding:${i}" role="button" tabindex="0" aria-haspopup="dialog" aria-label="${esc(`${seatTip(members[i])} — open their places`)}"><circle class="circle-map-hit" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="9"></circle>${dot}</g>`
-        : dot;
-  }
-  return `<svg class="circle-map-sat" viewBox="0 0 ${SAT_WIDTH} ${SAT_HEIGHT}" role="img" aria-label="Founding 50 — ${taken} of ${seats} seats taken.">
-    <text class="circle-map-caption" x="${SATELLITE_X}" y="${SATELLITE_Y - SATELLITE_RADIUS - 16}" text-anchor="middle" data-tip="Founding members — every member can see their recommendations">Founding 50</text>
-    ${dots}
-    <text class="circle-map-sat-count" x="${SATELLITE_X}" y="${SATELLITE_Y + 2}" text-anchor="middle">${taken}</text>
-    <text class="circle-map-sat-label" x="${SATELLITE_X}" y="${SATELLITE_Y + 24}" text-anchor="middle">${left ? `${left} left` : 'full'}</text>
-  </svg>`;
 }
 
 function circleDrawingMarkup(): string {
@@ -538,18 +530,12 @@ function circleDrawingMarkup(): string {
 
   const centre = { x: DRAW_CX, y: DRAW_CY };
   const innerSpokes = inner.map((node) => spokeMarkup(centre, node, false)).join('');
-  const ringCaption = (radius: number, label: string): string => {
-    const at = polar(radius, (-3 * Math.PI) / 4);
-    return `<text class="circle-map-caption" x="${at.x.toFixed(1)}" y="${(at.y - 10).toFixed(1)}" text-anchor="middle">${esc(label)}</text>`;
-  };
   return `<div class="circle-map">
     <svg class="circle-map-main" viewBox="0 0 ${DRAW_WIDTH} ${DRAW_HEIGHT}" role="img" aria-label="Your circle drawn as rings: you at the centre, ${innerCount} ${
       innerCount === 1 ? 'person' : 'people'
-    } on the inner ring, ${secondDegree.length} one hop out on the outer ring. Spokes mark who invited whom; a filled node is sized by its member's published places.">
+    } on the inner ring, ${secondDegree.length} friends of friends on the outer ring. Spokes mark who invited whom; a filled node is sized by its member's published places.">
       <circle class="circle-map-ring circle-map-ring-inner" cx="${DRAW_CX}" cy="${DRAW_CY}" r="${INNER_RADIUS}"></circle>
       <circle class="circle-map-ring" cx="${DRAW_CX}" cy="${DRAW_CY}" r="${OUTER_RADIUS}"></circle>
-      ${ringCaption(INNER_RADIUS, 'Your circle')}
-      ${ringCaption(OUTER_RADIUS, 'One hop out')}
       ${innerSpokes}
       ${spokes.join('')}
       ${inner.map(nodeMarkup).join('')}
@@ -557,7 +543,6 @@ function circleDrawingMarkup(): string {
       <circle class="circle-map-node circle-map-node-you" cx="${DRAW_CX}" cy="${DRAW_CY}" r="30"></circle>
       <text class="circle-map-you" x="${DRAW_CX}" y="${DRAW_CY + 5}" text-anchor="middle">You</text>
     </svg>
-    ${satelliteMarkup()}
   </div>`;
 }
 
@@ -570,22 +555,14 @@ function circleDrawingMarkup(): string {
    the shared grouped-recommendation renderer so a place reads the same here
    as on every other surface. */
 
-function personByRef(ref: string): { person: CirclePerson; relation: CircleRelation | 'founding' } | null {
+function personByRef(ref: string): { person: CirclePerson; relation: CircleRelation } | null {
   if (ref === 'inviter') return circle.inviter ? { person: circle.inviter, relation: 'inviter' } : null;
-  const match = /^(invited|second|founding):(\d+)$/.exec(ref);
+  const match = /^(invited|second):(\d+)$/.exec(ref);
   if (!match) return null;
   const index = Number(match[2]);
-  const person =
-    match[1] === 'invited'
-      ? circle.invited[index]
-      : match[1] === 'second'
-        ? circle.secondDegree[index]
-        : circle.founding.members[index];
+  const person = match[1] === 'invited' ? circle.invited[index] : circle.secondDegree[index];
   if (!person) return null;
-  return {
-    person,
-    relation: match[1] === 'invited' ? 'invited' : match[1] === 'second' ? 'second' : 'founding',
-  };
+  return { person, relation: match[1] === 'invited' ? 'invited' : 'second' };
 }
 
 function cleanPanelItems(value: unknown): DiscoveryRecommendation[] {
@@ -695,14 +672,69 @@ function panelMarkup(): string {
   </aside>`;
 }
 
-/** The page's one action. The allowance details live on the Invitations tab it opens. */
-function allowanceMarkup(invitationsHref: string): string {
-  return `<a class="secondary-button" href="${esc(invitationsHref)}" data-community-route="invitations">${
-    circle.invitations.available ? 'Invite someone' : 'See your invitations'
-  }</a>`;
+/**
+ * One line of arithmetic before the drawing: how many people the circle holds
+ * — inviter, invited, and one hop out, the same rows the drawing and the list
+ * show.
+ */
+function summaryMarkup(): string {
+  const { inviter, invited, secondDegree } = circle;
+  const total = (inviter ? 1 : 0) + invited.length + secondDegree.length;
+  if (!total) return '';
+  return `<p class="circle-summary">${total} ${total === 1 ? 'Detourist' : 'Detourists'} in my circle</p>`;
 }
 
-export function circleMarkup(invitationsHref: string, resolvePlace?: NetworkPlaceResolver): string {
+/**
+ * Why this page is worth reading: the circle is also the reach of the list.
+ * A member's recommendations come from the people drawn here and from the
+ * founding members — so the graph explains what shows up everywhere else. Kept
+ * to a few lines beside the drawing, in the small print register.
+ */
+function visibilityNoteMarkup(): string {
+  return `<aside class="circle-note">
+    <p class="circle-note-title">What you can see</p>
+    <p>Recommendations reach you from this circle only — the members drawn here — plus every founding member. Nobody else's places show up on your list.</p>
+  </aside>`;
+}
+
+/**
+ * The page's one action: the invite link, straight to the clipboard. Growing the
+ * circle is what this page is for, so it happens here rather than on another tab
+ * — a member with nothing left to give still gets the way through to their
+ * invitations, where the allowance is explained. It leads the page under the
+ * headcount, above the view switch, so it reads the same in both views.
+ */
+function allowanceMarkup(invitationsHref: string): string {
+  const { limit, available, unclaimed } = circle.invitations;
+  const control =
+    !available && !unclaimed
+      ? `<a class="secondary-button" href="${esc(invitationsHref)}" data-community-route="invitations">See your invitations</a>`
+      : `<button class="secondary-button" type="button" data-circle-invite aria-live="polite"${
+          inviteLink === 'working' ? ' disabled' : ''
+        }>${
+          inviteLink === 'working'
+            ? 'Preparing link…'
+            : inviteLink === 'copied'
+              ? 'Link copied'
+              : inviteLink === 'error'
+                ? 'Try again'
+                : 'Copy an invite link'
+        }</button>`;
+  // One number beside the button, straight from the server's count: how many
+  // invitations are left to hand out. It is also why the button reads the way it
+  // does — at none left, the control becomes the way through to the allowance.
+  const note = limit
+    ? `<p class="circle-allowance-note">${available ? `${available} to give` : 'none left to give'}</p>`
+    : '';
+  return `<div class="circle-allowance">${control}${note}</div>`;
+}
+
+/**
+ * The whole page below the hero. `memberHref` is the member area's own URL: both
+ * the invitation link and every row's share link point at it, and the route
+ * handler decides which form opens.
+ */
+export function circleMarkup(memberHref: string, resolvePlace?: NetworkPlaceResolver): string {
   resolvePlaceFn = resolvePlace;
   if (status === 'error') {
     return `<div class="circle-status is-error" role="alert">
@@ -713,24 +745,30 @@ export function circleMarkup(invitationsHref: string, resolvePlace?: NetworkPlac
   if (status !== 'ready') {
     return '<p class="circle-status" role="status">Loading your circle…</p>';
   }
-  // The spoke legend rides in the toolbar, on the same line as the view
-  // switch — two words, and only when the rings are showing.
+  // The spoke legend rides in the toolbar, on the same line as the view switch —
+  // two words, and only when the rings are showing. Its box is rendered either
+  // way: it holds the toolbar's centre column, and the drawing below is centred
+  // on the same axis, so legend and rings share one vertical line.
   const legend =
     view === 'rings'
-      ? `<div class="circle-legend" aria-hidden="true">
-          <span class="circle-legend-item"><span class="circle-legend-line"></span>invited</span>
-          <span class="circle-legend-item"><span class="circle-legend-line is-second"></span>one hop</span>
-        </div>`
+      ? `<span class="circle-legend-item"><span class="circle-legend-line"></span>invited</span>
+         <span class="circle-legend-item"><span class="circle-legend-line is-second"></span>friend of a friend</span>`
       : '';
-  return `<div class="circle-toolbar">
+  return `<header class="circle-lead">
+    ${summaryMarkup()}
+    ${allowanceMarkup(memberHref)}
+  </header>
+  <div class="circle-toolbar">
     <div class="circle-view-switch" role="group" aria-label="How to read your circle">
       <button class="circle-view-btn${view === 'rings' ? ' is-active' : ''}" type="button" data-circle-view="rings" aria-pressed="${view === 'rings'}">Rings</button>
       <button class="circle-view-btn${view === 'list' ? ' is-active' : ''}" type="button" data-circle-view="list" aria-pressed="${view === 'list'}">List</button>
     </div>
-    ${legend}
-    ${allowanceMarkup(invitationsHref)}
+    <div class="circle-legend" aria-hidden="true">${legend}</div>
   </div>
-  ${view === 'rings' ? circleDrawingMarkup() : listMarkup()}
+  <div class="circle-body${view === 'list' ? ' is-list' : ''}">
+    ${visibilityNoteMarkup()}
+    <div class="circle-body-main">${view === 'rings' ? circleDrawingMarkup() : listMarkup(memberHref)}</div>
+  </div>
   ${panelMarkup()}`;
 }
 
@@ -812,6 +850,41 @@ export function bindCircle(root: HTMLElement, render: () => void): void {
       if (event.key === 'Escape' && panelRef && latestRender) closePanel(latestRender);
     });
   }
+  // One click does the whole errand: prepare a code if none is open, then put the
+  // link on the clipboard. The button itself reports what happened and settles
+  // back to its resting label, so the page needs no notice bar.
+  root.querySelector<HTMLButtonElement>('[data-circle-invite]')?.addEventListener('click', async () => {
+    if (inviteLink === 'working') return;
+    window.clearTimeout(inviteLinkTimer);
+    inviteLink = 'working';
+    render();
+    const hadLink = Boolean(inviteReady);
+    try {
+      // render() above is synchronous, so with a primed link the write still
+      // begins inside the click's own task — the only form Safari accepts.
+      if (inviteReady) {
+        await navigator.clipboard.writeText(inviteReady);
+      } else {
+        const link = await ensureInvitationLink();
+        inviteReady = link;
+        await navigator.clipboard.writeText(link);
+      }
+      inviteLink = 'copied';
+    } catch {
+      inviteLink = 'error';
+    }
+    // A code may have been spent to serve that click: re-read the counts.
+    if (!hadLink && inviteLink === 'copied') void refreshInvitations(render);
+    render();
+    // The render replaced the button; put focus back on the new one.
+    document.querySelector<HTMLButtonElement>('[data-circle-invite]')?.focus({ preventScroll: true });
+    inviteLinkTimer = window.setTimeout(() => {
+      inviteLink = 'idle';
+      // Only redraw if the button is still on screen: a stray re-render of
+      // whatever page the member moved on to could discard what they were typing.
+      if (document.querySelector('[data-circle-invite]')) render();
+    }, 2400);
+  });
   root.querySelector<HTMLButtonElement>('[data-circle-retry]')?.addEventListener('click', () => {
     status = 'idle';
     loadedFor = '';

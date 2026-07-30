@@ -408,6 +408,13 @@ function accountHref(): string {
   return routeHref('account', null);
 }
 
+/** The invite form has no page of its own: it is a section of the home page. */
+const INVITE_REQUEST_HASH = '#network-membership-title';
+
+function inviteRequestHref(): string {
+  return `${homeHref()}${INVITE_REQUEST_HASH}`;
+}
+
 /** Canonical URL of one place's own page. */
 function placeHref(v: Venue): string {
   return routeHref('place', venueRouteSlug(v), venuePageSlug(v));
@@ -1414,7 +1421,7 @@ function bindRouteLinks(root: HTMLElement): void {
         : undefined;
       const preset =
         target === 'share-place'
-          ? () => openSharePlace()
+          ? () => openSharePlace(link.dataset.shareRecipient)
           : target === 'edit-recommendation' && recommendationVenue
             ? () => openEditRecommendation(recommendationVenue)
           : target === 'recommend-place'
@@ -1503,6 +1510,24 @@ function bindRouteLinks(root: HTMLElement): void {
       showHome(root);
     });
   });
+  root.querySelectorAll<HTMLAnchorElement>('[data-request-invite]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      showHome(root);
+      revealInviteRequest(root);
+    });
+  });
+}
+
+// The invite form sits well below the fold on home, so a visitor who asked for
+// it by name is taken to it and left with the cursor in the first field. A
+// member has no invite form on their home page, which is why this can miss.
+function revealInviteRequest(root: HTMLElement): void {
+  const section = root.querySelector<HTMLElement>('[data-invite-request-section]');
+  if (!section) return;
+  section.scrollIntoView({ block: 'start', behavior: 'auto' });
+  root.querySelector<HTMLInputElement>('#invite-request-name')?.focus({ preventScroll: true });
 }
 
 async function refreshCatalogue(): Promise<Venue[]> {
@@ -1790,7 +1815,7 @@ function renderCircle(root: HTMLElement): void {
     .querySelector<HTMLMetaElement>('meta[name="description"]')
     ?.setAttribute(
       'content',
-      'See your place in the Detour circle: who invited you, who you invited, who they invited, and the founding fifty.'
+      'See your place in the Detour circle: who invited you, who you invited, and who they invited.'
     );
   root.innerHTML = `
     <a class="skip-link" href="#circle-title">Skip to your circle</a>
@@ -2043,6 +2068,15 @@ function renderHome(root: HTMLElement): void {
     pendingFocus = null;
     target?.focus({ preventScroll: true });
   }
+  // An invite link opened cold (or copied out of the survey) reaches home
+  // before the section it names exists, so the browser cannot honour the
+  // fragment itself. Honour it here, then drop it: kept, it would send every
+  // later visit to home down the page too.
+  if (window.location.hash === INVITE_REQUEST_HASH) {
+    const url = new URL(window.location.href);
+    history.replaceState(null, '', `${url.pathname}${url.search}`);
+    revealInviteRequest(root);
+  }
 }
 
 function render(root: HTMLElement) {
@@ -2072,6 +2106,7 @@ function render(root: HTMLElement) {
     renderSurvey(root, {
       homeHref: homeHref(),
       signInHref: accountHref(),
+      inviteHref: inviteRequestHref(),
       brandMark: brandMark(),
       form: state.surveyForm || defaultSurveyForm,
     });

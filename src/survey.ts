@@ -42,7 +42,8 @@ interface SurveyForm {
   submitNote: string;
   submitLabel: string;
   submittingLabel: string;
-  success: { kicker: string; title: string; body: string };
+  /** `inviteCta` adds a way into the invite form; see the config's comment. */
+  success: { kicker: string; title: string; body: string; inviteLead?: string; inviteCta?: string };
   /** Shown instead of the questions when a member survey has no session. */
   signedOutNote?: string;
   /** A shared question list by name, asked before this form's own questions. */
@@ -77,6 +78,8 @@ interface SurveyRenderOptions {
   homeHref: string;
   /** Where a signed-out visitor goes to sign in, for member-only surveys. */
   signInHref: string;
+  /** The invite form on the home page, for a confirmation that offers it. */
+  inviteHref: string;
   brandMark: string;
   form?: string;
 }
@@ -355,6 +358,9 @@ export function renderSurvey(root: HTMLElement, options: SurveyRenderOptions): v
     </header>`;
 
   if (state.submitted) {
+    // Someone who answered anonymously may well want in. A member already is,
+    // so the offer is only made to a visitor with no session to speak of.
+    const offerInvite = Boolean(form.success.inviteCta) && !pb.authStore.isValid;
     root.innerHTML = `
       <a class="skip-link" href="#survey-success-title">Skip to confirmation</a>
       ${masthead}
@@ -363,7 +369,13 @@ export function renderSurvey(root: HTMLElement, options: SurveyRenderOptions): v
         <p class="survey-kicker">${esc(form.success.kicker)}</p>
         <h1 id="survey-success-title" tabindex="-1">${esc(form.success.title)}</h1>
         <p>${esc(form.success.body)}</p>
-        <a class="survey-primary-link" href="${esc(options.homeHref)}" data-home>Return to Detour</a>
+        ${offerInvite && form.success.inviteLead ? `<p class="survey-success-invite-lead">${esc(form.success.inviteLead)}</p>` : ''}
+        <div class="survey-success-actions">
+          ${offerInvite
+            ? `<a class="survey-primary-link" href="${esc(options.inviteHref)}" data-request-invite>${esc(form.success.inviteCta || '')}</a>
+              <a class="secondary-button" href="${esc(options.homeHref)}" data-home>Return to Detour</a>`
+            : `<a class="survey-primary-link" href="${esc(options.homeHref)}" data-home>Return to Detour</a>`}
+        </div>
       </main>`;
     return;
   }
