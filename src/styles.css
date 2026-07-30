@@ -780,7 +780,9 @@ a.account-brand:hover,
   cursor: not-allowed;
 }
 .nearby-btn { gap: 0.45rem; }
-.community-tab-signout { align-self: center; min-height: 34px; }
+/* Sign out lives on the Settings identity line, so it is a control among the
+   account facts rather than a fixture of the tab bar. */
+.community-session-signout { flex: none; min-height: 38px; }
 .nearby-btn { flex: none; }
 .nearby-btn::before {
   content: '';
@@ -3637,12 +3639,6 @@ legend { color: var(--tape-text); }
 .community-panel-member { gap: 0; padding: clamp(1.5rem, 4vw, 3rem) 0; border-top: 0; }
 .community-panel-member > .community-notice { margin: 1rem clamp(1rem, 4vw, 2.5rem) 0; }
 
-.community-member-status {
-  display: flex;
-  align-items: center;
-  gap: .65rem;
-}
-
 .community-founder-badge {
   display: inline-flex;
   align-items: center;
@@ -4780,29 +4776,14 @@ legend { color: var(--tape-text); }
 @media (max-width: 700px) {
   .community-curation-card { grid-template-columns: 1fr; }
   .community-curation-card > img { min-height: 13rem; max-height: 20rem; }
-  /* The tab strip and the status pair cannot share a row this narrow: their
-     labels alone are wider than the screen and the bar does not wrap, so Sign
-     out was pushed past the edge and the whole page overflowed sideways with
-     it. Stack them into two bands inside the same chrome, and wrap the tabs
-     rather than scroll them — four is few enough that none should sit
-     off-screen behind a scroll nobody sees. */
-  .community-member-bar { flex-direction: column; gap: 0; padding-inline: 0; }
-  .community-member-tabs {
-    flex: 0 0 auto;
-    flex-wrap: wrap;
-    gap: 0;
-    padding-inline: clamp(1rem, 4vw, 2.5rem);
-  }
+  /* The four tab labels are wider than a phone row together, and the bar does
+     not wrap on its own — it used to overflow sideways and take the whole page
+     with it. Wrap the strip rather than scroll it: four is few enough that none
+     should sit off-screen behind a scroll nobody sees. */
+  .community-member-tabs { flex: 1 1 auto; flex-wrap: wrap; gap: 0; }
   /* Every label holds one line: a two-line "My detours" beside single-line tabs
      is what made the row look ragged. The strip wraps between tabs instead. */
   .community-member-tab { flex: 0 0 auto; white-space: nowrap; }
-  /* Sign out alone in its own band, left-aligned with the tab strip above it. */
-  .community-member-status {
-    width: 100%;
-    justify-content: flex-start;
-    padding: 0.5rem clamp(1rem, 4vw, 2.5rem) 0.6rem;
-    border-top: 1px solid var(--tape-hairline);
-  }
 }
 
 @media (max-width: 620px) {
@@ -4879,9 +4860,7 @@ legend { color: var(--tape-text); }
   .community-panel-intro,
   .community-form-wrap { padding: 1.25rem; }
   .community-panel-member { padding: 1rem 0; }
-  .community-member-tabs { padding-inline: 1rem; }
   .community-member-tab { min-height: 48px; padding-inline: 0.45rem; }
-  .community-member-status { padding-inline: 1rem; }
   /* No reserved height: a phone panel holding two lines and a button should be
      two lines and a button tall, not a screen of empty grid paper. */
   .community-tab-panel { min-height: 0; padding: 1.25rem; }

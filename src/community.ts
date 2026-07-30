@@ -915,6 +915,7 @@ function settingsPanel(record: MemberRecord): string {
     <div class="community-session-row">
       <p class="community-session-note">Signed in as <strong>${esc(record.email || memberName(record))}</strong></p>
       ${foundingMember ? '<span class="community-founder-badge">Founding member</span>' : ''}
+      <button class="secondary-button community-session-signout" type="button" data-community-sign-out>Sign out</button>
     </div>
     <div class="community-pseudo-row">
       <form class="community-form community-pseudo-form" data-community-pseudo>
@@ -964,7 +965,6 @@ function memberTabsMarkup(): string {
           }${tab === 'curation' && imageCurationCount ? `<span class="community-tab-badge" aria-label="${imageCurationCount} images awaiting review">${imageCurationCount}</span>` : ''}</button>`
       ).join('')}
     </div>
-    <div class="community-member-status"><button class="secondary-button community-tab-signout" type="button" data-community-sign-out>Sign out</button></div>
   </div>`;
 }
 
