@@ -19,10 +19,13 @@
     "`audience`: 'public' accepts anonymous submissions; 'member' requires an",
     "authenticated member and records who answered — say so in `privacyNote`,",
     "because an attributed survey must not read as an anonymous one.",
-    "`success.inviteCta`: the confirmation offers a way into the invite form on",
-    "the home page, labelled with this text and introduced by `inviteLead`. Only",
-    "surveys whose audience can still be outside the circle should set it, and it",
-    "is hidden anyway from a visitor who is already signed in.",
+    "`success.inviteCta`: the confirmation offers an invitation, on a button",
+    "labelled with this text and introduced by `inviteLead`. It opens a dialog",
+    "asking for an email and nothing else, worded by `success.inviteClaim`; the",
+    "home page form, with its name, city and recommendation, is a separate thing",
+    "and is left alone. Setting `inviteCta` is what opens the email-only route",
+    "for that survey, so only surveys whose audience can still be outside the",
+    "circle should set it. It is hidden anyway from a visitor already signed in.",
     "`appliesWhen`: the question is asked, and required, only while the named",
     "question's answer satisfies `in` / `notIn`. Otherwise it is skipped and",
     "stored as absent rather than empty. A question may only depend on one asked",
@@ -151,7 +154,22 @@
         "title": "Thank you — that genuinely helps.",
         "body": "Nothing else happens now: there’s no account to confirm and no email to expect. Your answers go straight to the people building Detour.",
         "inviteLead": "If you’d like a place in the circle, that’s a separate ask — and it’s open.",
-        "inviteCta": "Ask for invitation"
+        "inviteCta": "Ask for invitation",
+        "inviteClaim": {
+          "kicker": "One field",
+          "title": "Ask for an invitation.",
+          "body": "Your email is all we need to reach you. Nothing else to fill in — the team reads every request and replies personally.",
+          "emailLabel": "Your email",
+          "placeholder": "you@example.com",
+          "note": "Your answers above stay anonymous: this email is not attached to them.",
+          "submitLabel": "Send request",
+          "submittingLabel": "Sending…",
+          "cancelLabel": "Not now",
+          "successTitle": "Request received.",
+          "successBody": "Check your inbox for a note confirming it. This is a request, not membership yet — the team will reply personally.",
+          "duplicateBody": "You’ve already asked with this address, so nothing was sent twice. The team will be in touch personally.",
+          "closeLabel": "Close"
+        }
       }
     },
     "friends": {

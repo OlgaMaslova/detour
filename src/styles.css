@@ -666,6 +666,7 @@ a.account-brand:hover,
 .destination-go,
 .primary-button,
 .survey-primary-link,
+.survey-claim-submit,
 [data-survey-submit] {
   display: inline-flex;
   min-height: 44px;
@@ -696,6 +697,7 @@ a.account-brand:hover,
 .destination-go:hover:not(:disabled),
 .primary-button:hover:not(:disabled),
 .survey-primary-link:hover,
+.survey-claim-submit:hover:not(:disabled),
 [data-survey-submit]:hover:not(:disabled) {
   color: var(--tape-ink);
   background: var(--tape-orange);
@@ -708,6 +710,7 @@ a.account-brand:hover,
 .destination-go:disabled,
 .network-invite-submit:disabled,
 .network-reply-submit:disabled,
+.survey-claim-submit:disabled,
 .primary-button:disabled {
   opacity: 0.45;
   box-shadow: none;
@@ -4552,6 +4555,92 @@ legend { color: var(--tape-text); }
   margin-top: 0.25rem;
 }
 .survey-success-actions .survey-primary-link { margin-top: 0; }
+.survey-success-claim-done {
+  max-width: 52ch;
+  padding-left: 0.85rem;
+  border-left: 4px solid var(--tape-accent);
+}
+.survey-success .survey-success-claim-done strong { color: var(--tape-text); }
+.survey-success-claim-done:focus { outline: none; }
+
+/* The email-only invitation ask, in the browser's modal top layer: one field,
+   sized by its own contents like the confirmation card behind it. */
+.survey-claim-dialog {
+  width: min(calc(100% - 2rem), 32rem);
+  max-width: none;
+  margin: auto;
+  padding: 0;
+  color: var(--tape-text);
+  background: var(--tape-surface);
+  border: 3px solid var(--tape-chrome);
+  border-radius: 0;
+  box-shadow: 12px 12px 0 var(--tape-rust);
+}
+.survey-claim-dialog::backdrop {
+  background: rgba(4, 8, 20, 0.78);
+  backdrop-filter: blur(2px);
+}
+.survey-claim-sheet {
+  position: relative;
+  display: grid;
+  gap: 0.85rem;
+  padding: clamp(1.35rem, 5vw, 2.25rem);
+  overflow: hidden;
+}
+.survey-claim-sheet::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--tape-gold) 0 25%,
+    var(--tape-amber) 25% 50%,
+    var(--tape-orange) 50% 75%,
+    var(--tape-rust) 75%
+  );
+}
+.survey-claim-sheet h2 {
+  max-width: 20ch;
+  margin: 0;
+  color: var(--tape-text);
+  font-size: clamp(20px, 3vw, 26px);
+  text-wrap: balance;
+}
+.survey-claim-sheet h2:focus { outline: none; }
+.survey-claim-sheet > p:not(.survey-kicker) {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--tape-muted);
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+.survey-claim-form { display: grid; gap: 0.5rem; }
+.survey-claim-form label {
+  color: var(--tape-text);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.survey-claim-form input:hover { border-color: var(--tape-accent); }
+.survey-claim-form input[aria-invalid='true'] { border-color: var(--tape-rust); }
+.survey-claim-form input:disabled { color: var(--tape-muted); opacity: 0.6; cursor: not-allowed; }
+.survey-claim-note { margin: 0; color: var(--tape-muted); font-size: 0.76rem; line-height: 1.5; }
+.survey-claim-error {
+  margin: 0;
+  color: var(--tape-accent-strong);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+.survey-claim-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+}
 
 /* ============================================================
    RESPONSIVE — widest breakpoint first, so narrower rules win

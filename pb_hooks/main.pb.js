@@ -235,6 +235,117 @@ onRecordAfterCreateSuccess((e) => {
   e.next();
 }, "survey_responses");
 
+// The invite claim offered on a survey confirmation asks for an email and
+// nothing else: someone who has just answered four questions anonymously has
+// already given what we needed, and a second form with a name, a city and a
+// recommendation is where they leave.
+//
+// It cannot go through the collection's create API, because the create hook in
+// invite_requests.pb.js requires all three of those — deliberately, for the home
+// page form. A route saving the record itself keeps that guard intact for the
+// form that means it, and puts `source` beyond the caller's reach: a claim is
+// recorded as the survey it came from, which is the only way to tell a survey
+// signup from a cold one on the home page.
+routerAdd("POST", "/api/detour/invite-request/{form}", (e) => {
+  // PocketBase runs each handler in an isolated VM, so helpers are local.
+  // An address has no internal whitespace, so stripping it is clean up enough
+  // here: anything else unwanted is rejected by the character check below.
+  function normalizeEmail(value) {
+    let raw = String(value === undefined || value === null ? "" : value);
+    if (raw.length > 1024) throw new BadRequestError("Enter a valid email address.");
+    if (typeof raw.normalize === "function") raw = raw.normalize("NFKC");
+    return raw.replace(/\s+/g, "").toLowerCase();
+  }
+
+  // Deliberately the same shape as the create hook's check: a claim and a home
+  // page request must not disagree about what an address is.
+  function validEmail(email) {
+    if (!email || email.length > 254) return false;
+    const at = email.indexOf("@");
+    if (at <= 0 || at !== email.lastIndexOf("@")) return false;
+
+    const local = email.slice(0, at);
+    const domain = email.slice(at + 1);
+    if (
+      local.length > 64 ||
+      domain.length > 253 ||
+      local.charAt(0) === "." ||
+      local.charAt(local.length - 1) === "." ||
+      local.indexOf("..") !== -1 ||
+      !/^[a-z0-9.!#$%&'*+\/=?^_`{|}~-]+$/.test(local)
+    ) {
+      return false;
+    }
+
+    const labels = domain.split(".");
+    if (labels.length < 2) return false;
+    for (const label of labels) {
+      if (
+        !label ||
+        label.length > 63 ||
+        label.charAt(0) === "-" ||
+        label.charAt(label.length - 1) === "-" ||
+        !/^[a-z0-9-]+$/.test(label)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function alreadyRequested(app, email) {
+    try {
+      return Boolean(
+        app.findFirstRecordByFilter("invite_requests", "email = {:email}", { email: email })
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  const config = require(__hooks + "/survey_forms.json");
+  const forms = config.forms;
+  const formId = e.request.pathValue("form");
+  const form = Object.prototype.hasOwnProperty.call(forms, formId) ? forms[formId] : null;
+  // Only a survey that offers the claim can accept one, so the endpoint cannot
+  // be used as a general-purpose email-only signup the team never opened.
+  if (!form || !form.success || !form.success.inviteCta) {
+    throw new NotFoundError("This survey does not offer an invitation.");
+  }
+
+  let body;
+  try {
+    body = e.requestInfo().body;
+  } catch {
+    throw new BadRequestError("A valid JSON object is required.");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new BadRequestError("A valid JSON object is required.");
+  }
+
+  const email = normalizeEmail(body.email);
+  if (!validEmail(email)) throw new BadRequestError("Enter a valid email address.");
+
+  // Asking twice is not an error worth scolding anyone for, but it is not a new
+  // request either — the caller is told plainly which of the two happened.
+  if (alreadyRequested(e.app, email)) return e.json(200, { ok: true, duplicate: true });
+
+  const collection = e.app.findCollectionByNameOrId("invite_requests");
+  const request = new Record(collection);
+  request.set("email", email);
+  request.set("status", "new");
+  request.set("source", "survey-" + formId);
+  try {
+    e.app.save(request);
+  } catch (error) {
+    // A simultaneous claim for the same address loses the unique index race.
+    if (alreadyRequested(e.app, email)) return e.json(200, { ok: true, duplicate: true });
+    throw error;
+  }
+
+  return e.json(201, { ok: true, duplicate: false });
+});
+
 // These private routes bypass member rules only for explicit safe projections.
 routerAdd(
   "GET",

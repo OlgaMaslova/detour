@@ -29,6 +29,23 @@ interface SurveyQuestion {
   optional?: boolean;
 }
 
+/** Copy for the email-only invite dialog; every field has a usable default. */
+interface SurveyInviteClaim {
+  kicker?: string;
+  title?: string;
+  body?: string;
+  emailLabel?: string;
+  placeholder?: string;
+  note?: string;
+  submitLabel?: string;
+  submittingLabel?: string;
+  cancelLabel?: string;
+  successTitle?: string;
+  successBody?: string;
+  duplicateBody?: string;
+  closeLabel?: string;
+}
+
 interface SurveyForm {
   version: number;
   audience: 'public' | 'member';
@@ -42,8 +59,15 @@ interface SurveyForm {
   submitNote: string;
   submitLabel: string;
   submittingLabel: string;
-  /** `inviteCta` adds a way into the invite form; see the config's comment. */
-  success: { kicker: string; title: string; body: string; inviteLead?: string; inviteCta?: string };
+  /** `inviteCta` opens the invite dialog; see the config's comment. */
+  success: {
+    kicker: string;
+    title: string;
+    body: string;
+    inviteLead?: string;
+    inviteCta?: string;
+    inviteClaim?: SurveyInviteClaim;
+  };
   /** Shown instead of the questions when a member survey has no session. */
   signedOutNote?: string;
   /** A shared question list by name, asked before this form's own questions. */
@@ -72,14 +96,17 @@ interface SurveyState {
   submitted: boolean;
   submitError: string;
   errors: Record<string, string>;
+  /** The invite dialog offered by the confirmation, once it has been opened. */
+  claim: {
+    status: 'idle' | 'submitting' | 'sent' | 'known';
+    error: string;
+  };
 }
 
 interface SurveyRenderOptions {
   homeHref: string;
   /** Where a signed-out visitor goes to sign in, for member-only surveys. */
   signInHref: string;
-  /** The invite form on the home page, for a confirmation that offers it. */
-  inviteHref: string;
   brandMark: string;
   form?: string;
 }
@@ -97,6 +124,7 @@ function stateFor(formId: string): SurveyState {
     submitted: false,
     submitError: '',
     errors: {},
+    claim: { status: 'idle', error: '' },
   };
   states.set(formId, fresh);
   return fresh;
@@ -262,6 +290,184 @@ function safeSubmitError(response: Response): string {
   return 'Your answers could not be saved. Check that every question is answered, then try again.';
 }
 
+// Every field has a default, so a survey that sets `inviteCta` and nothing else
+// still opens a dialog that reads properly.
+const CLAIM_COPY: Required<SurveyInviteClaim> = {
+  kicker: 'One field',
+  title: 'Ask for an invitation.',
+  body: 'Your email is all we need to reach you. The team reads every request and replies personally.',
+  emailLabel: 'Your email',
+  placeholder: 'you@example.com',
+  note: '',
+  submitLabel: 'Send request',
+  submittingLabel: 'Sending…',
+  cancelLabel: 'Not now',
+  successTitle: 'Request received.',
+  successBody: 'This is a request, not membership yet — the team will reply personally.',
+  duplicateBody: 'You’ve already asked with this address, so nothing was sent twice. The team will be in touch personally.',
+  closeLabel: 'Close',
+};
+
+function claimCopy(form: SurveyForm): Required<SurveyInviteClaim> {
+  return { ...CLAIM_COPY, ...(form.success.inviteClaim || {}) };
+}
+
+function claimSubmitError(response: Response): string {
+  if (response.status === 429) return 'Too many requests were sent from this connection. Please wait a moment and try again.';
+  if (response.status === 404) return 'This survey is not offering invitations right now.';
+  if (response.status >= 500) return 'Detour could not send your request right now. Please try again in a moment.';
+  // The route's only other refusal is an address it cannot deliver to.
+  return 'Enter an email address in the usual name@example.com format.';
+}
+
+/** The dialog's contents once the request is in — the form has nothing left to ask. */
+function claimOutcomeMarkup(copy: Required<SurveyInviteClaim>, duplicate: boolean): string {
+  return `<p class="survey-kicker">${esc(copy.kicker)}</p>
+    <h2 id="survey-claim-title" tabindex="-1">${esc(copy.successTitle)}</h2>
+    <p id="survey-claim-body" role="status">${esc(duplicate ? copy.duplicateBody : copy.successBody)}</p>
+    <div class="survey-claim-actions">
+      <button type="button" class="survey-claim-submit" data-claim-close>${esc(copy.closeLabel)}</button>
+    </div>`;
+}
+
+// One email, in the browser's modal top layer: someone who has just answered
+// four questions anonymously should not meet a second, longer form to say they
+// would like in. The home page form still asks for a recommendation — this is
+// the low-friction way in, not a replacement for it.
+function claimDialogMarkup(form: SurveyForm): string {
+  const copy = claimCopy(form);
+  const describedBy = ['survey-claim-error', copy.note ? 'survey-claim-note' : '']
+    .filter(Boolean)
+    .join(' ');
+  return `<dialog class="survey-claim-dialog" data-claim-dialog aria-labelledby="survey-claim-title"
+    aria-describedby="survey-claim-body">
+    <div class="survey-claim-sheet" data-claim-sheet>
+      <p class="survey-kicker">${esc(copy.kicker)}</p>
+      <h2 id="survey-claim-title" tabindex="-1">${esc(copy.title)}</h2>
+      <p id="survey-claim-body">${esc(copy.body)}</p>
+      <form class="survey-claim-form" data-claim-form novalidate>
+        <label for="survey-claim-email">${esc(copy.emailLabel)}</label>
+        <input id="survey-claim-email" name="email" type="email" autocomplete="email" inputmode="email"
+          required maxlength="254" placeholder="${esc(copy.placeholder)}" aria-describedby="${describedBy}">
+        ${copy.note ? `<p class="survey-claim-note" id="survey-claim-note">${esc(copy.note)}</p>` : ''}
+        <p class="survey-claim-error" id="survey-claim-error" hidden></p>
+        <div class="survey-claim-actions">
+          <button type="submit" class="survey-claim-submit" data-claim-submit>${esc(copy.submitLabel)}</button>
+          <button type="button" class="secondary-button" data-claim-cancel>${esc(copy.cancelLabel)}</button>
+        </div>
+      </form>
+    </div>
+  </dialog>`;
+}
+
+function bindInviteClaim(root: HTMLElement, formId: string, form: SurveyForm, options: SurveyRenderOptions): void {
+  const trigger = root.querySelector<HTMLButtonElement>('[data-claim-open]');
+  const dialog = root.querySelector<HTMLDialogElement>('[data-claim-dialog]');
+  const sheet = dialog?.querySelector<HTMLElement>('[data-claim-sheet]');
+  const element = dialog?.querySelector<HTMLFormElement>('[data-claim-form]');
+  const input = dialog?.querySelector<HTMLInputElement>('#survey-claim-email');
+  const errorLine = dialog?.querySelector<HTMLElement>('#survey-claim-error');
+  const submit = dialog?.querySelector<HTMLButtonElement>('[data-claim-submit]');
+  if (!trigger || !dialog || !sheet || !element || !input || !errorLine || !submit) return;
+
+  const state = stateFor(formId);
+  const copy = claimCopy(form);
+
+  const showError = (message: string): void => {
+    state.claim.error = message;
+    errorLine.textContent = message;
+    errorLine.hidden = !message;
+    if (message) {
+      errorLine.setAttribute('role', 'alert');
+      input.setAttribute('aria-invalid', 'true');
+    } else {
+      errorLine.removeAttribute('role');
+      input.removeAttribute('aria-invalid');
+    }
+  };
+
+  const close = (): void => {
+    if (dialog.open) dialog.close();
+  };
+
+  trigger.addEventListener('click', () => {
+    if (dialog.open) return;
+    dialog.showModal();
+    input.focus({ preventScroll: true });
+  });
+
+  // Esc, the backdrop, and "not now" are all the same exit.
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog) close();
+  });
+  dialog.querySelector<HTMLButtonElement>('[data-claim-cancel]')?.addEventListener('click', close);
+
+  // Closing a dialog that has already sent the request leaves the confirmation
+  // on the page behind it, so the outcome is still there to read — and the
+  // offer is not made a second time.
+  dialog.addEventListener('close', () => {
+    if (state.claim.status !== 'sent' && state.claim.status !== 'known') return;
+    renderSurvey(root, options);
+    root.querySelector<HTMLElement>('[data-claim-done]')?.focus({ preventScroll: true });
+  });
+
+  element.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (state.claim.status === 'submitting') return;
+
+    const email = input.value.trim();
+    if (!email) {
+      showError('Enter your email address.');
+      input.focus();
+      return;
+    }
+    if (input.validity.typeMismatch) {
+      showError('Enter an email address in the usual name@example.com format.');
+      input.focus();
+      return;
+    }
+
+    const restore = (message: string): void => {
+      state.claim.status = 'idle';
+      input.disabled = false;
+      submit.disabled = false;
+      submit.textContent = copy.submitLabel;
+      showError(message);
+      input.focus();
+    };
+
+    showError('');
+    state.claim.status = 'submitting';
+    input.disabled = true;
+    submit.disabled = true;
+    submit.textContent = copy.submittingLabel;
+
+    try {
+      const response = await fetch(
+        `${apiBaseUrl.replace(/\/$/, '')}/api/detour/invite-request/${formId}`,
+        {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        }
+      );
+      if (!response.ok) {
+        restore(claimSubmitError(response));
+        return;
+      }
+      // An address that had already asked is a different outcome, not a failure:
+      // the dialog says which happened rather than claiming a second request.
+      const payload = (await response.json().catch(() => ({}))) as { duplicate?: boolean };
+      state.claim.status = payload.duplicate ? 'known' : 'sent';
+      sheet.innerHTML = claimOutcomeMarkup(copy, Boolean(payload.duplicate));
+      sheet.querySelector<HTMLElement>('#survey-claim-title')?.focus({ preventScroll: true });
+      sheet.querySelector<HTMLButtonElement>('[data-claim-close]')?.addEventListener('click', close);
+    } catch {
+      restore('Detour could not send your request. Check your connection and try again.');
+    }
+  });
+}
+
 function bindSurvey(root: HTMLElement, formId: string, form: SurveyForm, options: SurveyRenderOptions): void {
   const element = root.querySelector<HTMLFormElement>('[data-survey-form]');
   if (!element) return;
@@ -361,6 +567,8 @@ export function renderSurvey(root: HTMLElement, options: SurveyRenderOptions): v
     // Someone who answered anonymously may well want in. A member already is,
     // so the offer is only made to a visitor with no session to speak of.
     const offerInvite = Boolean(form.success.inviteCta) && !pb.authStore.isValid;
+    const claimed = state.claim.status === 'sent' || state.claim.status === 'known';
+    const copy = claimCopy(form);
     root.innerHTML = `
       <a class="skip-link" href="#survey-success-title">Skip to confirmation</a>
       ${masthead}
@@ -369,14 +577,21 @@ export function renderSurvey(root: HTMLElement, options: SurveyRenderOptions): v
         <p class="survey-kicker">${esc(form.success.kicker)}</p>
         <h1 id="survey-success-title" tabindex="-1">${esc(form.success.title)}</h1>
         <p>${esc(form.success.body)}</p>
-        ${offerInvite && form.success.inviteLead ? `<p class="survey-success-invite-lead">${esc(form.success.inviteLead)}</p>` : ''}
+        ${claimed
+          ? `<p class="survey-success-claim-done" data-claim-done tabindex="-1"><strong>${esc(copy.successTitle)}</strong>
+              ${esc(state.claim.status === 'known' ? copy.duplicateBody : copy.successBody)}</p>`
+          : offerInvite && form.success.inviteLead
+            ? `<p class="survey-success-invite-lead">${esc(form.success.inviteLead)}</p>`
+            : ''}
         <div class="survey-success-actions">
-          ${offerInvite
-            ? `<a class="survey-primary-link" href="${esc(options.inviteHref)}" data-request-invite>${esc(form.success.inviteCta || '')}</a>
+          ${offerInvite && !claimed
+            ? `<button type="button" class="survey-primary-link" data-claim-open>${esc(form.success.inviteCta || '')}</button>
               <a class="secondary-button" href="${esc(options.homeHref)}" data-home>Return to Detour</a>`
             : `<a class="survey-primary-link" href="${esc(options.homeHref)}" data-home>Return to Detour</a>`}
         </div>
+        ${offerInvite && !claimed ? claimDialogMarkup(form) : ''}
       </main>`;
+    if (offerInvite && !claimed) bindInviteClaim(root, formId, form, options);
     return;
   }
 
