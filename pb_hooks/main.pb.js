@@ -4,9 +4,14 @@ routerAdd("GET", "/api/supernaut/ready", (event) => {
   return event.json(200, { ok: true });
 });
 
-// Anonymous founding-feedback submissions are accepted only through this
-// server-side route. The backing collection has no public CRUD rules.
-routerAdd("POST", "/api/detour/founding-feedback", (e) => {
+// Survey submissions are accepted only through this server-side route: the
+// backing collection has no public CRUD rules. The questions, their options,
+// and their limits come from pb_hooks/survey_forms.json — the same file the
+// survey page renders from — so validation cannot drift from what was asked.
+routerAdd("POST", "/api/detour/survey/{form}", (e) => {
+  const config = require(__hooks + "/survey_forms.json");
+  const forms = config.forms;
+
   function normalizeText(value, fieldName, maxLength) {
     if (typeof value !== "string") {
       throw new BadRequestError(fieldName + " must be a string.");
@@ -28,6 +33,30 @@ routerAdd("POST", "/api/detour/founding-feedback", (e) => {
     return normalized;
   }
 
+  // A form's questions are its shared set, if it names one, then any of its own.
+  function questionsFor(form, sets) {
+    const shared = form.questionSet ? sets[form.questionSet] : null;
+    if (form.questionSet && !shared) {
+      throw new BadRequestError("This survey names a question set that does not exist.");
+    }
+    return (shared || []).concat(form.questions || []);
+  }
+
+  // A question is asked only while the answer it depends on still allows it.
+  function applies(question, answers) {
+    const condition = question.appliesWhen;
+    if (!condition) return true;
+    const value = answers[condition.key];
+    if (!value) return false;
+    if (condition.in && condition.in.indexOf(value) === -1) return false;
+    if (condition.notIn && condition.notIn.indexOf(value) !== -1) return false;
+    return true;
+  }
+
+  const formId = e.request.pathValue("form");
+  const form = Object.prototype.hasOwnProperty.call(forms, formId) ? forms[formId] : null;
+  if (!form) throw new NotFoundError("Unknown survey.");
+
   let body;
   try {
     body = e.requestInfo().body;
@@ -38,54 +67,97 @@ routerAdd("POST", "/api/detour/founding-feedback", (e) => {
     throw new BadRequestError("A valid JSON object is required.");
   }
 
-  const discoverySource = normalizeText(
-    body.discovery_source,
-    "discovery_source",
-    40
-  );
-  if (
-    ["friends", "food-people", "social", "reviews", "other"].indexOf(
-      discoverySource
-    ) === -1
-  ) {
-    throw new BadRequestError(
-      "discovery_source must be one of friends, food-people, social, reviews, or other."
-    );
+  const submitted = body.answers;
+  if (!submitted || typeof submitted !== "object" || Array.isArray(submitted)) {
+    throw new BadRequestError("answers must be an object.");
   }
 
-  const circleInterest = normalizeText(body.circle_interest, "circle_interest", 16);
-  if (["yes", "maybe", "no"].indexOf(circleInterest) === -1) {
-    throw new BadRequestError("circle_interest must be one of yes, maybe, or no.");
+  // Member surveys are attributable on purpose; public ones must never record
+  // who answered, even when a member happens to be signed in.
+  let member = null;
+  if (form.audience === "member") {
+    // A superuser token authenticates, but it is not a member record and so
+    // cannot be attributed to one — reject it rather than fail on the relation.
+    if (!e.auth || !e.auth.id || e.hasSuperuserAuth()) {
+      throw new UnauthorizedError("This survey is for signed-in members.");
+    }
+    member = e.auth.id;
   }
 
-  const valueNeeded = normalizeText(body.value_needed, "value_needed", 1200);
-  const meaningfulWords = valueNeeded
-    .split(/\s+/)
-    .map((word) =>
-      word.replace(/[.,!?;:'"()\[\]{}<>/\\|`~@#$%^&*+=_-]+/g, "")
-    )
-    .filter((word) => word.length >= 2);
-  if (valueNeeded.length < 8 || meaningfulWords.length === 0) {
-    throw new BadRequestError(
-      "value_needed must contain a useful answer between 8 and 1200 characters after whitespace normalization."
-    );
+  const questions = questionsFor(form, config.questionSets || {});
+  const declared = {};
+  for (const question of questions) declared[question.key] = true;
+  for (const key in submitted) {
+    if (!Object.prototype.hasOwnProperty.call(declared, key)) {
+      throw new BadRequestError(key + " is not a question in this survey.");
+    }
   }
 
-  const collection = e.app.findCollectionByNameOrId(
-    "founding_feedback_responses"
-  );
+  const answers = {};
+  for (const question of questions) {
+    // Applicability reads the answers accepted so far, so a question may only
+    // depend on one asked before it — the order in the config is the order asked.
+    if (!applies(question, answers)) continue;
+    const raw = submitted[question.key];
+
+    // An optional question left blank is stored absent, like a skipped one:
+    // "nothing to say" and "never asked" both read as no answer.
+    if (question.optional && (raw == null || String(raw).trim() === "")) continue;
+
+    if (question.kind === "single") {
+      const value = normalizeText(raw == null ? "" : raw, question.key, 60);
+      if (!value) {
+        throw new BadRequestError(question.key + " is required by this survey.");
+      }
+      let allowed = false;
+      for (const option of question.options) {
+        if (option.value === value) allowed = true;
+      }
+      if (!allowed) {
+        throw new BadRequestError(question.key + " is not one of its offered answers.");
+      }
+      answers[question.key] = value;
+      continue;
+    }
+
+    if (question.kind === "text") {
+      const minLength = question.minLength || 1;
+      const value = normalizeText(raw == null ? "" : raw, question.key, question.maxLength || 1200);
+      const meaningfulWords = value
+        .split(/\s+/)
+        .map((word) => word.replace(/[.,!?;:'"()\[\]{}<>/\\|`~@#$%^&*+=_-]+/g, ""))
+        .filter((word) => word.length >= 2);
+      if (value.length < minLength || meaningfulWords.length === 0) {
+        throw new BadRequestError(
+          question.key +
+            " must contain a useful answer of at least " +
+            minLength +
+            " characters after whitespace normalization."
+        );
+      }
+      answers[question.key] = value;
+      continue;
+    }
+
+    throw new BadRequestError(question.key + " has an unsupported question kind.");
+  }
+
+  const collection = e.app.findCollectionByNameOrId("survey_responses");
   const response = new Record(collection);
-  response.set("discovery_source", discoverySource);
-  response.set("circle_interest", circleInterest);
-  response.set("value_needed", valueNeeded);
-  response.set("source", "public_survey");
+  response.set("form", formId);
+  response.set("form_version", form.version);
+  response.set("answers", answers);
+  if (member) response.set("member", member);
+  response.set("source", form.source || "public_survey");
   e.app.save(response);
 
   return e.json(201, { ok: true });
 });
 
-// The public route above persists through the normal record lifecycle, so this
-// one after-create hook delivers exactly one dashboard event per saved answer.
+// The route above persists through the normal record lifecycle, so this one
+// after-create hook delivers exactly one dashboard event per saved response.
+// The message is built from the form config, so a new survey is readable in the
+// dashboard without touching this hook.
 onRecordAfterCreateSuccess((e) => {
   try {
     const eventsUrl = $os.getenv("SUPERNAUT_EVENTS_URL");
@@ -93,20 +165,49 @@ onRecordAfterCreateSuccess((e) => {
       throw new Error("SUPERNAUT_EVENTS_URL is not configured.");
     }
 
+    const config = require(__hooks + "/survey_forms.json");
+    const forms = config.forms;
+    const sets = config.questionSets || {};
+    const formId = e.record.getString("form");
+    const form = Object.prototype.hasOwnProperty.call(forms, formId) ? forms[formId] : null;
+    const answers = e.record.get("answers") || {};
+
+    const lines = [];
+    if (form) {
+      const shared = form.questionSet ? sets[form.questionSet] || [] : [];
+      for (const question of shared.concat(form.questions || [])) {
+        const value = answers[question.key];
+        let readable = "not asked";
+        if (value) {
+          readable = value;
+          if (question.options) {
+            for (const option of question.options) {
+              if (option.value === value) readable = option.label;
+            }
+          }
+        }
+        lines.push(question.summaryLabel + ": " + readable);
+      }
+    } else {
+      // An unknown form id means the config moved on; the raw answers are still
+      // worth delivering rather than dropping the notification.
+      lines.push(JSON.stringify(answers));
+    }
+
     const response = $http.send({
       url: eventsUrl,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        event: "detour.founding_feedback.created",
-        subject: "New Detour founding feedback",
+        event: "detour.survey_response.created",
+        subject: "New Detour survey response: " + formId,
         text:
-          "Discovery source: " +
-          e.record.getString("discovery_source") +
-          "\nCircle interest: " +
-          e.record.getString("circle_interest") +
-          "\nValue needed: " +
-          e.record.getString("value_needed"),
+          "Survey: " +
+          formId +
+          " (v" +
+          e.record.get("form_version") +
+          ")\n" +
+          lines.join("\n"),
       }),
       timeout: 5,
     });
@@ -120,7 +221,7 @@ onRecordAfterCreateSuccess((e) => {
   } catch (error) {
     try {
       e.app.logger().error(
-        "Detour founding-feedback event delivery failed.",
+        "Detour survey-response event delivery failed.",
         "responseId",
         e.record.id,
         "error",
@@ -132,7 +233,7 @@ onRecordAfterCreateSuccess((e) => {
   }
 
   e.next();
-}, "founding_feedback_responses");
+}, "survey_responses");
 
 // These private routes bypass member rules only for explicit safe projections.
 routerAdd(

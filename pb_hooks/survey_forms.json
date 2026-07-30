@@ -1,0 +1,491 @@
+{
+  "_comment": [
+    "Canonical survey definitions. The browser bundle imports this file and the",
+    "PocketBase route requires it, so a question exists in exactly one place:",
+    "copy, options, conditional logic, and validation limits all live here.",
+    "",
+    "Adding a survey is adding a key under `forms` — no migration, no schema",
+    "change. Every response is stored as JSON under its form id and version, so",
+    "answers to a question that later changes stay readable under the version",
+    "that asked it. Bump that form's `version` whenever a question's meaning",
+    "changes; add a question freely without bumping, since absent keys read as",
+    "unanswered.",
+    "",
+    "`questionSets` holds question lists more than one survey asks. A form takes",
+    "a set by name and may append its own `questions` after it, so the shared",
+    "questions stay word-for-word identical and answers stay comparable across",
+    "audiences. Editing a set edits every survey that uses it.",
+    "",
+    "`audience`: 'public' accepts anonymous submissions; 'member' requires an",
+    "authenticated member and records who answered — say so in `privacyNote`,",
+    "because an attributed survey must not read as an anonymous one.",
+    "`appliesWhen`: the question is asked, and required, only while the named",
+    "question's answer satisfies `in` / `notIn`. Otherwise it is skipped and",
+    "stored as absent rather than empty. A question may only depend on one asked",
+    "before it."
+  ],
+  "questionSets": {
+    "core-discovery": [
+      {
+        "key": "lastSearchAction",
+        "kind": "single",
+        "summaryLabel": "Last search",
+        "prompt": "Last time you were looking for somewhere to eat or drink, what did you actually do?",
+        "note": "Choose the one closest to what happened.",
+        "error": "Choose the one closest to what you actually did.",
+        "options": [
+          {
+            "value": "asked-person",
+            "label": "Asked a specific person"
+          },
+          {
+            "value": "searched-maps",
+            "label": "Searched maps or reviews"
+          },
+          {
+            "value": "went-back",
+            "label": "Went back somewhere I knew"
+          },
+          {
+            "value": "saved-earlier",
+            "label": "Something I’d saved earlier"
+          },
+          {
+            "value": "walked-picked",
+            "label": "Just walked and picked"
+          }
+        ]
+      },
+      {
+        "key": "lastRecommendWhen",
+        "kind": "single",
+        "summaryLabel": "Last recommended",
+        "prompt": "When did you last recommend a place to someone?",
+        "error": "Choose when you last recommended a place.",
+        "options": [
+          {
+            "value": "this-week",
+            "label": "This week"
+          },
+          {
+            "value": "this-month",
+            "label": "This month"
+          },
+          {
+            "value": "few-months",
+            "label": "A few months ago"
+          },
+          {
+            "value": "cant-remember",
+            "label": "Can’t remember"
+          }
+        ]
+      },
+      {
+        "key": "recommendChannel",
+        "kind": "single",
+        "summaryLabel": "Channel",
+        "prompt": "If yes to that — how did you send it?",
+        "note": "Skips itself if you can’t remember recommending one.",
+        "error": "Choose how you sent it.",
+        "appliesWhen": {
+          "key": "lastRecommendWhen",
+          "notIn": [
+            "cant-remember"
+          ]
+        },
+        "options": [
+          {
+            "value": "text-whatsapp",
+            "label": "Text or WhatsApp"
+          },
+          {
+            "value": "instagram-dm",
+            "label": "Instagram or DM"
+          },
+          {
+            "value": "said-aloud",
+            "label": "Said it out loud"
+          },
+          {
+            "value": "map-link",
+            "label": "Shared a map link"
+          }
+        ]
+      },
+      {
+        "key": "discoveryFriction",
+        "kind": "text",
+        "summaryLabel": "Friction",
+        "prompt": "What’s annoying about how you find places now?",
+        "note": "A sentence or two is plenty.",
+        "error": "Tell us what gets in the way — even “nothing, honestly” helps.",
+        "placeholder": "Be honest — too many tabs, reviews you can’t trust, lists you never open again. If nothing is broken, that is worth saying too.",
+        "minLength": 8,
+        "maxLength": 1200,
+        "rows": 6
+      }
+    ]
+  },
+  "forms": {
+    "discovery-habits": {
+      "version": 2,
+      "audience": "public",
+      "source": "public_survey",
+      "questionSet": "core-discovery",
+      "pageTitle": "How you find places — Detour",
+      "pageDescription": "Four quick questions about how you find somewhere to eat or drink. Anyone can answer, anonymously — no account, and no need to know what Detour is.",
+      "kicker": "Anyone can answer",
+      "title": "Good taste should travel.",
+      "intro": "Four quick questions about the last time you went looking for somewhere to eat or drink — and what gets in the way. You don’t need an account, and you don’t need to have heard of Detour.",
+      "privacyNote": "Anonymous by design. No account, no name, no email, no follow-up.",
+      "submitNote": "Every answer is required — question 3 only if it applies.",
+      "submitLabel": "Send anonymous answers",
+      "submittingLabel": "Sending answers…",
+      "success": {
+        "kicker": "Answers received",
+        "title": "Thank you — that genuinely helps.",
+        "body": "Nothing else happens now: there’s no account to confirm and no email to expect. Your answers go straight to the people building Detour."
+      }
+    },
+    "friends": {
+      "version": 3,
+      "audience": "member",
+      "source": "friends_survey",
+      "pageTitle": "A few questions for friends — Detour",
+      "pageDescription": "A few blunt questions for the handful of people already in Detour, about whether it actually works.",
+      "kicker": "For friends",
+      "title": "Be blunt with me.",
+      "intro": "Hey — you’re one of about five people in Detour right now, which makes you the only person who can tell me whether it actually works. A few things, and be properly blunt. I’d rather find out what’s wrong now than after I’ve built more of it.",
+      "privacyNote": "You’re signed in, so I’ll know it’s you.",
+      "submitNote": "Reply honestly — that’s the whole ask.",
+      "submitLabel": "Send it over",
+      "submittingLabel": "Sending…",
+      "success": {
+        "kicker": "Got it",
+        "title": "Thank you — that’s exactly what I needed.",
+        "body": "If something was confusing, that’s the part I’ll go fix. — Olga"
+      },
+      "signedOutNote": "Sign in first — it’s the same login you used to join.",
+      "questions": [
+        {
+          "key": "explainBack",
+          "kind": "text",
+          "summaryLabel": "What they think it is",
+          "prompt": "First: what do you think Detour actually is? Explain it back to me in your own words.",
+          "note": "If it’s wrong, that’s my fault, not yours.",
+          "error": "A sentence is fine — just say it in your own words.",
+          "placeholder": "Whatever comes to mind first — don’t look it up.",
+          "minLength": 8,
+          "maxLength": 1200,
+          "rows": 4
+        },
+        {
+          "key": "wouldOpenIt",
+          "kind": "single",
+          "summaryLabel": "Would open it",
+          "prompt": "Is it interesting to you? Not “nice idea, well done” — would you actually open it.",
+          "note": "If the answer is no or a shrug, say that. It’s the most useful thing you could tell me.",
+          "error": "Yes, no, or a shrug — whichever is true.",
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes, genuinely"
+            },
+            {
+              "value": "shrug",
+              "label": "Shrug — maybe"
+            },
+            {
+              "value": "no",
+              "label": "No"
+            }
+          ]
+        },
+        {
+          "key": "easierAlternative",
+          "kind": "single",
+          "summaryLabel": "Easier than Detour",
+          "prompt": "Honestly — is it just easier to Google it? Or ask someone in a group chat?",
+          "note": "If Detour is more effort than what you already do, I want to know — that’s the thing that kills it.",
+          "error": "Pick whichever is closest to true.",
+          "options": [
+            {
+              "value": "easier-to-search",
+              "label": "Yes — I’d just search or Google it"
+            },
+            {
+              "value": "easier-group-chat",
+              "label": "Yes — I’d ask a group chat"
+            },
+            {
+              "value": "detour-easier",
+              "label": "Not sure yet, Detour might be actually easier"
+            }
+          ]
+        },
+        {
+          "key": "usageFrequency",
+          "kind": "single",
+          "summaryLabel": "How often",
+          "prompt": "How often could you imagine actually using it?",
+          "error": "Pick whichever is closest.",
+          "options": [
+            {
+              "value": "weekly",
+              "label": "Weekly"
+            },
+            {
+              "value": "few-times-year",
+              "label": "A few times a year"
+            },
+            {
+              "value": "only-travelling",
+              "label": "Only when travelling"
+            },
+            {
+              "value": "never",
+              "label": "Never"
+            }
+          ]
+        },
+        {
+          "key": "addedPlace",
+          "kind": "single",
+          "summaryLabel": "Added a place",
+          "prompt": "Have you added a place yet?",
+          "error": "Yes or not yet — either is fine.",
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes"
+            },
+            {
+              "value": "no",
+              "label": "Not yet"
+            }
+          ]
+        },
+        {
+          "key": "notAddedReason",
+          "kind": "single",
+          "summaryLabel": "Why not",
+          "prompt": "If not — what happened?",
+          "note": "Any of these is a fine answer. I’m not fishing for guilt.",
+          "error": "Pick whichever is closest.",
+          "appliesWhen": {
+            "key": "addedPlace",
+            "in": [
+              "no"
+            ]
+          },
+          "options": [
+            {
+              "value": "forgot",
+              "label": "Forgot"
+            },
+            {
+              "value": "unsure-what-counts",
+              "label": "Wasn’t sure what counts"
+            },
+            {
+              "value": "nobody-would-see",
+              "label": "Didn’t think anyone would see it"
+            },
+            {
+              "value": "just-life",
+              "label": "Just life"
+            }
+          ]
+        },
+        {
+          "key": "confusingOrPointless",
+          "kind": "text",
+          "summaryLabel": "Confusing or pointless",
+          "prompt": "And anything that felt confusing or pointless?",
+          "note": "Really, say it. Leave it blank if nothing comes to mind.",
+          "error": "",
+          "optional": true,
+          "placeholder": "Anything that made you hesitate, or that seemed like busywork.",
+          "maxLength": 1200,
+          "rows": 5
+        },
+        {
+          "key": "placeWorthTheTrip",
+          "kind": "text",
+          "summaryLabel": "Keeps going back to",
+          "prompt": "Where do you keep going back to?",
+          "note": "The place you’ve taken more than one person. Name it, and what makes it worth the trip.",
+          "error": "Name one place — that’s the whole ask.",
+          "placeholder": "The place, and what makes it worth the trip.",
+          "minLength": 8,
+          "maxLength": 1200,
+          "rows": 5
+        }
+      ]
+    },
+    "founding-members": {
+      "version": 1,
+      "audience": "member",
+      "source": "member_survey",
+      "pageTitle": "A few questions for founding members — Detour",
+      "pageDescription": "A few honest questions for the first fifty people in Detour, about whether it actually works.",
+      "kicker": "Founding members",
+      "title": "More promise than product.",
+      "intro": "You’re one of the first fifty people in Detour — thank you for taking a seat this early, when there’s more promise than product. What you think of it now matters more than what anyone thinks of it later.",
+      "privacyNote": "Not anonymous — you’re signed in, so this is recorded against your membership.",
+      "submitNote": "A few questions if you have five minutes. Honest answers are more useful to me than kind ones.",
+      "submitLabel": "Send my answers",
+      "submittingLabel": "Sending…",
+      "success": {
+        "kicker": "Thank you",
+        "title": "Genuinely grateful you’re here.",
+        "body": "Every answer changes something. — Olga"
+      },
+      "signedOutNote": "Sign in first — it’s the same login you used to join.",
+      "questions": [
+        {
+          "key": "explainBack",
+          "kind": "text",
+          "summaryLabel": "What they think it is",
+          "prompt": "What do you think Detour is, in your own words?",
+          "note": "If it doesn’t match what I intended, that’s a problem with how I’ve explained it.",
+          "error": "A sentence is fine — just say it in your own words.",
+          "placeholder": "Whatever comes to mind first — don’t look it up.",
+          "minLength": 8,
+          "maxLength": 1200,
+          "rows": 4
+        },
+        {
+          "key": "wouldOpenIt",
+          "kind": "single",
+          "summaryLabel": "Would open it",
+          "prompt": "Would you actually open it?",
+          "note": "Not whether it’s a good idea — whether it’s something you’d use.",
+          "error": "Yes or no — whichever is true.",
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes"
+            },
+            {
+              "value": "no",
+              "label": "No"
+            }
+          ]
+        },
+        {
+          "key": "easierAlternative",
+          "kind": "single",
+          "summaryLabel": "Easier than Detour",
+          "prompt": "Is it easier to just Google it, or ask a group chat?",
+          "note": "If Detour is more work than what you already do, that’s the thing I need to fix.",
+          "error": "Pick whichever is closest to true.",
+          "options": [
+            {
+              "value": "easier-to-search",
+              "label": "Yes — I’d just search or Google it"
+            },
+            {
+              "value": "easier-group-chat",
+              "label": "Yes — I’d ask a group chat"
+            },
+            {
+              "value": "detour-easier",
+              "label": "No, Detour is actually easier"
+            }
+          ]
+        },
+        {
+          "key": "usageFrequency",
+          "kind": "single",
+          "summaryLabel": "How often",
+          "prompt": "How often could you see using it?",
+          "error": "Pick whichever is closest.",
+          "options": [
+            {
+              "value": "weekly",
+              "label": "Weekly"
+            },
+            {
+              "value": "few-times-year",
+              "label": "A few times a year"
+            },
+            {
+              "value": "only-travelling",
+              "label": "Only when travelling"
+            }
+          ]
+        },
+        {
+          "key": "addedPlace",
+          "kind": "single",
+          "summaryLabel": "Added a place",
+          "prompt": "Have you added a place yet?",
+          "error": "Yes or not yet — either is fine.",
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes"
+            },
+            {
+              "value": "no",
+              "label": "Not yet"
+            }
+          ]
+        },
+        {
+          "key": "notAddedReason",
+          "kind": "single",
+          "summaryLabel": "What got in the way",
+          "prompt": "If not, what got in the way?",
+          "error": "Pick whichever is closest.",
+          "appliesWhen": {
+            "key": "addedPlace",
+            "in": [
+              "no"
+            ]
+          },
+          "options": [
+            {
+              "value": "unclear-what-counts",
+              "label": "Unclear what counts"
+            },
+            {
+              "value": "unsure-who-would-see",
+              "label": "Wasn’t sure who’d see it"
+            },
+            {
+              "value": "havent-got-round-to-it",
+              "label": "Just haven’t got round to it"
+            }
+          ]
+        },
+        {
+          "key": "lastPlaceTaken",
+          "kind": "text",
+          "summaryLabel": "Last place taken",
+          "prompt": "And the one I most want: where’s the last place you took someone?",
+          "note": "A friend visiting, dinner, drinks. Not a review — where, and why there.",
+          "error": "Name one place — that’s the whole ask.",
+          "placeholder": "The place, roughly where it is, and why you ended up there.",
+          "minLength": 8,
+          "maxLength": 1200,
+          "rows": 5
+        },
+        {
+          "key": "confusingOrPointless",
+          "kind": "text",
+          "summaryLabel": "Confusing or pointless",
+          "prompt": "Anything confusing or pointless?",
+          "note": "Say it plainly. Leave it blank if nothing comes to mind.",
+          "error": "",
+          "optional": true,
+          "placeholder": "Anything that made you hesitate, or that seemed like busywork.",
+          "maxLength": 1200,
+          "rows": 5
+        }
+      ]
+    }
+  }
+}

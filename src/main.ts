@@ -30,7 +30,7 @@ import {
   retryNetworkPlaceNotes,
 } from './network';
 import type { DiscoveryRecommendation } from './network';
-import { renderFoundingSurvey } from './survey';
+import { defaultSurveyForm, renderSurvey, surveyFormFromPath, surveyMeta, surveyPath } from './survey';
 import { PLACE_MAP_ID, placeIsLocated, placePageMarkup } from './place';
 import { detouristSignalBadge, detouristSignalText } from './signal';
 import type { PlaceChrome, PlaceHelpers } from './place';
@@ -57,6 +57,8 @@ interface State {
   mode: DataMode;
   /** Landing search, a destination's places, or the dedicated member area. */
   view: AppView;
+  /** Which survey `/survey[/<form>]` is serving; null on every other view. */
+  surveyForm: string | null;
   /** Active destination slug (derived from place data, e.g. 'madrid'); null on the landing. */
   destination: string | null;
   /** Active country slug on the Explore country index; null elsewhere. */
@@ -87,11 +89,12 @@ interface State {
 
 const state: State = {
   mode: 'loading',
-  view: window.location.pathname.replace(/\/+$/, '') === '/survey'
+  view: surveyFormFromPath(window.location.pathname)
     ? 'survey'
     : new URL(window.location.href).searchParams.get('view') === 'members'
       ? 'account'
       : 'home',
+  surveyForm: surveyFormFromPath(window.location.pathname),
   destination: null,
   country: null,
   pendingDestination: null,
@@ -352,7 +355,7 @@ function routeHref(
   country: string | null = null
 ): string {
   const url = new URL(window.location.href);
-  url.pathname = view === 'survey' ? '/survey' : '/';
+  url.pathname = view === 'survey' ? surveyPath(state.surveyForm || defaultSurveyForm) : '/';
   url.searchParams.delete('city');
   if ((view === 'destination' || view === 'place') && slug) url.searchParams.set('d', slug);
   else url.searchParams.delete('d');
@@ -542,12 +545,14 @@ function returnToDiscovery(root: HTMLElement): void {
 
 function applyRouteFromUrl(root: HTMLElement): void {
   const url = new URL(window.location.href);
-  const surveyPath = url.pathname.replace(/\/+$/, '') === '/survey';
-  const invitationCode = surveyPath ? null : url.searchParams.get('invite');
-  const requestedCountry = surveyPath
+  // A survey path names which survey; an unknown name is not a survey route.
+  const routedSurveyForm = surveyFormFromPath(url.pathname);
+  const isSurveyRoute = routedSurveyForm !== null;
+  const invitationCode = isSurveyRoute ? null : url.searchParams.get('invite');
+  const requestedCountry = isSurveyRoute
     ? null
     : (url.searchParams.get('country') || '').trim().toLowerCase() || null;
-  const nextView: AppView = surveyPath
+  const nextView: AppView = isSurveyRoute
     ? 'survey'
     : url.searchParams.get('view') === 'members' || invitationCode?.trim()
       ? 'account'
@@ -559,16 +564,16 @@ function applyRouteFromUrl(root: HTMLElement): void {
           ? 'circle'
       : 'home';
   // Legacy ?city= links resolve to the same destination.
-  const requested = surveyPath
+  const requested = isSurveyRoute
     ? null
     : (url.searchParams.get('d') || url.searchParams.get('city') || '').trim().toLowerCase() || null;
-  const requestedPlace = surveyPath || !requested
+  const requestedPlace = isSurveyRoute || !requested
     ? null
     : (url.searchParams.get('p') || '').trim().toLowerCase() || null;
   const requestedRecommendationId =
-    !surveyPath && nextView === 'account' ? (url.searchParams.get('recommend') || '').trim() : '';
+    !isSurveyRoute && nextView === 'account' ? (url.searchParams.get('recommend') || '').trim() : '';
   const requestedEditRecommendationId =
-    !surveyPath && nextView === 'account'
+    !isSurveyRoute && nextView === 'account'
       ? (url.searchParams.get('edit-recommendation') || '').trim()
       : '';
 
@@ -587,6 +592,7 @@ function applyRouteFromUrl(root: HTMLElement): void {
   state.country = requested ? null : requestedCountry;
   state.pendingDestination = null;
   state.place = requestedPlace;
+  state.surveyForm = routedSurveyForm;
   state.view =
     nextView === 'survey'
       ? 'survey'
@@ -598,7 +604,7 @@ function applyRouteFromUrl(root: HTMLElement): void {
             : 'destination'
           : nextView;
 
-  if (!surveyPath && url.searchParams.has('city')) updateRoute(state.view, requested, 'replace', requestedPlace);
+  if (!isSurveyRoute && url.searchParams.has('city')) updateRoute(state.view, requested, 'replace', requestedPlace);
   render(root);
 }
 
@@ -2059,10 +2065,16 @@ function render(root: HTMLElement) {
             : 'destination';
   if (state.view === 'survey') {
     destroyMap();
-    document.title = 'Founding feedback — Detour';
+    const pageMeta = surveyMeta(state.surveyForm);
+    document.title = pageMeta.title;
     const meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
-    meta?.setAttribute('content', 'Share anonymous founding feedback to help Detour build better place discovery around people whose taste you trust.');
-    renderFoundingSurvey(root, { homeHref: homeHref(), brandMark: brandMark() });
+    meta?.setAttribute('content', pageMeta.description);
+    renderSurvey(root, {
+      homeHref: homeHref(),
+      signInHref: accountHref(),
+      brandMark: brandMark(),
+      form: state.surveyForm || defaultSurveyForm,
+    });
     bindRouteLinks(root);
     return;
   }
