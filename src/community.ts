@@ -252,6 +252,7 @@ let coverlessPlaces: CoverlessPlace[] = [];
 let coverlessLoaded = false;
 let loadingCoverless = false;
 let refreshingCoverlessId = '';
+let coverUploadingId = '';
 let curationSavingId = '';
 const directories = new Map<string, DirectoryState>();
 
@@ -1182,6 +1183,8 @@ function coverlessMarkup(): string {
                   place.instagram_url ? `<a href="${esc(place.instagram_url)}" target="_blank" rel="noopener noreferrer">Instagram</a>` : '',
                 ].filter(Boolean);
                 const busy = refreshingCoverlessId === place.id;
+                const uploading = coverUploadingId === place.id;
+                const anyBusy = Boolean(refreshingCoverlessId || coverUploadingId);
                 return `<li class="community-coverless-row">
                   <div class="community-coverless-place">
                     <span class="community-coverless-name">${esc(place.place_name)}</span>
@@ -1192,7 +1195,16 @@ function coverlessMarkup(): string {
                         : '<span class="community-coverless-exhausted">Nowhere left to look — no website or Instagram</span>'
                     }</span>
                   </div>
-                  <button class="secondary-button" type="button" data-coverless-refresh="${esc(place.id)}" ${refreshingCoverlessId ? 'disabled' : ''}>${busy ? 'Looking…' : 'Look again'}</button>
+                  <form class="community-coverless-form" data-coverless-cover="${esc(place.id)}">
+                    <div class="community-coverless-inputs">
+                      <label>Upload a photo<input name="photo" type="file" accept="image/jpeg,image/png,image/webp" ${anyBusy ? 'disabled' : ''}></label>
+                      <label>Or paste a link to one<input name="source_url" type="url" inputmode="url" autocomplete="off" spellcheck="false" maxlength="2048" placeholder="https://…/photo.jpg" ${anyBusy ? 'disabled' : ''}></label>
+                    </div>
+                    <div class="community-coverless-buttons">
+                      <button class="primary-button" type="submit" ${anyBusy ? 'disabled' : ''}>${uploading ? 'Saving…' : 'Set as cover'}</button>
+                      <button class="secondary-button" type="button" data-coverless-refresh="${esc(place.id)}" ${anyBusy ? 'disabled' : ''}>${busy ? 'Looking…' : 'Look again'}</button>
+                    </div>
+                  </form>
                 </li>`;
               })
               .join('')}</ul>`
@@ -1489,6 +1501,7 @@ function resetCommunityState(): void {
   coverlessLoaded = false;
   loadingCoverless = false;
   refreshingCoverlessId = '';
+  coverUploadingId = '';
   directories.forEach((state) => {
     if (state.timer !== null) window.clearTimeout(state.timer);
   });
@@ -1998,6 +2011,67 @@ export function bindCommunity(
         curationSavingId = '';
         render();
         focusNotice(root);
+      }
+    });
+  });
+
+  root.querySelectorAll<HTMLFormElement>('[data-coverless-cover]').forEach((form) => {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const venueId = form.dataset.coverlessCover || '';
+      if (!venueId || !foundingMember || coverUploadingId || refreshingCoverlessId) return;
+      const photo = chosenPhoto(form);
+      const sourceUrl = String(new FormData(form).get('source_url') || '').trim();
+      if (!photo && !sourceUrl) {
+        notice = { kind: 'error', text: 'Choose a photo, or paste a link to one.' };
+        render();
+        return;
+      }
+      coverUploadingId = venueId;
+      notice = null;
+      render();
+      try {
+        let body: FormData | { source_url: string };
+        if (photo) {
+          // An upload wins when both are given: choosing a file is the more
+          // deliberate of the two actions. It gets the same browser-side
+          // downscale members' photos get — a phone photo is far larger than any
+          // surface renders it.
+          const prepared = await preparePhoto(photo);
+          if (prepared.size > PHOTO_MAX_BYTES) {
+            throw new Error('That photo is larger than 8 MB even after resizing. Choose a smaller one.');
+          }
+          const form_ = new FormData();
+          form_.set('photo', prepared, photoFileName(prepared, photo));
+          body = form_;
+        } else {
+          // The server fetches it, confirms it really serves an image, and stores
+          // its own copy — so the cover cannot break later because someone else's
+          // host stopped serving it.
+          body = { source_url: sourceUrl };
+        }
+        await pb.send(`/api/detour/curation/places/${encodeURIComponent(venueId)}/cover`, {
+          method: 'POST',
+          body,
+          requestKey: null,
+        });
+        coverlessPlaces = coverlessPlaces.filter((place) => place.id !== venueId);
+        notice = { kind: 'success', text: 'Cover set. It is live on the place now.' };
+        // The catalogue holds the old coverless venue, and the feed holds cards
+        // built from it, so both have to be re-read for the cover to appear.
+        resetNetworkDiscovery();
+        void refreshCatalogue()
+          .then((venues) => {
+            knownVenues = venues;
+          })
+          .catch(() => {
+            // The cover is saved either way; the next load will show it.
+          });
+      } catch (error) {
+        notice = { kind: 'error', text: readableError(error, 'That cover could not be saved.') };
+      } finally {
+        coverUploadingId = '';
+        render();
       }
     });
   });

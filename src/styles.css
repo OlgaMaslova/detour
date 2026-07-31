@@ -1126,7 +1126,50 @@ legend { color: var(--tape-text); }
   border-radius: 0;
   filter: saturate(0.82) contrast(1.08) sepia(0.12);
 }
-.cover-placeholder { display: grid; place-items: center; }
+/* ---- generated cover ----
+   A place with no photograph anywhere gets a designed cassette inlay instead of a
+   faint initial. The old treatment was one letter at 45% opacity on the panel
+   colour, which read as a card that had failed to load rather than a place
+   awaiting its picture.
+
+   The variant is chosen by a data attribute the markup already carries, so the two
+   render paths and the two runtime swap paths (a dead <img> replaced in place,
+   without a re-render) all produce the same cover with no extra JS.
+
+   The four-band spine gradient is --tape-stripe, the same one the cassette chrome
+   uses; the tint index rotates its hue so a wall of coverless cards reads as a
+   shelf of different tapes rather than one repeated asset. */
+.cover-placeholder {
+  position: relative;
+  /* The monogram, centred, and nothing else. It briefly carried the place's name
+     and city too, offset into a corner to make room — which duplicated the display
+     type printed directly beside every one of these figures, and left the letter
+     sitting off-centre on the surfaces where the label was suppressed. What keeps
+     this from reading as a failed image is the field, the spine and the tint, not
+     more words. */
+  display: grid;
+  place-items: center;
+  /* Left padding clears the spine so the mark is optically centred in the field
+     rather than geometrically centred in the box. */
+  padding: 0.5rem 0.5rem 0.5rem 1.1rem;
+  overflow: hidden;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      var(--tape-shell-dots) 0 2px,
+      transparent 2px 7px
+    ),
+    linear-gradient(165deg, var(--tape-surface-raised), var(--tape-surface) 72%);
+}
+/* The spine: a narrow band of the tape gradient down the leading edge. */
+.cover-placeholder::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0.42rem;
+  background: var(--tape-stripe);
+  opacity: 0.9;
+}
 .cover-placeholder span {
   font-family: var(--tape-anton);
   font-weight: 700;
@@ -1134,13 +1177,31 @@ legend { color: var(--tape-text); }
   color: var(--tape-text);
   text-shadow: 2px 2px 0 var(--tape-ghost);
 }
-.card-cover-placeholder span { font-size: 2.1rem; opacity: 0.45; }
+/* Six rotations of the spine and field. Hue-rotate keeps every variant inside the
+   rust/amber/gold family the palette already commits to, in both themes. */
+.cover-placeholder[data-cover-tint='1']::before { filter: hue-rotate(-14deg) saturate(1.1); }
+.cover-placeholder[data-cover-tint='2']::before { filter: hue-rotate(12deg) saturate(0.9); }
+.cover-placeholder[data-cover-tint='3']::before { filter: hue-rotate(-26deg); }
+.cover-placeholder[data-cover-tint='4']::before { filter: hue-rotate(22deg) saturate(1.15); }
+.cover-placeholder[data-cover-tint='5']::before { filter: hue-rotate(-6deg) saturate(0.8); }
+.cover-placeholder[data-cover-tint='1'] { background-position: 3px 0, 0 0; }
+.cover-placeholder[data-cover-tint='2'] { background-position: 7px 0, 0 0; }
+.cover-placeholder[data-cover-tint='3'] { background-position: 11px 0, 0 0; }
+.cover-placeholder[data-cover-tint='4'] { background-position: 15px 0, 0 0; }
+.cover-placeholder[data-cover-tint='5'] { background-position: 19px 0, 0 0; }
+
+.card-cover-placeholder span { font-size: 2.1rem; opacity: 0.6; }
+/* No overrides for .network-entry-thumb-placeholder. Despite the name it is the
+   full-width banner across the top of a recommendation card, the largest cover on
+   the page — its display size is set with the rest of that card further down. */
 .detail-cover {
   width: min(100%, 11rem);
   height: 11rem;
   margin: 0;
   overflow: hidden;
 }
+/* The detail cover keeps its boxed monogram, now on the generated field rather
+   than flat panel colour. */
 .detail-cover-placeholder span {
   display: grid;
   width: 4.5rem;
@@ -1163,7 +1224,11 @@ legend { color: var(--tape-text); }
   border-width: 3px;
   box-shadow: 8px 8px 0 var(--tape-rust);
 }
-.place-cover-placeholder span { font-size: clamp(2.5rem, 7vw, 4.5rem); opacity: 0.4; }
+.place-cover-placeholder span {
+  font-size: clamp(2.5rem, 7vw, 4.5rem);
+  opacity: 0.7;
+}
+.place-cover-placeholder::before { width: 0.7rem; }
 
 /* ---- empty state ---- */
 .empty-state {
@@ -2115,7 +2180,7 @@ legend { color: var(--tape-text); }
   margin: 0;
   overflow: hidden;
 }
-.network-entry-thumb-placeholder span { font-size: 4.2rem; opacity: 0.5; }
+.network-entry-thumb-placeholder span { font-size: 4.2rem; opacity: 0.72; }
 /* barcode footer strip on recommendation cards, public and signed-in alike */
 .network-recommendation::after {
   content: '';
@@ -3884,15 +3949,17 @@ legend { color: var(--tape-text); }
   border-top: 1px solid var(--tape-rule);
 }
 .community-coverless-list { display: grid; margin: 0; padding: 0; list-style: none; }
+/* One place per block, not per line: the controls need two full-width fields, and
+   the side-by-side row squeezed the place name into whatever the file picker left
+   over, then centred it against a column three times its height. The place
+   identifies itself first; its controls sit underneath. */
 .community-coverless-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.5rem 1rem;
-  padding: 0.6rem 0;
+  gap: 0.6rem;
+  padding: 0.9rem 0;
   border-bottom: 1px solid var(--tape-hairline);
 }
-.community-coverless-row:last-child { border-bottom: none; }
+.community-coverless-row:last-child { border-bottom: none; padding-bottom: 0; }
 .community-coverless-place { display: grid; gap: 0.18rem; min-width: 0; }
 .community-coverless-name {
   color: var(--tape-text);
@@ -3903,9 +3970,62 @@ legend { color: var(--tape-text); }
 .community-coverless-where,
 .community-coverless-links { color: var(--tape-muted); font-size: 0.8rem; line-height: 1.5; }
 .community-coverless-exhausted { font-style: italic; }
-@media (max-width: 34rem) {
-  .community-coverless-row { grid-template-columns: minmax(0, 1fr); }
-  .community-coverless-row button { justify-self: start; }
+
+.community-coverless-form { display: grid; gap: 0.6rem; max-width: 34rem; }
+/* Upload and paste-a-link are alternatives, so they sit side by side and fall to
+   one column when there is no room for two. */
+.community-coverless-inputs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.6rem;
+}
+.community-coverless-form label {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.community-coverless-form input {
+  min-width: 0;
+  min-height: 40px;
+  padding: 0.4rem 0.5rem;
+  color: var(--tape-text);
+  background: var(--tape-field);
+  border: 2px solid var(--tape-chrome);
+  border-radius: 0;
+  font-family: var(--tape-mono);
+  font-size: 0.76rem;
+  text-transform: none;
+}
+.community-coverless-form input[type='file'] { cursor: pointer; }
+.community-coverless-form input[type='file']::file-selector-button {
+  margin-right: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  color: var(--tape-text);
+  background: var(--tape-inset);
+  border: 2px solid var(--tape-chrome);
+  border-radius: 0;
+  font-family: var(--tape-mono);
+  font-size: 0.7rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+.community-coverless-form input:focus-visible {
+  outline: none;
+  border-color: var(--tape-orange);
+  box-shadow: 4px 4px 0 var(--tape-rust);
+}
+/* Both buttons carry a hard offset shadow, so the gap stays wider than the
+   offset or the second sits inside the first's shadow. */
+.community-coverless-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: 0.7rem 1.1rem;
 }
 
 .community-curation-card {

@@ -1,7 +1,7 @@
 import './styles.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { citySlug, loadLiveCatalogue, venueCitySlug, venuePlaceSlug } from './data';
+import { citySlug, coverTint, loadLiveCatalogue, venueCitySlug, venuePlaceSlug } from './data';
 import type { Venue } from './data';
 import { GLOBAL_META_DESCRIPTION, GLOBAL_META_TITLE } from './cities';
 import { OCCASION_OPTIONS, occasionLabel } from './occasions';
@@ -1131,6 +1131,7 @@ function coverInitial(v: Venue): string {
   return (v.name.trim().charAt(0) || '•').toUpperCase();
 }
 
+
 /**
  * Editorial cover shared by place cards, the map preview and the place page.
  * Blank or failed URLs use the same serif monogram treatment so no surface
@@ -1146,10 +1147,19 @@ function coverInitial(v: Venue): string {
 function venueCover(v: Venue, variant: CoverVariant = 'card', photoHref = ''): string {
   // The resolution order, applied against what is actually loadable: a photo
   // that failed earlier this session drops through to the next candidate rather
-  // than dead-ending on the monogram, so a broken member photo does not hide a
-  // perfectly good place cover.
+  // than dead-ending on the generated cover, so a broken member photo does not
+  // hide a perfectly good place cover.
+  //
+  // A founding member's curated cover sits between the two: a person who looked
+  // at the place and chose a picture beats whatever a scraper pulled off the
+  // site's og tags, and a member's own photograph of a place they recommended
+  // beats both.
+  const curated = recommendationPhotoHref(
+    v.curatedCover,
+    variant === 'card' ? '480x360' : '1200x900'
+  );
   const image =
-    [photoHref, safeExternalHref(v.imageUrl)].find(
+    [photoHref, curated, safeExternalHref(v.imageUrl)].find(
       (candidate) => candidate && !failedCoverUrls.has(candidate)
     ) || '';
   const usable = Boolean(image);
@@ -1158,9 +1168,13 @@ function venueCover(v: Venue, variant: CoverVariant = 'card', photoHref = ''): s
   const placeholderClass = usable ? '' : ` cover-placeholder ${baseClass}-placeholder`;
   const accessibility = variant === 'card'
     ? 'aria-hidden="true"'
-    : `role="img" aria-label="${esc(usable ? `Cover photo for ${v.name}` : `Cover photo unavailable for ${v.name}`)}" data-cover-fallback-label="${esc(`Cover photo unavailable for ${v.name}`)}"`;
+    : `role="img" aria-label="${esc(usable ? `Cover photo for ${v.name}` : `${v.name} — no photograph yet`)}" data-cover-fallback-label="${esc(`${v.name} — no photograph yet`)}"`;
 
-  return `<figure class="${baseClass}${placeholderClass}" data-cover-initial="${esc(initial)}" ${accessibility}>${
+  // `data-cover-tint` rides on the figure whether or not a photo is showing, so the
+  // runtime fallback — which swaps a dead <img> for the generated treatment in
+  // place, without re-rendering — picks the same variant from the markup it
+  // already has.
+  return `<figure class="${baseClass}${placeholderClass}" data-cover-initial="${esc(initial)}" data-cover-tint="${coverTint(v.name, v.city)}" ${accessibility}>${
     usable
       ? `<img src="${esc(image)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-cover-image>`
       : `<span aria-hidden="true">${esc(initial)}</span>`
@@ -2185,13 +2199,21 @@ function resolveNetworkPlace(
       ? matches[0]
       : undefined;
   if (!match) return null;
-  const image = safeExternalHref(match.imageUrl);
+  // The place's own cover, in the order the catalogue applies: a founding
+  // member's curated pick before whatever the enrichment sweeps scraped. The
+  // member's own photo is not considered here — the caller layers that on top,
+  // because only it knows which recommendation is fronting the card.
+  const candidates = [
+    recommendationPhotoHref(match.curatedCover, '480x360'),
+    safeExternalHref(match.imageUrl),
+  ];
+  const image = candidates.find((candidate) => candidate && !failedCoverUrls.has(candidate));
   return {
     venueId: match.id,
     destinationSlug: venueRouteSlug(match),
     destinationHref: destinationHref(venueRouteSlug(match)),
     placeHref: placeHref(match),
-    imageUrl: image && !failedCoverUrls.has(image) ? image : undefined,
+    imageUrl: image || undefined,
   };
 }
 

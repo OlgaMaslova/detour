@@ -945,17 +945,17 @@ function nominatimBaseUrl() {
   return $os.getenv("DETOUR_NOMINATIM_BASE_URL") || "https://nominatim.openstreetmap.org";
 }
 
-// Turns an OSM `image` tag into a usable cover URL, or "".
+// Turns a claimed image link into one that verifiably serves an image, or "".
 //
-// The tag is free text and mappers put several things in it. Only a direct
-// http(s) link is taken: a bare "File:Frontage.jpg" Commons reference names an
-// asset rather than addressing one, and resolving those is the Wikimedia tier's
-// job, not this one — publicHttpUrl would otherwise prepend a scheme and turn it
-// into a nonsense host. The value then gets exactly the guards a scraped
-// candidate gets, including the range GET that confirms the bytes really are an
-// image, because an `image` tag pointing at an HTML gallery page is common enough
-// to matter.
-function osmImageUrl(value) {
+// Used for both the OSM `image` tag and a URL a founding member pastes, because
+// the two need identical scepticism. Only a direct http(s) link is taken: a bare
+// "File:Frontage.jpg" Commons reference names an asset rather than addressing one,
+// and publicHttpUrl would otherwise prepend a scheme and turn it into a nonsense
+// host. Whatever survives gets the guards a scraped candidate gets, including the
+// range GET that confirms the bytes really are an image — an `image` tag pointing
+// at an HTML gallery page is common enough to matter, and so is a founder pasting
+// the address of the page a photo sits on rather than of the photo.
+function directImageUrl(value) {
   const raw = cleanText(value, 2048);
   if (!raw || !/^https?:\/\//i.test(raw)) return "";
   // Some tags carry several URLs separated by ";". The first usable one wins.
@@ -1110,7 +1110,7 @@ function enrichVenueFromOsm(app, venueId) {
     }
   }
   if (needsCover) {
-    const cover = osmImageUrl(tags.image);
+    const cover = directImageUrl(tags.image);
     if (cover) {
       venue.set("image_url", cover);
       changed = true;

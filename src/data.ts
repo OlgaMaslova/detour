@@ -35,6 +35,17 @@ export interface Venue {
    */
   imageUrl?: string;
   /**
+   * A cover chosen by a founding member, as a root-relative API file path — pass
+   * it through `recommendationPhotoHref` for the size a surface needs.
+   *
+   * Sits between a member's photo and the enrichment cover: a person's judgment
+   * beats a scrape, and a member's own photograph of a place they recommended
+   * beats both. It carries no member attribution on any public surface, which is
+   * what separates it from a recommendation photo — it is the place's picture,
+   * not anybody's.
+   */
+  curatedCover?: string;
+  /**
    * Factual occasion tags. Owned by the venue record itself — a place has
    * outdoor seating whether or not a selection was published for it this year.
    * Still unioned with tags from approved contributions and, transitionally,
@@ -227,6 +238,40 @@ function identityKey(name: string, city: string, disambiguator = ''): string {
   return `${citySlug(city)}::${citySlug(name)}::${citySlug(disambiguator)}`;
 }
 
+/**
+ * The API path for a venue's curated cover file, or undefined.
+ *
+ * Root-relative on purpose, exactly as recommendation photos are: the PocketBase
+ * API and the static frontend sit on different origins, and the path is resolved
+ * against the configured API base — with the thumb size appended — by whichever
+ * surface renders it.
+ */
+function curatedCoverPath(venueId: string, fileName: unknown): string | undefined {
+  const file = cleanString(fileName);
+  if (!venueId || !file) return undefined;
+  return `/api/files/venues/${encodeURIComponent(venueId)}/${encodeURIComponent(file)}`;
+}
+
+/** How many tinted treatments the generated cover cycles through. */
+const COVER_TINTS = 6;
+
+/**
+ * Which generated treatment a place gets when it has no photograph at all.
+ *
+ * Derived from the place's own identity so it is stable: the same place keeps the
+ * same cover across sessions, devices and re-renders, which is what stops a wall
+ * of coverless cards reading as a loading state. Two places differ because their
+ * names differ, not because of where they happen to sit in a list.
+ */
+export function coverTint(name: string, city: string): number {
+  const seed = `${name}${city}`;
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) % 100000;
+  }
+  return hash % COVER_TINTS;
+}
+
 function mergeOccasions(...groups: Array<readonly Occasion[] | undefined>): Occasion[] {
   return [...new Set(groups.flatMap((group) => group ?? []))];
 }
@@ -302,7 +347,7 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
 
   const [venueRecords, cityRecords, contributionRecords, detouristSignals] = await Promise.all([
     pb.collection('venues').getFullList<VenueRecord>({
-      fields: 'id,name,city,country,address,disambiguator,lat,lng,category,official_url,instagram_url,image_url,approx_location,occasions,suppressed,published',
+      fields: 'id,name,city,country,address,disambiguator,lat,lng,category,official_url,instagram_url,image_url,curated_cover,approx_location,occasions,suppressed,published',
       sort: 'city,name',
       requestKey: null,
     }),
@@ -453,6 +498,7 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       officialUrl: cleanExternalUrl(record.official_url) || undefined,
       instagramUrl: cleanExternalUrl(record.instagram_url) || undefined,
       imageUrl: cleanExternalUrl(record.image_url) || undefined,
+      curatedCover: curatedCoverPath(id, record.curated_cover),
       // The venue owns its occasion tags. Award records are still merged below
       // for backends that predate the move, but this is the authority.
       occasions: knownOccasions(record.occasions),

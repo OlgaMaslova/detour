@@ -1,4 +1,5 @@
 import { apiBaseUrl, pb } from './pocketbase';
+import { coverTint } from './data';
 import { detouristSignalBadge, type SignalCounts } from './signal';
 
 type DiscoveryStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -755,9 +756,16 @@ function recommendationCardMarkup(
   // collect the difference as a dead gap.
   const initial = (view.venueName.trim().charAt(0) || '•').toUpperCase();
   const coverHref = view.photoHref || place?.imageUrl || '';
+  // Same generated-cover attributes the catalogue writes, so a card with no
+  // photograph anywhere gets the designed treatment rather than a faint letter —
+  // and so the runtime swap for a dead image reproduces it from the markup.
+  const coverData = `data-cover-initial="${esc(initial)}" data-cover-tint="${coverTint(
+    view.venueName,
+    view.city || ''
+  )}"`;
   const thumb = coverHref
-    ? `<figure class="network-entry-thumb" data-cover-initial="${esc(initial)}" aria-hidden="true"><img src="${esc(coverHref)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-network-thumb></figure>`
-    : `<figure class="network-entry-thumb cover-placeholder network-entry-thumb-placeholder" data-cover-initial="${esc(initial)}" aria-hidden="true"><span aria-hidden="true">${esc(initial)}</span></figure>`;
+    ? `<figure class="network-entry-thumb" ${coverData} aria-hidden="true"><img src="${esc(coverHref)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-network-thumb></figure>`
+    : `<figure class="network-entry-thumb cover-placeholder network-entry-thumb-placeholder" ${coverData} aria-hidden="true"><span aria-hidden="true">${esc(initial)}</span></figure>`;
   return `<article class="network-entry network-recommendation network-entry-with-thumb${view.recent ? ' is-recent' : ''}${view.trustedEntry ? ' trusted-entry' : ''}${view.selected ? ' is-selected' : ''}" data-network-recommendation${place ? ' data-place-card' : ''}>
     <div class="network-entry-main">
       <header class="network-entry-head">

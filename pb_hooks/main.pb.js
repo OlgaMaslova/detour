@@ -2298,7 +2298,14 @@ routerAdd(
     // there is no fetch of a member-controlled URL on this path at all. The
     // field's own schema enforces the limits — 8 MB, JPEG/PNG/WebP — and
     // PocketBase rejects the save if the upload misses them.
-    const uploads = e.findUploadedFiles("photo");
+    // findUploadedFiles throws rather than returning empty when the request
+    // carries no such field at all, so absence has to be caught, not tested for.
+    let uploads = null;
+    try {
+      uploads = e.findUploadedFiles("photo");
+    } catch {
+      uploads = null;
+    }
     const snapshot = uploads && uploads.length ? uploads[0] : null;
     if (!snapshot) {
       throw new BadRequestError("Choose a photo to upload.");
@@ -2359,10 +2366,16 @@ routerAdd(
 // venue in six hundred. Rather than keep adding sources with diminishing returns,
 // what is left over becomes a worklist.
 //
-// "No photo" means what a visitor would see: no enrichment cover on the venue
-// *and* no approved photo on any recommendation for it. A place whose cover comes
-// from a member's photo is not missing one, even though `venues.image_url` is
-// empty — that field is only ever the fallback.
+// "No photo" means no photograph anywhere in reach: no curated cover, no
+// enrichment cover, and not one recommendation carrying a photo. A place whose
+// cover comes from a member's photo is not missing one, even though
+// `venues.image_url` is empty — that field is only ever the fallback.
+//
+// A photo still in screening or awaiting founder review counts as reach, not as
+// absence. It is about to become the cover or about to be rejected, and either
+// way a curator who spends a minute finding a picture for it has spent it on a
+// place that was already handled. Only a photo that was actually turned away —
+// rejected, auto-rejected, superseded — leaves a place genuinely without one.
 routerAdd(
   "GET",
   "/api/detour/curation/coverless",
@@ -2374,7 +2387,9 @@ routerAdd(
     try {
       venues = e.app.findRecordsByFilter(
         "venues",
-        "published = true && suppressed != true && (image_url = '' || image_url = null)",
+        "published = true && suppressed != true && " +
+          "(image_url = '' || image_url = null) && " +
+          "(curated_cover = '' || curated_cover = null)",
         "-published_at",
         200,
         0
@@ -2404,24 +2419,25 @@ routerAdd(
       entryIds.push(entry.id);
     }
 
-    const hasApprovedPhoto = {};
+    const hasPhotoInReach = {};
     for (const entryId of entryIds) {
       try {
-        const approved = e.app.findFirstRecordByFilter(
+        const photo = e.app.findFirstRecordByFilter(
           "community_place_images",
-          "waitlist = {:waitlist} && status = 'approved'",
+          "waitlist = {:waitlist} && (status = 'approved' || status = 'screening' || " +
+            "status = 'pending' || status = 'screening_failed')",
           { waitlist: entryId }
         );
-        if (approved) hasApprovedPhoto[entryId] = true;
+        if (photo) hasPhotoInReach[entryId] = true;
       } catch {
-        // No approved photo for this entry.
+        // Nothing in reach for this entry.
       }
     }
 
     const items = [];
     for (const venue of venues) {
       const entry = entryByVenue[venue.id];
-      if (entry && hasApprovedPhoto[entry.id]) continue;
+      if (entry && hasPhotoInReach[entry.id]) continue;
       items.push({
         id: venue.id,
         waitlist: entry ? entry.id : "",
@@ -2437,6 +2453,116 @@ routerAdd(
       });
     }
     return e.json(200, { items });
+  },
+  $apis.requireAuth("members")
+);
+
+// A founding member gives a place its cover directly.
+//
+// The photo goes on the venue, not on a recommendation, because the curator is
+// not making a recommendation — they are fixing a picture. Nothing here is
+// attributed to a member on any public surface: this is the same kind of value
+// `image_url` already holds, chosen by a person rather than found by a scraper.
+// A member's own photo still wins over it wherever one exists, so this can never
+// displace somebody's picture of their own place, only fill a blank.
+//
+// Not screened. The screening pipeline exists to keep unreviewed member
+// submissions away from founders; here the founder *is* the review, and sending
+// their own upload through a queue only they can clear would be circular. The
+// provenance columns record who chose it, which is the accountability that
+// matters for a curated cover.
+routerAdd(
+  "POST",
+  "/api/detour/curation/places/{id}/cover",
+  (e) => {
+    const founding = require(__hooks + "/founding_cap.js");
+    founding.requireFoundingMember(e.app, e.auth, "setting a place's cover");
+    const venueId = e.request.pathValue("id");
+    let venue;
+    try {
+      venue = e.app.findRecordById("venues", venueId);
+    } catch {
+      throw new NotFoundError("That place does not exist.");
+    }
+
+    // Either an upload or a link. A member gets only the picker, because almost
+    // nobody can produce a direct image URL from the device the photo is on; a
+    // curator working from a browser usually has the address of the picture
+    // already, and making them download it first would be busywork.
+    //
+    // See the note on the member submission route: absence throws.
+    let uploads = null;
+    try {
+      uploads = e.findUploadedFiles("photo");
+    } catch {
+      uploads = null;
+    }
+    let cover = uploads && uploads.length ? uploads[0] : null;
+
+    if (!cover) {
+      const community = require(__hooks + "/community_waitlist.js");
+      const body = e.requestInfo().body || {};
+      const claimed = typeof body.source_url === "string" ? body.source_url.trim() : "";
+      if (!claimed) {
+        throw new BadRequestError("Choose a photo to upload, or paste a link to one.");
+      }
+      // Validated the same way a member's image link always was: a public
+      // http(s) host, and a range GET proving the bytes are an image rather than
+      // the page the image sits on. Throws a readable error naming the problem.
+      const links = community.validateMemberPlaceLinks({ imageUrl: claimed });
+      if (!links.image_url) {
+        throw new BadRequestError("That link does not point at an image.");
+      }
+      try {
+        cover = $filesystem.fileFromURL(links.image_url);
+      } catch {
+        throw new BadRequestError("That image could not be fetched. Check the link and try again.");
+      }
+    }
+
+    venue.set("curated_cover", cover);
+    venue.set("curated_cover_by", e.auth.id);
+    venue.set("curated_cover_at", new Date().toISOString());
+    try {
+      e.app.save(venue);
+    } catch {
+      // Almost always the file field rejecting the upload: too large, or not one
+      // of the three image types.
+      throw new BadRequestError(
+        "That photo could not be accepted. Use a JPEG, PNG or WebP image under 8 MB."
+      );
+    }
+
+    const saved = e.app.findRecordById("venues", venue.id);
+    return e.json(200, {
+      id: saved.id,
+      curated_cover: saved.getString("curated_cover"),
+    });
+  },
+  $apis.requireAuth("members")
+);
+
+// Removes a curated cover, putting the place back to whatever the automatic
+// sources found — or back onto the worklist if they found nothing. The wrong
+// picture needs to be undoable by the same person who can put one up.
+routerAdd(
+  "DELETE",
+  "/api/detour/curation/places/{id}/cover",
+  (e) => {
+    const founding = require(__hooks + "/founding_cap.js");
+    founding.requireFoundingMember(e.app, e.auth, "removing a place's cover");
+    const venueId = e.request.pathValue("id");
+    let venue;
+    try {
+      venue = e.app.findRecordById("venues", venueId);
+    } catch {
+      throw new NotFoundError("That place does not exist.");
+    }
+    venue.set("curated_cover", null);
+    venue.set("curated_cover_by", "");
+    venue.set("curated_cover_at", "");
+    e.app.save(venue);
+    return e.json(200, { id: venue.id, curated_cover: "" });
   },
   $apis.requireAuth("members")
 );
