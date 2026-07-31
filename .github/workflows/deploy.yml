@@ -1,0 +1,109 @@
+name: Deploy
+
+# Production deploys on every push to main. Work happens on dev; merging dev
+# into main is the release. Nothing deploys from any other branch.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never let two deploys race. Queue rather than cancel: a cancelled deploy can
+# leave the Worker and the API on mismatched versions.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  frontend:
+    name: Worker (detour-web)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - run: npm run build
+
+      # Guard against the failure that is invisible until users hit it: Vite
+      # loads .env.local during production builds, so a stray local env file
+      # silently bakes localhost into the bundle and the deployed site reaches
+      # nothing. Fail the deploy here rather than ship it.
+      - name: Verify bundle targets the production API
+        run: |
+          if ! grep -qh "api\.takedetour\.app" public/assets/*.js; then
+            echo "::error::Bundle does not reference api.takedetour.app"
+            exit 1
+          fi
+          if grep -qh "127\.0\.0\.1:8090\|localhost:8090" public/assets/*.js; then
+            echo "::error::Bundle contains a localhost API URL"
+            exit 1
+          fi
+          if grep -qh "sn-pb-repo-[a-z0-9-]*\.fly\.dev" public/assets/*.js; then
+            echo "::error::Bundle still references the decommissioned Supernaut backend"
+            exit 1
+          fi
+
+      - name: Deploy Worker
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Smoke test
+        run: |
+          for host in https://takedetour.app https://api.takedetour.app/api/health; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 5 --retry-delay 5 "$host?ci=${{ github.sha }}")
+            echo "$host -> $code"
+            [ "$code" = "200" ] || exit 1
+          done
+
+  backend:
+    name: PocketBase (takedetour-api)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # A Fly deploy restarts the machine, and PocketBase is a single node on a
+      # single volume — so the API is briefly down. Only pay that cost when
+      # something the image actually contains has changed.
+      - id: check
+        name: Did anything the backend image contains change?
+        run: |
+          base="${{ github.event.before }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+             || [ -z "$base" ] \
+             || [ "$base" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "No usable diff base — deploying to be safe."
+          elif git diff --name-only "$base" "${{ github.sha }}" \
+               | grep -qE '^(pb_hooks/|pb_migrations/|pb_public/|Dockerfile\.supernaut-pocketbase$|fly\.toml$)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No backend paths touched — skipping deploy, API stays up."
+          fi
+
+      - if: steps.check.outputs.changed == 'true'
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - if: steps.check.outputs.changed == 'true'
+        name: Deploy PocketBase
+        # --ha=false is required: the default two machines cannot share one volume.
+        run: flyctl deploy --ha=false --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - if: steps.check.outputs.changed == 'true'
+        name: Wait for the API to come back
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 20 --retry-delay 5 --retry-connrefused \
+            https://api.takedetour.app/api/health)
+          echo "api health -> $code"
+          [ "$code" = "200" ] || exit 1
