@@ -5,7 +5,12 @@
 
 Status legend: `[DONE]` · `[IN PROGRESS]` · `[TODO]` · `[BLOCKED]`
 
-**Where things stand (2026-07-31):** the data is rescued and the restore is proven (Phase 0), and a new Worker is live in the personal Cloudflare account at `detour-web.omaslova87.workers.dev`, still talking to the old backend. Nothing user-facing has moved — `takedetour.app` and the old Fly app are untouched and serving. The next real step is Phase 2, standing up `detour-api` on Fly.
+**Where things stand (2026-07-31):** **the migration is done.** `https://takedetour.app` is served by the `detour-web` Worker in Olga's own Cloudflare account, talking to PocketBase on `takedetour-api` in her own Fly account. Nothing in the serving path touches Supernaut any more.
+
+Remaining: a manual signed-in check on the live domain, then Phase 6 (decommission) and Phase 7 (scheduled backups to R2). **The old stack is still running and is the rollback** — recreate `CNAME · takedetour.app · clients.supernaut.to · Proxied` to return to it instantly. Do not delete anything in the old accounts until Phase 7 is in place.
+
+**Apex rollback record** — the single line to restore if Phase 5 needs undoing:
+`CNAME · takedetour.app · clients.supernaut.to · Proxied · TTL Auto`
 
 ---
 
@@ -79,50 +84,89 @@ The absence of the superuser prompt is the pass condition — it proves PocketBa
 
 ---
 
-## Phase 2 — New backend on Fly `[TODO]`
+## Phase 2 — New backend on Fly `[DONE]`
 
-Order matters. Nothing may deploy before the secrets exist.
+Completed 2026-07-31. Order mattered: nothing deployed before the secrets existed.
 
-- `[TODO]` **Commit first.** `fly deploy` ships the *working directory*, not git HEAD — `Dockerfile.supernaut-pocketbase` copies `pb_hooks`, `pb_migrations`, `pb_public` from disk. There are currently 15 uncommitted files and an untracked `pb_hooks/circle_scope.js`. Whatever is on disk goes to production.
-
-- `[TODO]` Create the app and volume, without deploying:
+- `[DONE]` New Fly account `omaslova87@gmail.com`, org `personal` — deliberately **not** tied to the supernaut.dev mailbox, which will stop being able to receive password resets.
+- `[DONE]` App created as **`takedetour-api`**. `detour-api` was already taken — Fly app names are globally unique across all customers, not per-account.
   ```sh
-  flyctl apps create detour-api --org personal
-  flyctl volumes create pb_data --size 3 --region fra -a detour-api
+  flyctl apps create takedetour-api --org personal
+  flyctl volumes create pb_data --size 3 --region fra -a takedetour-api
   ```
-
-- `[TODO]` Import the secrets from the rescued file, without echoing them:
+  Volume `vol_42knwlyxdjq6ly94`, 3GB, `fra`, encrypted, scheduled snapshots on.
+- `[DONE]` Secrets imported from the rescued file without echoing them:
   ```sh
   grep -E '^(PB_ENCRYPTION_KEY|PB_SUPERUSER_EMAIL|PB_SUPERUSER_PASSWORD|OPENAI_API_KEY|AGENTMAIL_API_KEY|AGENTMAIL_INBOX_ID|DETOUR_FOUNDER_PASSWORD|SUPERNAUT_EVENTS_URL)=' \
-    detour-prod-secrets.env | flyctl secrets import -a detour-api
-  flyctl secrets list -a detour-api
+    ~/detour-backups/detour-prod-secrets.env | flyctl secrets import -a takedetour-api
   ```
-  `PB_ENCRYPTION_KEY` must be **byte-identical** to the rescued value or the restored settings will not decrypt. Consider setting fresh `PB_SUPERUSER_PASSWORD` and `DETOUR_FOUNDER_PASSWORD` — they have been in a plaintext file on disk.
-
-- `[TODO]` Point `fly.toml` at the new app (`app = "detour-api"`), keep everything else — `[mounts]`, the 300s health-check `grace_period` (it exists so a slow migration boot is not restarted mid-flight), `auto_stop_machines = "off"`. Then:
+  All 8 digests match the old app exactly — `PB_ENCRYPTION_KEY` at `145675aba8eef28e` — which is proof the key transferred byte-for-byte.
+- `[DONE]` `fly.personal.toml` created (mirroring `wrangler.personal.toml`) so `fly.toml` keeps pointing at the old app and both stay deployable.
   ```sh
-  flyctl deploy -a detour-api
-  flyctl status -a detour-api
+  flyctl deploy -c fly.personal.toml -a takedetour-api --ha=false --yes
   ```
-  First boot creates an empty database and a superuser from the env. Expected — the restore replaces it.
+  **`--ha=false` is required.** Fly provisions two machines by default; PocketBase is single-node SQLite on one volume and two machines cannot share it.
+- `[DONE]` Restore performed over the API rather than the dashboard:
+  ```sh
+  curl -X POST "$API/api/backups/upload" -H "Authorization: $TOKEN" -F "file=@detour_prod_20260731.zip"
+  curl -X POST "$API/api/backups/detour_prod_20260731.zip/restore" -H "Authorization: $TOKEN"
+  ```
+  The app restarts and existing tokens are invalidated — re-authenticating successfully afterwards is itself the proof that the restored settings decrypted with the rescued key.
 
-- `[TODO]` Restore: open `https://detour-api.fly.dev/_/`, log in as the superuser, Settings → Backups → **Upload backup** → select `detour_prod_20260731.zip` → **Restore**. PocketBase replaces `data.db`, `auxiliary.db` and `storage/`, then restarts.
+### `[DONE]` Verification — and why the obvious numbers prove nothing
 
-- `[TODO]` Verify against the numbers in Phase 0: 9 venues, 5 cities, 9 recommendations, 1 superuser, images resolving.
+**The seed migrations reproduce most of production.** A freshly deployed, never-restored database already contained 9 venues, 5 cities, 1 member, 9 recommendations and 9 waitlist entries, because `1768100100_seed_founding_member.js` and `1768100200_seed_launch_selection.js` run on first boot. Checking those numbers would have passed on an empty database.
+
+The collections that actually discriminate are the user-generated ones:
+
+| Collection | Fresh (seeded) | Prod snapshot | After restore |
+|---|---|---|---|
+| `survey_responses` | 0 | 5 | **5** ✅ |
+| `community_place_images` | 0 | 10 | **10** ✅ |
+| `invites` | 0 | 2 | **2** ✅ |
+| venues / cities / members / recommendations / waitlist | *same as prod* | | matched, but prove nothing |
+
+Plus two checks that rows cannot give you:
+
+- **A storage file, byte-compared against the old host** — `/api/files/pbc_2310495149/9w2z14qsxlu6wcv/highball_vr88ld9ofs.jpg` returned 105295 bytes on both, identical checksums. Row counts say nothing about whether `storage/` survived.
+- **The public endpoint, old vs new** — `/api/detour/public-recommendations` returned `["Annecy","Paris","San Francisco"]` from both.
+
+Live at **https://takedetour-api.fly.dev** — health 200, one machine in `fra`, checks passing, volume attached.
 
 ---
 
-## Phase 3 — `api.takedetour.app` `[TODO]`
+## Phase 3 — `api.takedetour.app` `[DONE]`
 
-This is the step that stops this from ever happening again: once the API answers on a name you own, changing hosts is a DNS edit rather than a frontend rebuild.
+Completed 2026-07-31. This is the step that stops this from ever happening again: the API now answers on a name you own, so changing hosts later is a DNS edit rather than a frontend rebuild.
 
-- `[TODO]` In the personal Cloudflare account, on the `takedetour.app` zone, add:
-  `CNAME  api  →  detour-api.fly.dev` — **DNS-only (grey cloud)**.
-  The grey cloud matters: Fly completes an ACME challenge to issue the certificate, and a proxied record interferes. You can enable the orange cloud afterwards.
-- `[TODO]` `flyctl certs add api.takedetour.app -a detour-api`, then `flyctl certs show api.takedetour.app -a detour-api` until it is issued.
-- `[TODO]` Confirm `curl -sS https://api.takedetour.app/api/health` returns 200.
+- `[DONE]` `flyctl certs add api.takedetour.app -a takedetour-api` **first** — Fly then prints the exact records it wants, rather than you guessing.
+- `[DONE]` Added on the `takedetour.app` zone, both **DNS-only (grey cloud)**:
 
-Nothing user-facing has moved yet — the live frontend still points at the old fly.dev host.
+  | Type | Name | Content |
+  |---|---|---|
+  | `A` | `api` | `66.241.124.163` (shared IPv4, routed by SNI) |
+  | `AAAA` | `api` | `2a09:8280:1::15a:b33c:0` (dedicated to the app) |
+
+  A single `CNAME api → pqr2dm6.takedetour-api.fly.dev` also works — note the per-app prefix; plain `takedetour-api.fly.dev` is *not* a valid target.
+- `[DONE]` Certificate issued by Let's Encrypt (rsa + ecdsa), verified and active.
+- `[DONE]` `https://api.takedetour.app/api/health` → 200, serving the restored data and `storage/` images.
+
+### The grey cloud is not cosmetic
+
+The records were first saved **Proxied** (Cloudflare's default for A/AAAA), and resolved to `188.114.97.12` — Cloudflare's anycast IPs — instead of Fly's. Proxied, Cloudflare terminates TLS at its own edge and Fly never sees the ACME challenge, so the certificate sits at "Not verified" forever while `https://` fails the TLS handshake. Browsers report that as "cannot find the server", which points you at DNS when the problem is TLS.
+
+Diagnosing, in order:
+
+```sh
+dig @magnolia.ns.cloudflare.com +short api.takedetour.app A     # must be Fly's IP, not 188.114.x
+dig @magnolia.ns.cloudflare.com +short takedetour.app CAA       # blank = no CA restriction
+curl -o /dev/null -w "%{http_code}" http://api.takedetour.app/  # 301 = Fly's edge sees the hostname
+flyctl certs check api.takedetour.app -a takedetour-api
+```
+
+Query Cloudflare's nameservers directly — a local resolver caches the negative answer from before the record existed and will keep reporting "not found" after it's fixed.
+
+Nothing user-facing moved in this phase: the live frontend still pointed at the old fly.dev host throughout.
 
 ---
 
@@ -151,7 +195,7 @@ Detour's Worker has **no `main`** — only `[assets]`, serving `public/` (Vite's
   Live at **https://detour-web.omaslova87.workers.dev** — 200, bundle targeting `sn-pb-repo-1297566350-a88d3c.fly.dev`, backend healthy. This isolates one variable: the Worker deploy is proven correct before the backend moves. PocketBase's `--origins` defaults to `*`, so cross-origin calls succeed.
   Note the workers.dev build reflects the **working tree**, not what is on takedetour.app. Commit or stash for a like-for-like comparison.
 - `[DONE]` Added `.env.production` pinning the API host. Vite loads `.env.local` during production builds, so the first deploy baked `127.0.0.1:8090` into the bundle. Verified empirically that `.env.production` takes precedence over `.env.local`.
-- `[TODO]` Repoint the API host once Phase 3 resolves. **Two places, not one:**
+- `[DONE]` Repointed the API host — **two places, not one:**
   ```sh
   # .env.production
   VITE_POCKETBASE_URL=https://api.takedetour.app
@@ -160,25 +204,56 @@ Detour's Worker has **no `main`** — only `[assets]`, serving `public/` (Vite's
   // src/pocketbase.ts:3 — the fallback when no env file is present (e.g. Cloudflare-side builds)
   const defaultPocketBaseUrl = "https://api.takedetour.app";
   ```
-  Changing only `pocketbase.ts` is not enough: `.env.production` overrides it. Changing either one early means a rebuild ships a broken API URL.
-- `[TODO]` Rebuild, redeploy, and exercise the workers.dev URL against the new backend: load the map, open a city, check images, submit a survey, sign in.
+  Changing only `pocketbase.ts` is not enough: `.env.production` overrides it. Always confirm what the build actually baked in:
+  ```sh
+  grep -ohE "sn-pb-repo-[a-z0-9-]+\.fly\.dev|api\.takedetour\.app|127\.0\.0\.1:8090" public/assets/*.js | sort -u
+  ```
+- `[DONE]` Redeployed `detour-web`. Was **briefly blocked 2026-07-31 by a Cloudflare API outage**, not by anything in this repo. `wrangler deploy` failed with 520/521/522/525 on `GET /accounts/…/workers/services/detour-web`; cloudflarestatus.com showed "Cloudflare API Availability — Reduced Availability". Serving was entirely unaffected: `takedetour.app`, `detour-web.omaslova87.workers.dev`, `api.takedetour.app` and the old backend all returned 200 throughout. Cloudflare's edge serves already-deployed Workers independently of its control plane. Retry until it succeeds.
+  Note: probing `https://api.cloudflare.com/client/v4/` is **not** a valid readiness check — it returned 400 (answering) while authenticated Workers endpoints still returned 520. The only reliable signal is the deploy itself.
+- `[DONE]` Automated verification of the new stack end to end:
+
+  | Check | Result |
+  |---|---|
+  | `detour-web.omaslova87.workers.dev` root / SPA route / css | 200 / 200 / 200 |
+  | Host baked into the bundle | `api.takedetour.app` only |
+  | `api.takedetour.app/api/health` | 200 |
+  | Public recommendations | `["Annecy","Paris","San Francisco"]` |
+  | Storage image | 200, 105295 bytes |
+  | CORS from the Worker origin | 200 |
+
+- `[TODO]` **Manual click-through** — the last gate before the apex swap, and the part automation cannot cover: load the map, open a city, check images render, submit a survey, sign in. At this point the frontend and backend are both yours and fully independent of supernaut.
 
 ---
 
-## Phase 5 — Cutover `[TODO]`
+## Phase 5 — Cutover `[DONE]`
 
-- `[TODO]` **Take a second backup** immediately beforehand and restore it onto `detour-api`. The Phase 0 zip is a snapshot from 11:05 on 2026-07-31; anything written to the old prod after that is not in it. Repeat the Phase 0 commands, then re-verify.
-- `[TODO]` Consider a brief write freeze so the gap between final backup and DNS flip contains no writes.
-- `[TODO]` Remove the apex record pointing at supernaut's custom hostname — it will otherwise conflict — then add:
+- `[DONE]` **Second backup taken and restored.** `detour_prod_cutover_20260731.zip` — 6,892,078 bytes against the morning's 6,065,794. Row counts were identical; the ~800KB delta was generated cover/thumbnail files from the cron sweeps plus `auxiliary.db` log growth. Integrity `ok`, restored onto `takedetour-api`, all eight collections verified against the snapshot, storage image and public endpoint matching old prod exactly.
+- `[DONE]` **Custom-domain mechanism rehearsed on `new.takedetour.app`** rather than tested for the first time on the apex. Cloudflare created the DNS record and provisioned the certificate automatically — 200 on the first request after deploy, no propagation wait. Worth keeping the throwaway subdomain until Phase 6.
+- `[DONE]` **Caught by the rehearsal:** adding a `routes` block makes wrangler default `workers_dev` to **false**, which disables the workers.dev hostname (Cloudflare `error code: 1042`, served as a 404). Done directly on the apex, this would have removed the DNS record *and* the fallback URL for checking Worker health in the same deploy. `workers_dev = true` is now explicit in `wrangler.personal.toml`. Re-enabling takes a minute or two to propagate.
+- `[DONE]` **Deleted the apex record** — Cloudflare will not let a Workers custom domain claim a hostname that already has a conflicting record:
+  `CNAME · takedetour.app · clients.supernaut.to · Proxied · TTL Auto`
+- `[DONE]` **Immediately** deployed with the apex added to `routes`:
   ```toml
+  workers_dev = true
   routes = [
-    { pattern = "takedetour.app", custom_domain = true }
+    { pattern = "takedetour.app", custom_domain = true },
+    { pattern = "new.takedetour.app", custom_domain = true }
   ]
   ```
-  Cloudflare creates the DNS record itself.
-- `[TODO]` Verify `https://takedetour.app` end to end.
+  These two steps must happen back to back — between them `takedetour.app` does not resolve. In practice the gap was seconds: the apex returned 200 with a valid certificate on the **first** request after deploy.
+- `[DONE]` Automated verification of the live apex:
 
-Rollback: put the old apex record back. The old Fly app and old Worker stay untouched and running until Phase 6.
+  | Check | Result |
+  |---|---|
+  | `https://takedetour.app` | 200, certificate valid |
+  | Host baked into the bundle | `api.takedetour.app` only |
+  | Byte-identical to the rehearsed build | yes |
+  | SPA route, CSS | 200 / 200 |
+  | API health / recommendations / image / CORS from apex | all 200, data matching old prod |
+
+- `[TODO]` **Manual check on the live domain** — a signed-in session and a write (survey submission), which automation cannot cover. Note the deployed bundle changed after the workers.dev click-through, so this is not the same build that was manually tested.
+
+Rollback: recreate that one CNAME exactly as recorded above. The old Fly app and old Worker stay untouched and running until Phase 6.
 
 ---
 
@@ -228,6 +303,15 @@ For this migration, yes — the Dockerfile and `fly.toml` already run production
 - **Interactive zsh does not treat `#` as a comment.** Trailing explanations become arguments, and a `#` note containing a glob (e.g. `pbc_*`) aborts the whole command via `nomatch`.
 - **The public API surfaces less than the database holds** — 9 `community_recommendations` rows, 3 returned by `/api/detour/public-recommendations`, because of curation filtering. A backup that looks "bigger" than production is correct.
 
+### Fly
+
+- **Seeded data masks a failed restore.** Verify with user-generated collections (`survey_responses`, `community_place_images`, `invites`) and a byte-compared storage file — never with venues/cities/members, which the seed migrations recreate. See Phase 2.
+- **App names are globally unique across all of Fly**, not per-account. `detour-api` was taken by a stranger.
+- **`--ha=false` on any volume-backed deploy.** The default two machines cannot share one volume.
+- **Logging out of `olga@supernaut.dev` removes access to the `supernaut-ai` org.** The old app keeps running and its PocketBase admin UI stays reachable over HTTPS, so backups are still possible — but `flyctl ssh`, `flyctl secrets` and deleting the old app in Phase 6 all require logging back in. Do not let that mailbox die before Phase 6 is finished. The old app's config was saved to `~/detour-backups/old-app-fly-config.json` as insurance.
+- **`flyctl auth login` needs an interactive terminal**; it cannot be driven from a script. `FLY_API_TOKEN` with `fly tokens create` is the headless path.
+- **Rotating `PB_SUPERUSER_PASSWORD` as a Fly secret has no effect after a restore.** The container's `superuser create` runs with `|| true` and no-ops once the email exists, so the effective password is whatever is in the restored snapshot. Rotate in the PocketBase admin UI instead.
+
 ### Building and deploying the frontend locally
 
 Every step of this migration builds on a laptop. Production has always built on Cloudflare's machines, so these only appear now.
@@ -255,5 +339,11 @@ domain:       takedetour.app  ·  Cloudflare Registrar  ·  registered 2026-07-2
 
 new cf acct:  a92a6db0c65c8a9fc0bd0b2ce3da4276   subdomain omaslova87.workers.dev
 new worker:   detour-web  ·  https://detour-web.omaslova87.workers.dev  (no routes — workers.dev only)
-new fly app:  detour-api  (not yet created)
+new fly acct: omaslova87@gmail.com  ·  org personal
+new fly app:  takedetour-api  ·  https://takedetour-api.fly.dev  ·  machine 2871701b469728 (fra)
+new volume:   vol_42knwlyxdjq6ly94  (3GB, encrypted, snapshots on)
+
+restore discriminators (NOT venues/cities/members — those are seeded by migrations):
+  survey_responses 5 · community_place_images 10 · invites 2
+  storage probe: /api/files/pbc_2310495149/9w2z14qsxlu6wcv/highball_vr88ld9ofs.jpg = 105295 bytes
 ```

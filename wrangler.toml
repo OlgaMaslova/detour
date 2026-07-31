@@ -1,8 +1,13 @@
-name = "supernaut-managed-frontend"
+name = "detour-web"
+account_id = "a92a6db0c65c8a9fc0bd0b2ce3da4276"
 compatibility_date = "2026-06-22"
 
-[build]
-command = "npm ci --no-audit --no-fund && npm run build"
+workers_dev = true
+
+routes = [
+  { pattern = "takedetour.app", custom_domain = true },
+  { pattern = "new.takedetour.app", custom_domain = true }
+]
 
 [assets]
 directory = "./public"

@@ -62,10 +62,6 @@
   --tape-stack-title-hover: var(--tape-orange);
   --tape-stack-title-hover-shadow: var(--tape-chrome);
   --tape-ghost: var(--tape-rust); /* misregistered-print text shadow */
-  /* The ghost behind a title that is in its hover colour. Kept apart from
-     --tape-stack-title-hover-shadow because the two sit behind different hover
-     colours: gold here, orange there. */
-  --tape-ghost-hover: var(--tape-ghost);
   --tape-shell: rgba(22, 28, 40, 0.72); /* smoked-glass cassette body */
   --tape-shell-dots: rgba(239, 230, 216, 0.05); /* molded-plastic texture */
   --tape-screw: #2f3a4e;
@@ -122,10 +118,9 @@
     --tape-accent: var(--tape-rust); /* amber text is too faint on paper */
     --tape-accent-strong: var(--tape-rust);
     --tape-stack-title-hover: var(--tape-rust);
-    /* both hover titles are rust here, the same ink as the ghost, so their
-       ghosts switch to navy rather than disappearing */
+    /* the hover title is rust here, the same ink as the ghost, so the ghost
+       switches to navy rather than disappearing */
     --tape-stack-title-hover-shadow: var(--tape-chrome);
-    --tape-ghost-hover: var(--tape-chrome);
     /* Full-strength rust. Peach behind navy had so little contrast the
        misregistration read as double vision; rust sits clear of both the
        navy letter and the cream paper, so it reads as a second ink pass. */
@@ -161,7 +156,6 @@
   --tape-accent-strong: var(--tape-rust);
   --tape-stack-title-hover: var(--tape-rust);
   --tape-stack-title-hover-shadow: var(--tape-chrome);
-  --tape-ghost-hover: var(--tape-chrome);
   --tape-ghost: var(--tape-rust);
   --tape-shell: rgba(255, 253, 246, 0.78);
   --tape-shell-dots: rgba(34, 42, 59, 0.05);
@@ -1889,8 +1883,21 @@ legend { color: var(--tape-text); }
 }
 .network-recommendation-grid .network-entry { height: 100%; }
 .network-recommendation-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.network-recommendation-grid-3 .network-entry-thumb { height: 10.5rem; }
-.network-recommendation-grid-3 .network-entry h3 { font-size: 21px; }
+
+/* ---- three-up proportions ----
+   A card in a narrow column keeps the same 15rem cover and 24px title as one in
+   a wide column unless it is told otherwise, and the result is a cassette twice
+   as tall as it is wide. Every surface that runs three (or narrower) to a row
+   belongs in this selector list — the feed at three columns, the city list, and
+   the circle panel. The city list ran without it for a while: its own section
+   says "the cassette shrinks with the column", but the shrink lived on the
+   feed's modifier class, which that list never carries. */
+.network-recommendation-grid-3 .network-entry-thumb,
+.trusted-card-list .network-entry-thumb,
+.circle-panel-cards .network-entry-thumb { height: 10.5rem; }
+.network-recommendation-grid-3 .network-entry h3,
+.trusted-card-list .network-entry h3,
+.circle-panel-cards .network-entry h3 { font-size: 21px; }
 .network-entry {
   display: grid;
   gap: 0.85rem;
@@ -1932,7 +1939,36 @@ legend { color: var(--tape-text); }
   text-shadow: 2px 2px 0 var(--tape-ghost);
   /* long venue names wrap instead of squeezing the badge */
   overflow-wrap: anywhere;
+  transition:
+    color 180ms cubic-bezier(0.25, 1, 0.5, 1),
+    text-shadow 180ms cubic-bezier(0.25, 1, 0.5, 1);
 }
+
+/* ---- INVARIANT: the card title's hover state ----
+   Hovering a recommendation card anywhere recolours its title, on every surface
+   that renders one: the landing deck, the feed grid, the destination list, the
+   circle panel. Two things about this rule are load-bearing, and both have been
+   lost once already — do not narrow either.
+
+   Keyed to `h3`, not to `.network-entry-place`. The title is a link only when
+   the card can resolve a published place, which needs a loaded catalogue; the
+   signed-out landing has none, so its titles are plain text (data.ts gates
+   loadLiveCatalogue on auth). A hover keyed to the link class silently stopped
+   applying there the day that gate landed. The link inherits colour and shadow,
+   so this one selector dresses the linked and unlinked title alike.
+
+   Keyed to the CARD's hover, not the title's. The title is one line inside a
+   32rem card; the whole card is the hit target, and on the fanned deck a hover
+   is what brings a card to the front.
+
+   One token pair for every surface, so a title can never hover gold in one list
+   and orange in another. */
+.network-recommendation:hover h3,
+.network-recommendation:focus-within h3 {
+  color: var(--tape-stack-title-hover);
+  text-shadow: 2px 2px 0 var(--tape-stack-title-hover-shadow);
+}
+
 .network-entry-place {
   display: inline-flex;
   min-height: 44px;
@@ -1953,7 +1989,8 @@ legend { color: var(--tape-text); }
   cursor: pointer;
   transition: color 180ms cubic-bezier(0.25, 1, 0.5, 1);
 }
-.network-entry-place:hover { color: var(--tape-accent-strong); text-shadow: 2px 2px 0 var(--tape-ghost-hover); }
+/* No hover of its own: the invariant above owns the title's hover colour, and a
+   link-scoped rule here would fight it and win on the surfaces that have links. */
 .network-entry-place span { font-size: 0.8em; }
 .network-place-meta {
   margin: 0.28rem 0 0;
@@ -2190,10 +2227,8 @@ legend { color: var(--tape-text); }
   border-color: var(--tape-accent-strong);
   box-shadow: 14px 14px 0 var(--tape-rust);
 }
-.network-public-list .network-entry:hover .network-entry-place {
-  color: var(--tape-stack-title-hover);
-  text-shadow: 2px 2px 0 var(--tape-stack-title-hover-shadow);
-}
+/* The deck's title hover is the app-wide invariant near `.network-entry h3` —
+   no deck-specific copy of it here, deliberately. */
 .network-public-list .network-entry-thumb { width: 100%; height: auto; aspect-ratio: 16 / 8; }
 
 .network-public-state {
@@ -2670,7 +2705,8 @@ legend { color: var(--tape-text); }
 /* the place you last opened keeps the accent frame */
 .trusted-entry.is-selected { border-color: var(--tape-accent-strong); }
 /* Three to a row rather than the landing page's two — a city list is scanned,
-   not read — so the cassette shrinks with the column. */
+   not read. The cassette shrinks with the column via the shared three-up
+   proportions near `.network-entry-thumb`, which this list is named in. */
 .trusted-card-list { gap: 1rem; max-width: none; }
 .trusted-card-list > li { display: grid; }
 .trusted-card-list.network-recommendation-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -3689,12 +3725,11 @@ legend { color: var(--tape-text); }
   overflow-y: auto;
   padding: 1.1rem 1.25rem 1.5rem;
 }
-/* Same card at the landing's exact three-across size: ~340px wide, short
-   cover, 21px title. The card keeps its dimensions; the column centres it. */
+/* Same card at the landing's exact three-across size: ~340px wide. The cover and
+   title come from the shared three-up proportions near `.network-entry-thumb`;
+   only the width is this panel's own. */
 .circle-panel-cards { display: grid; gap: 0.85rem; justify-items: center; }
 .circle-panel-cards .network-entry { width: min(100%, 340px); }
-.circle-panel-cards .network-entry-thumb { height: 10.5rem; }
-.circle-panel-cards .network-entry h3 { font-size: 21px; }
 .circle-panel-status {
   margin: 0;
   color: var(--tape-muted);

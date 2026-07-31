@@ -1,6 +1,6 @@
 import PocketBase from 'pocketbase';
 
-const defaultPocketBaseUrl = "https://sn-pb-repo-1297566350-a88d3c.fly.dev";
+const defaultPocketBaseUrl = "https://api.takedetour.app";
 const pocketBaseUrl = (import.meta as ImportMeta & {
   env: { VITE_POCKETBASE_URL?: string };
 }).env.VITE_POCKETBASE_URL || defaultPocketBaseUrl;
