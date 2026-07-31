@@ -4,7 +4,6 @@ import { venueCitySlug, venuePlaceSlug } from './data';
 import type { Venue } from './data';
 import { OCCASION_OPTIONS } from './occasions';
 import { bindInviteShare, inviteShareMarkup } from './share';
-import { countryOptions } from './countries';
 import type { RecordModel } from 'pocketbase';
 
 type CommunityMode = 'sign-in' | 'join';
@@ -36,6 +35,12 @@ interface WaitlistEntry {
   city?: string;
   country?: string;
   address?: string;
+  /**
+   * The street or neighbourhood that tells this place apart from another of the
+   * same name in the same city. Empty for almost every place — it is only ever
+   * asked for after a submission collides with one already on the list.
+   */
+  disambiguator?: string;
   category?: string;
   occasions?: string[];
   official_url?: string;
@@ -108,6 +113,33 @@ interface PendingRecommendationDeletion {
   published: boolean;
 }
 
+/** The place the server found when a submitted name and city were already taken. */
+export interface PlaceCollision {
+  entry: string;
+  venue_name: string;
+  city: string;
+  address: string;
+  disambiguator: string;
+  published: boolean;
+}
+
+/**
+ * A submission held at the "is this the same place?" question.
+ *
+ * The member's own words and photo are kept here rather than left in the form,
+ * because answering the question re-renders the panel and a file input cannot be
+ * repopulated from markup. Nothing is sent again until they answer.
+ */
+interface PendingCollision {
+  collision: PlaceCollision;
+  venueName: string;
+  city: string;
+  note: string;
+  photo: File | null;
+  /** Set once the member says it is a different place and is asked which. */
+  distinguishing: boolean;
+}
+
 interface ImageCurationItem {
   id: string;
   collection_id: string;
@@ -120,6 +152,23 @@ interface ImageCurationItem {
   relevance: 'relevant' | 'uncertain' | 'irrelevant';
   ai_note: string;
   created: string;
+}
+
+/**
+ * A published place showing no photograph — neither an enrichment cover nor an
+ * approved member photo. The automatic passes have had their turn; this is what
+ * they could not do.
+ */
+interface CoverlessPlace {
+  id: string;
+  waitlist: string;
+  place_name: string;
+  city: string;
+  country: string;
+  disambiguator: string;
+  official_url: string;
+  instagram_url: string;
+  published_at: string;
 }
 
 // One order, used by both the member-area tab strip and the masthead menu.
@@ -187,6 +236,7 @@ let loadingInvites = false;
 let submitting = false;
 let deletingRecommendationId = '';
 let pendingRecommendationDeletion: PendingRecommendationDeletion | null = null;
+let pendingCollision: PendingCollision | null = null;
 let highlightedWaitlistId = '';
 let queueExpanded = false;
 let visibilitySaving = false;
@@ -198,6 +248,10 @@ let imageCurationCount = 0;
 let curationItems: ImageCurationItem[] = [];
 let curationLoaded = false;
 let loadingCuration = false;
+let coverlessPlaces: CoverlessPlace[] = [];
+let coverlessLoaded = false;
+let loadingCoverless = false;
+let refreshingCoverlessId = '';
 let curationSavingId = '';
 const directories = new Map<string, DirectoryState>();
 
@@ -248,12 +302,72 @@ function readableError(error: unknown, fallback: string): string {
   return fallback;
 }
 
+/**
+ * The place a submission collided with, or null when the failure was something else.
+ *
+ * The refusal itself is a 409 and carries no facts: PocketBase rewrites an
+ * ApiError's `data` into a validation-error map, so anything put there arrives as
+ * {code:'validation_invalid_value'} and is worse than nothing. The place is
+ * fetched separately instead.
+ *
+ * Returns null unless a real entry comes back, so a failed lookup falls through to
+ * the ordinary error notice rather than posing a question with no answer behind
+ * it — "that's the one" resolves by entry id, and without one it cannot.
+ */
+export async function placeCollisionFor(
+  error: unknown,
+  asked: { venueName: string; city: string; disambiguator?: string }
+): Promise<PlaceCollision | null> {
+  if (!error || typeof error !== 'object') return null;
+  if ((error as { status?: number }).status !== 409) return null;
+  try {
+    const found = (await pb.send('/api/detour/place-identity', {
+      method: 'GET',
+      query: {
+        name: asked.venueName,
+        city: asked.city,
+        disambiguator: asked.disambiguator || '',
+      },
+      requestKey: null,
+    })) as Partial<PlaceCollision> | null;
+    if (!found || typeof found.entry !== 'string' || !found.entry) return null;
+    return {
+      entry: found.entry,
+      venue_name: String(found.venue_name || asked.venueName),
+      city: String(found.city || asked.city),
+      address: String(found.address || ''),
+      disambiguator: String(found.disambiguator || ''),
+      published: found.published === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Moves focus to the same-place question — to the field when one is being asked
+ * for, otherwise to the heading, since `autofocus` does not fire on markup that
+ * was injected rather than parsed.
+ */
+function focusCollision(root: HTMLElement): void {
+  window.requestAnimationFrame(() => {
+    const field = root.querySelector<HTMLInputElement>('[data-collision-distinct-form] input[name="disambiguator"]');
+    const target = field || root.querySelector<HTMLElement>('#community-collision-title');
+    target?.scrollIntoView({
+      block: 'center',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    });
+    target?.focus({ preventScroll: true });
+  });
+}
+
 function cleanCount(value: unknown, maximum?: number): number {
   const count = typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
   return typeof maximum === 'number' ? Math.min(count, maximum) : count;
 }
 
-function meaningfulRecommendation(note: string): boolean {
+/** The client half of the server's note rule, shared with the new-member flow. */
+export function meaningfulRecommendation(note: string): boolean {
   const cleaned = note.trim().replace(/\s+/g, ' ');
   const words = cleaned
     .split(' ')
@@ -275,11 +389,77 @@ function placeLinkFields(values?: {
   officialUrl?: string;
   instagramUrl?: string;
 }, options?: { replaceImage?: boolean }): string {
-  const replacing = options?.replaceImage === true;
   return `<label>Website<input name="official_url" value="${esc(values?.officialUrl)}" maxlength="300" inputmode="url" autocomplete="off" spellcheck="false" placeholder="restaurant.example"></label>
     <label>Instagram<input name="instagram_url" value="${esc(values?.instagramUrl)}" maxlength="300" autocomplete="off" spellcheck="false" placeholder="@restaurant or instagram.com/restaurant"></label>
-    <label>${replacing ? 'Replace your photo' : 'Your photo'} <span class="community-optional">Optional — reviewed before it appears</span><input name="image_url" value="" maxlength="2048" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Direct link to a photo you took"></label>
+    ${photoField({ replacing: options?.replaceImage === true })}`;
+}
+
+/** Server ceiling on an upload, mirrored so an oversized file is caught before it is sent. */
+const PHOTO_MAX_BYTES = 8 * 1024 * 1024;
+/** Longest edge kept when the browser re-encodes a chosen photo. */
+const PHOTO_MAX_EDGE = 1600;
+
+/**
+ * The photo control: a file picker, not a URL box.
+ *
+ * Asking for a "direct link to a photo you took" asked for something almost
+ * nobody can produce from the device the photo is on. The picker is the whole
+ * point of the field working at all.
+ */
+function photoField(options?: { replacing?: boolean }): string {
+  const replacing = options?.replacing === true;
+  return `<label class="community-photo-field">${replacing ? 'Replace your photo' : 'Your photo'} <span class="community-optional">Optional — reviewed before it appears</span>
+      <input name="photo" type="file" accept="image/jpeg,image/png,image/webp">
+    </label>
     <p class="community-form-note">Your photo appears with your note${replacing ? ' and replaces the one you added before' : ''}. It never becomes the place's own image, and it goes when your recommendation does.</p>`;
+}
+
+/** The chosen file from a form's photo picker, or null when none was chosen. */
+function chosenPhoto(form: HTMLFormElement): File | null {
+  const input = form.querySelector<HTMLInputElement>('input[name="photo"]');
+  const file = input?.files?.[0];
+  return file || null;
+}
+
+/**
+ * Re-encodes a chosen photo down to PHOTO_MAX_EDGE on its longest side.
+ *
+ * A phone photo is several megabytes and far larger than any surface here
+ * renders, and the server has to inline the bytes as base64 to screen them.
+ * Shrinking in the browser makes the upload quick on a phone connection and
+ * keeps screening cheap. Any failure returns the original file: a slow upload is
+ * a much better outcome than a lost photo.
+ */
+async function preparePhoto(file: File): Promise<Blob> {
+  if (typeof createImageBitmap !== 'function') return file;
+  let bitmap: ImageBitmap | null = null;
+  try {
+    bitmap = await createImageBitmap(file);
+    const longestEdge = Math.max(bitmap.width, bitmap.height);
+    if (longestEdge <= PHOTO_MAX_EDGE && file.size <= 1_500_000) return file;
+    const scale = Math.min(1, PHOTO_MAX_EDGE / longestEdge);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) return file;
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const encoded = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.82);
+    });
+    return encoded && encoded.size < file.size ? encoded : file;
+  } catch {
+    return file;
+  } finally {
+    bitmap?.close();
+  }
+}
+
+/** A filename the server can infer a type from, since a re-encode loses the original's. */
+function photoFileName(prepared: Blob, original: File): string {
+  const type = prepared.type || original.type;
+  const extension = type === 'image/png' ? 'png' : type === 'image/webp' ? 'webp' : 'jpg';
+  return `recommendation.${extension}`;
 }
 
 function noticeMarkup(): string {
@@ -422,7 +602,7 @@ function signedOutPanel(): string {
     <div class="community-panel-intro">
       <p class="community-kicker">The detourist circle</p>
       <h2>${isJoin ? 'Join with your personal invitation.' : 'Return to your Detour.'}</h2>
-      <p>${isJoin ? 'Enter your invitation code to become a member.' : 'Sign in to your member account.'}</p>
+      <p>${isJoin ? 'Your code, and how to sign in from now on. Your name and city come next.' : 'Sign in to your member account.'}</p>
     </div>
     <div class="community-form-wrap">
       <div class="community-tabs" role="tablist" aria-label="Membership options">
@@ -433,20 +613,12 @@ function signedOutPanel(): string {
       ${
         isJoin
           ? `<form class="community-form" data-community-join>
-              <label>Pick a pseudo<input name="pseudo" autocomplete="off" spellcheck="false" minlength="3" maxlength="30" pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens" required placeholder="e.g. detour-anna"></label>
-              <p class="community-form-note">Your pseudo is your name on Detour — unique to you, and how other members find you to share food-and-drink destinations.</p>
               <label>Email address<input name="email" type="email" autocomplete="email" required></label>
-              <div class="community-form-grid">
-                <label>Password<input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
-                <label>Confirm password<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" required></label>
-              </div>
-              <div class="community-form-grid">
-                <label>Where do you live?<input name="home_city" autocomplete="address-level2" minlength="2" maxlength="120" required placeholder="City — e.g. San Francisco"></label>
-                <label>Country<select name="home_country" autocomplete="country-name">${countryOptions()}</select></label>
-              </div>
-              <p class="community-form-note">The city you live in is where the circle sees you recommending from. Country is optional.</p>
+              <label>Password<input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+              <p class="community-form-note">Eight characters or more. This is how you sign in from now on.</p>
               <label>Invitation code<input name="invite_code" value="${esc(invitationCodePrefill)}" autocomplete="off" spellcheck="false" maxlength="80" placeholder="DTR-…" required></label>
-              <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Joining…' : 'Join Detour'}</button>
+              <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Continuing…' : 'Continue'}</button>
+              <p class="community-form-note">Next: your pseudo and your city, then the first place you would send someone to.</p>
             </form>`
           : `<form class="community-form" data-community-sign-in>
               <label>Email address<input name="email" type="email" autocomplete="email" required></label>
@@ -537,8 +709,9 @@ function entryEditMarkup(entry: WaitlistEntry): string {
         <label>Address <span class="community-optional">${placeLocked ? 'Verified and locked' : 'Optional'}</span><input name="address" value="${esc(entry.address || '')}" maxlength="300" placeholder="Street and number"${lockedAttribute}></label>
         <div class="community-form-grid community-place-grid">
           <label>City or locality<input name="city" value="${esc(entry.city || '')}" maxlength="120" required placeholder="City or locality"${lockedAttribute}></label>
-          <label>Country<input name="country" value="${esc(entry.country || '')}" maxlength="120" required placeholder="Country"${lockedAttribute}></label>
+          <label>Country <span class="community-optional">Optional — we look it up</span><input name="country" value="${esc(entry.country || '')}" maxlength="120" placeholder="Country"${lockedAttribute}></label>
         </div>
+        <label>Which one <span class="community-optional">Optional — only if another place shares this name and city</span><input name="disambiguator" value="${esc(entry.disambiguator || '')}" maxlength="120" placeholder="Street or neighbourhood"${lockedAttribute}></label>
         <label>Category <span class="community-optional">Optional</span><select name="category"><option value=""${selectedCategory ? '' : ' selected'}>Choose one</option>${CATEGORY_OPTIONS.map(([value, label]) => `<option value="${value}"${value === selectedCategory ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
         <fieldset class="community-choice-fieldset">
           <legend>Good for <span class="community-optional">Optional — choose any that fit</span></legend>
@@ -649,6 +822,56 @@ function waitlistRow(entry: WaitlistEntry): string {
   </li>`;
 }
 
+/**
+ * The "is this the same place?" question.
+ *
+ * Two members recommending one restaurant is the common case and the entire
+ * point of seconding, so a name and city that are already taken almost always
+ * mean the member is about to agree with someone. Almost always is not always,
+ * and the two cases used to be indistinguishable: the second submission was
+ * quietly folded into the first entry, and a note about one place appeared on
+ * another place's page with nothing said. Asking costs one tap in the case where
+ * the answer was already going to be yes, and it is the only way the other case
+ * can be told apart at all.
+ *
+ * What the place is is shown; how many members stand behind it is not. That count
+ * is global — it includes members in circles this one cannot see — so printing it
+ * would disclose their existence and their number.
+ */
+function collisionMarkup(pending: PendingCollision): string {
+  const { collision } = pending;
+  const locator = [collision.address || collision.disambiguator, collision.city]
+    .filter(Boolean)
+    .join(', ');
+  const answer = pending.distinguishing
+    ? `<form class="community-form community-collision-form" data-collision-distinct-form>
+        <label>Which one is yours? <span class="community-optional">The street or the neighbourhood</span><input name="disambiguator" maxlength="120" required autofocus placeholder="e.g. Calle de la Palma" ${submitting ? 'disabled' : ''}></label>
+        <p class="community-form-note">This is only used to tell the two apart. It shows next to the name wherever both could be confused.</p>
+        <div class="community-form-actions">
+          <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Add as a separate place'}</button>
+          <button class="secondary-button" type="button" data-collision-back ${submitting ? 'disabled' : ''}>Back</button>
+        </div>
+      </form>`
+    : `<div class="community-form-actions community-collision-actions">
+        <button class="primary-button" type="button" data-collision-second ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : "That's the one — add my note"}</button>
+        <button class="secondary-button" type="button" data-collision-distinct ${submitting ? 'disabled' : ''}>A different place with the same name</button>
+        <button class="secondary-button" type="button" data-collision-cancel ${submitting ? 'disabled' : ''}>Cancel</button>
+      </div>`;
+  return `<div class="community-collision" role="group" aria-labelledby="community-collision-title">
+    <h4 id="community-collision-title" tabindex="-1">Is this the same place?</h4>
+    <div class="community-prefilled-place" aria-label="The place already on the list">
+      <strong>${esc(collision.venue_name)}</strong>
+      ${locator ? `<span>${esc(locator)}</span>` : ''}
+    </div>
+    <p class="community-collision-copy">${
+      collision.published
+        ? 'This place is already on the Detourist List. If it is the one you mean, your note joins the others on its page.'
+        : 'This place is already on the Detourist List. If it is the one you mean, your note joins it.'
+    }</p>
+    ${answer}
+  </div>`;
+}
+
 function recommendationPanel(): string {
   const draft = recommendationDraft;
   if (draft && recommendationIntent === 'edit') {
@@ -687,6 +910,10 @@ function recommendationPanel(): string {
         <input type="hidden" name="address" value="${esc(draft.address)}">
         <input type="hidden" name="city" value="${esc(draft.city)}">
         <input type="hidden" name="country" value="${esc(draft.country)}">
+        <input type="hidden" name="disambiguator" value="${esc(draft.neighborhood)}">
+        <!-- Arriving from a place page is the answer to "which place?", so this
+             form never asks it again. -->
+        <input type="hidden" name="place_intent" value="second">
         <label>My recommendation<textarea id="recommendation-note" name="note" rows="5" maxlength="2400" minlength="24" required autofocus placeholder="What should another Detourist know about this place?"></textarea></label>
         ${placeLinkFields({
           officialUrl: draft.officialUrl,
@@ -697,20 +924,20 @@ function recommendationPanel(): string {
           ${cancelButton}
         </div>
       </form>`
-    : `<form class="community-form" data-community-recommendation>
+    : pendingCollision
+      ? collisionMarkup(pendingCollision)
+      : // A name, a city, your words, and your photo. Everything else about a
+        // place — its street, its country, its coordinates, its website and its
+        // Instagram — is found by the enrichment passes from exactly these two
+        // facts, so asking a member to type any of it only asked them to do work
+        // the server was going to redo anyway. Category and what it is good for
+        // stay available on the entry's own line, where correcting them is one
+        // click and does not stand between having something to say and saying it.
+        `<form class="community-form" data-community-recommendation>
         <label>Food-and-drink destination name<input name="venue_name" maxlength="200" required placeholder="A restaurant, café, bar, or other food-and-drink destination"></label>
-        <label>Address <span class="community-optional">Optional — we can look it up</span><input name="address" maxlength="300" placeholder="Street and number"></label>
-        <div class="community-form-grid community-place-grid">
-          <label>City or locality<input name="city" maxlength="120" required placeholder="City or locality"></label>
-          <label>Country<input name="country" maxlength="120" required placeholder="Country"></label>
-        </div>
-        <label>Category <span class="community-optional">Optional</span><select name="category"><option value="">Choose one</option>${CATEGORY_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label>
-        <fieldset class="community-choice-fieldset">
-          <legend>Good for <span class="community-optional">Optional — choose any that fit</span></legend>
-          <div class="community-choice-grid">${OCCASION_OPTIONS.map(([value, label]) => `<label><input type="checkbox" name="occasions" value="${value}"><span>${label}</span></label>`).join('')}</div>
-        </fieldset>
+        <label>City or locality<input name="city" maxlength="120" required placeholder="City or locality"></label>
         <label>My recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?"></textarea></label>
-        ${placeLinkFields()}
+        ${photoField()}
         <div class="community-form-actions">
           <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Adding…' : 'Recommend'}</button>
           ${cancelButton}
@@ -920,7 +1147,58 @@ function curationPanel(): string {
             }).join('')}</div>`
           : '<p class="community-empty">No photos are waiting for review.</p>'
     }
+    ${coverlessMarkup()}
   </section>`;
+}
+
+/**
+ * Places the automatic passes could not find a photograph for.
+ *
+ * A worklist rather than a review queue: there is nothing here to approve or
+ * reject, because there is no photo. Look again re-runs the same passes the
+ * sweeps run, which is worth a click for a place that has gained a website since
+ * it published. A place with no website and no Instagram has exhausted them, and
+ * is marked so, because the only thing left is for someone to go and take a
+ * picture — and a photo belongs to a recommendation, so that someone has to be a
+ * member who recommends it.
+ */
+function coverlessMarkup(): string {
+  const count = coverlessPlaces.length;
+  return `<div class="community-coverless">
+    <div class="community-subheading">
+      <h4 id="community-coverless-title">Places with no photo</h4>
+      ${coverlessLoaded && !loadingCoverless && count ? `<p class="community-queue-count">${count} ${count === 1 ? 'place' : 'places'}</p>` : ''}
+    </div>
+    <p class="community-form-note">Live on the Detourist List with neither a found cover nor a member's photo. They show a monogram until one arrives.</p>
+    ${
+      loadingCoverless || !coverlessLoaded
+        ? '<p class="community-loading" role="status">Loading…</p>'
+        : count
+          ? `<ul class="community-coverless-list" aria-labelledby="community-coverless-title">${coverlessPlaces
+              .map((place) => {
+                const where = [place.disambiguator, place.city, place.country].filter(Boolean).join(', ');
+                const links = [
+                  place.official_url ? `<a href="${esc(place.official_url)}" target="_blank" rel="noopener noreferrer">Website</a>` : '',
+                  place.instagram_url ? `<a href="${esc(place.instagram_url)}" target="_blank" rel="noopener noreferrer">Instagram</a>` : '',
+                ].filter(Boolean);
+                const busy = refreshingCoverlessId === place.id;
+                return `<li class="community-coverless-row">
+                  <div class="community-coverless-place">
+                    <span class="community-coverless-name">${esc(place.place_name)}</span>
+                    ${where ? `<span class="community-coverless-where">${esc(where)}</span>` : ''}
+                    <span class="community-coverless-links">${
+                      links.length
+                        ? links.join('<span aria-hidden="true"> · </span>')
+                        : '<span class="community-coverless-exhausted">Nowhere left to look — no website or Instagram</span>'
+                    }</span>
+                  </div>
+                  <button class="secondary-button" type="button" data-coverless-refresh="${esc(place.id)}" ${refreshingCoverlessId ? 'disabled' : ''}>${busy ? 'Looking…' : 'Look again'}</button>
+                </li>`;
+              })
+              .join('')}</ul>`
+          : '<p class="community-empty">Every live place has a photo.</p>'
+    }
+  </div>`;
 }
 
 function detoursPanel(): string {
@@ -1114,6 +1392,7 @@ export function openRecommendPlace(venue?: Venue): void {
   // "Recommend" from the feed or a place page is an explicit ask for the form,
   // with or without a place attached.
   recommendationFormOpen = true;
+  pendingCollision = null;
   pendingFormReveal = 'recommendation';
 }
 
@@ -1124,6 +1403,7 @@ export function openEditRecommendation(venue: Venue): void {
   recommendationDraft = venue;
   recommendationIntent = 'edit';
   recommendationFormOpen = false;
+  pendingCollision = null;
   pendingFormReveal = null;
 }
 
@@ -1176,6 +1456,7 @@ function resetCommunityState(): void {
   recommendationDraft = null;
   recommendationIntent = 'add';
   recommendationFormOpen = false;
+  pendingCollision = null;
   shareFormOpen = false;
   pendingFormReveal = null;
   pendingShareRecipient = null;
@@ -1204,6 +1485,10 @@ function resetCommunityState(): void {
   curationLoaded = false;
   loadingCuration = false;
   curationSavingId = '';
+  coverlessPlaces = [];
+  coverlessLoaded = false;
+  loadingCoverless = false;
+  refreshingCoverlessId = '';
   directories.forEach((state) => {
     if (state.timer !== null) window.clearTimeout(state.timer);
   });
@@ -1296,6 +1581,28 @@ async function loadCuration(render: () => void): Promise<void> {
     };
   } finally {
     loadingCuration = false;
+    render();
+  }
+}
+
+async function loadCoverless(render: () => void): Promise<void> {
+  if (!member() || !foundingMember || loadingCoverless) return;
+  loadingCoverless = true;
+  render();
+  try {
+    const response = await pb.send<{ items?: CoverlessPlace[] }>(
+      '/api/detour/curation/coverless',
+      { requestKey: null }
+    );
+    coverlessPlaces = Array.isArray(response.items) ? response.items : [];
+    coverlessLoaded = true;
+  } catch (error) {
+    notice = {
+      kind: 'error',
+      text: readableError(error, 'The list of places without photos could not be loaded. Please try again.'),
+    };
+  } finally {
+    loadingCoverless = false;
     render();
   }
 }
@@ -1434,19 +1741,18 @@ function focusNotice(root: HTMLElement): void {
  * attaches it to the caller's own recommendation for this place — it is never
  * applied to the place itself, and never touches another member's photo.
  */
-async function submitImageForReview(waitlistId: string, imageUrl: string): Promise<void> {
-  if (!waitlistId || !imageUrl.trim()) return;
-  await pb.send(
-    '/api/detour/curation/images',
-    {
-      method: 'POST',
-      body: {
-        waitlist: waitlistId,
-        source_url: imageUrl.trim(),
-      },
-      requestKey: null,
-    }
-  );
+async function submitImageForReview(waitlistId: string, photo: File): Promise<void> {
+  if (!waitlistId || !photo) return;
+  const prepared = await preparePhoto(photo);
+  if (prepared.size > PHOTO_MAX_BYTES) {
+    throw new Error('That photo is larger than 8 MB even after resizing. Choose a smaller one.');
+  }
+  // Multipart, so the bytes go to the server rather than a link to them. pb.send
+  // passes FormData through untouched and sets no JSON content type.
+  const body = new FormData();
+  body.set('waitlist', waitlistId);
+  body.set('photo', prepared, photoFileName(prepared, photo));
+  await pb.send('/api/detour/curation/images', { method: 'POST', body, requestKey: null });
 }
 
 // Marks the recipient's new shares as seen once the inbox is on screen. Local
@@ -1486,7 +1792,9 @@ export function bindCommunity(
   render: () => void,
   onAuthed: () => void,
   onPlaceContributed: () => void,
-  refreshCatalogue: () => Promise<Venue[]>
+  refreshCatalogue: () => Promise<Venue[]>,
+  /** Carries the invitation card's answers into the new-member flow. */
+  onJoined: (credentials: { email: string; password: string; inviteCode: string }) => void
 ): void {
   knownVenues = venues;
   if (memberTab === 'settings') void refreshMemberRecord(render);
@@ -1512,11 +1820,13 @@ export function bindCommunity(
     recommendationDraft = null;
     recommendationIntent = 'add';
     recommendationFormOpen = false;
+    pendingCollision = null;
     render();
   });
 
   root.querySelector<HTMLButtonElement>('[data-recommend-open]')?.addEventListener('click', () => {
     recommendationFormOpen = true;
+    pendingCollision = null;
     notice = null;
     render();
     // The form is below the ledger, so opening it moves focus into the first
@@ -1530,6 +1840,7 @@ export function bindCommunity(
 
   root.querySelector<HTMLButtonElement>('[data-recommend-close]')?.addEventListener('click', () => {
     recommendationFormOpen = false;
+    pendingCollision = null;
     pendingFormReveal = null;
     recommendationDraft = null;
     render();
@@ -1614,7 +1925,9 @@ export function bindCommunity(
     if (nextTab === 'detours' && detourTab === 'shares' && communityLoaded) void markIncomingSharesSeen();
     if (nextTab === 'curation') {
       curationLoaded = false;
+      coverlessLoaded = false;
       void loadCuration(render);
+      void loadCoverless(render);
     }
     render();
     if (focusTab) {
@@ -1689,57 +2002,70 @@ export function bindCommunity(
     });
   });
 
-  root.querySelector<HTMLFormElement>('[data-community-join]')?.addEventListener('submit', async (event) => {
+  root.querySelectorAll<HTMLButtonElement>('[data-coverless-refresh]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const venueId = button.dataset.coverlessRefresh || '';
+      if (!venueId || !foundingMember || refreshingCoverlessId) return;
+      refreshingCoverlessId = venueId;
+      notice = null;
+      render();
+      try {
+        const result = await pb.send<{ image_url?: string; official_url?: string; instagram_url?: string }>(
+          `/api/detour/curation/coverless/${encodeURIComponent(venueId)}/refresh`,
+          { method: 'POST', requestKey: null }
+        );
+        if (result.image_url) {
+          // Found one: the place leaves the worklist, and the catalogue has to be
+          // re-read for the cover to appear on its card.
+          coverlessPlaces = coverlessPlaces.filter((place) => place.id !== venueId);
+          notice = { kind: 'success', text: 'Found a photo. It is live on the place now.' };
+          resetNetworkDiscovery();
+        } else {
+          // Links the pass may have discovered even without a cover are worth
+          // showing: they are where a person would look next.
+          coverlessPlaces = coverlessPlaces.map((place) =>
+            place.id === venueId
+              ? {
+                  ...place,
+                  official_url: result.official_url || place.official_url,
+                  instagram_url: result.instagram_url || place.instagram_url,
+                }
+              : place
+          );
+          notice = { kind: 'info', text: 'Still no photo for that place.' };
+        }
+      } catch (error) {
+        notice = { kind: 'error', text: readableError(error, 'That place could not be checked again.') };
+      } finally {
+        refreshingCoverlessId = '';
+        render();
+      }
+    });
+  });
+
+  // The invitation card is the first of two screens, and it creates nothing: the
+  // server requires a pseudo and a home city on every public signup, so the
+  // account cannot be written until the screen that asks for them is answered.
+  // What this handler does is hand those answers on — see src/onboarding.ts.
+  root.querySelector<HTMLFormElement>('[data-community-join]')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const values = new FormData(event.currentTarget as HTMLFormElement);
-    const password = String(values.get('password') || '');
-    const passwordConfirm = String(values.get('passwordConfirm') || '');
-    if (password !== passwordConfirm) {
-      notice = { kind: 'error', text: 'The two passwords do not match.' };
-      render();
-      return;
-    }
     const email = String(values.get('email') || '').trim();
-    // `required` lets a space through; the home city is asked for real, so check
-    // the trimmed value here rather than sending it for the server to reject.
-    const homeCity = String(values.get('home_city') || '').trim();
-    if (homeCity.length < 2) {
-      notice = { kind: 'error', text: 'Tell us where you live — the city you live in.' };
+    const password = String(values.get('password') || '');
+    const inviteCode = String(values.get('invite_code') || '').trim().toUpperCase();
+    if (password.length < 8) {
+      notice = { kind: 'error', text: 'Use a password of at least eight characters.' };
       render();
       return;
     }
-    submitting = true;
+    if (!email || !inviteCode) {
+      notice = { kind: 'error', text: 'Your email address and your invitation code are both needed.' };
+      render();
+      return;
+    }
     notice = null;
-    render();
-    try {
-      await pb.collection('members').create({
-        pseudo: String(values.get('pseudo') || '').trim(),
-        email,
-        password,
-        passwordConfirm,
-        home_city: homeCity,
-        home_country: String(values.get('home_country') || '').trim(),
-        invite_code: String(values.get('invite_code') || '').trim().toUpperCase(),
-      });
-    } catch (error) {
-      submitting = false;
-      notice = { kind: 'error', text: readableError(error, 'That invitation could not be accepted. Check the code and try again.') };
-      render();
-      return;
-    }
-    try {
-      await pb.collection('members').authWithPassword(email, password);
-      submitting = false;
-      resetCommunityState();
-      notice = null;
-      onAuthed();
-    } catch {
-      submitting = false;
-      mode = 'sign-in';
-      clearInvitationRoute();
-      notice = { kind: 'success', text: 'Your membership is ready. Sign in to continue.' };
-      render();
-    }
+    resetCommunityState();
+    onJoined({ email, password, inviteCode });
   });
 
   root.querySelector<HTMLFormElement>('[data-community-sign-in]')?.addEventListener('submit', async (event) => {
@@ -1901,42 +2227,36 @@ export function bindCommunity(
     });
   });
 
-  root.querySelector<HTMLFormElement>('[data-community-recommendation]')?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const values = new FormData(event.currentTarget as HTMLFormElement);
-    const note = String(values.get('note') || '').trim();
-    if (!meaningfulRecommendation(note)) {
-      notice = { kind: 'error', text: 'Add a meaningful recommendation of at least 24 characters and five words.' };
-      render();
-      return;
-    }
+  /**
+   * Sends one recommendation, then either lands it or holds it at the same-place
+   * question.
+   *
+   * `held` is what the member typed. It is kept so a 409 can ask which place they
+   * mean without losing their words or their photo: answering re-renders the
+   * panel, and a file input cannot be repopulated from markup, so the File has to
+   * outlive the form it was chosen in.
+   */
+  const sendRecommendation = async (
+    payload: Record<string, string | string[]>,
+    photo: File | null,
+    held: { venueName: string; city: string; note: string }
+  ): Promise<void> => {
     submitting = true;
     notice = null;
     render();
     try {
-      const category = String(values.get('category') || '').trim();
-      const occasions = values.getAll('occasions').map((value) => String(value));
-      const proposedImage = String(values.get('image_url') || '').trim();
-      const payload: Record<string, string | string[]> = {
-        venue_name: String(values.get('venue_name') || '').trim(),
-        address: String(values.get('address') || '').trim(),
-        city: String(values.get('city') || '').trim(),
-        country: String(values.get('country') || '').trim(),
-        note,
-        official_url: String(values.get('official_url') || '').trim(),
-        instagram_url: String(values.get('instagram_url') || '').trim(),
-      };
-      if (category) payload.category = category;
-      if (occasions.length) payload.occasions = occasions;
-      const created = await pb.collection('community_recommendations').create<RecommendationRecord>(payload);
-      let imageQueued = false;
-      let imageQueueError = '';
-      if (proposedImage && created.waitlist) {
+      const created = await pb
+        .collection('community_recommendations')
+        .create<RecommendationRecord>(payload);
+      pendingCollision = null;
+      let photoQueued = false;
+      let photoError = '';
+      if (photo && created.waitlist) {
         try {
-          await submitImageForReview(created.waitlist, proposedImage);
-          imageQueued = true;
+          await submitImageForReview(created.waitlist, photo);
+          photoQueued = true;
         } catch (error) {
-          imageQueueError = readableError(
+          photoError = readableError(
             error,
             'The recommendation was saved, but its photo could not be submitted for review.'
           );
@@ -1963,18 +2283,137 @@ export function bindCommunity(
         : createdEntry
           ? { kind: 'info', text: 'Your recommendation is saved. Its line shows whether the place is live.' }
           : notice;
-      if (notice && imageQueued) {
+      // Category and what a place is good for are no longer asked before the note
+      // is written, so the ledger line is where they get added. Worth saying once
+      // here, because the occasion filters on discovery are what they feed.
+      if (notice && createdEntry) {
+        notice.text += ' Open its line to say what it is good for.';
+      }
+      if (notice && photoQueued) {
         notice.text += ' Your photo is awaiting review and will appear with your note.';
-      } else if (imageQueueError) {
-        notice = { kind: 'info', text: `${notice?.text || 'Recommendation saved.'} ${imageQueueError}` };
+      } else if (photoError) {
+        notice = { kind: 'info', text: `${notice?.text || 'Recommendation saved.'} ${photoError}` };
       }
       focusWaitlistEntry(highlightedWaitlistId);
     } catch (error) {
-      notice = { kind: 'error', text: readableError(error, 'That recommendation could not be added. Check the food-and-drink destination details and note, then try again.') };
+      const askedFor = String(payload.disambiguator || '');
+      const collision = await placeCollisionFor(error, { ...held, disambiguator: askedFor });
+      if (collision) {
+        // Not an error: a question. The form is replaced by it rather than sitting
+        // beneath a red notice about something the member has not done wrong.
+        //
+        // A collision on a qualifier the member just supplied means that qualifier
+        // is taken too, so the field stays open for them to give another rather
+        // than dropping them back to a choice they have already made.
+        pendingCollision = { collision, ...held, photo, distinguishing: Boolean(askedFor) };
+        notice = askedFor
+          ? { kind: 'info', text: 'A place with that name and street is already on the list. Try a different street or neighbourhood.' }
+          : null;
+      } else {
+        notice = {
+          kind: 'error',
+          text: readableError(
+            error,
+            'That recommendation could not be added. Check the name, the city and your note, then try again.'
+          ),
+        };
+      }
     } finally {
       submitting = false;
       render();
+      if (pendingCollision) focusCollision(root);
     }
+  };
+
+  root.querySelector<HTMLFormElement>('[data-community-recommendation]')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const values = new FormData(form);
+    const note = String(values.get('note') || '').trim();
+    if (!meaningfulRecommendation(note)) {
+      notice = { kind: 'error', text: 'Add a meaningful recommendation of at least 24 characters and five words.' };
+      render();
+      return;
+    }
+    const category = String(values.get('category') || '').trim();
+    const occasions = values.getAll('occasions').map((value) => String(value));
+    const payload: Record<string, string | string[]> = {
+      venue_name: String(values.get('venue_name') || '').trim(),
+      city: String(values.get('city') || '').trim(),
+      note,
+    };
+    // The prefilled "recommend this exact place" form carries the place's known
+    // facts; the cold form carries a name and a city and nothing else.
+    for (const field of ['address', 'country', 'disambiguator', 'official_url', 'instagram_url'] as const) {
+      const value = String(values.get(field) || '').trim();
+      if (value) payload[field] = value;
+    }
+    if (category) payload.category = category;
+    if (occasions.length) payload.occasions = occasions;
+    // The cold form asks which place when the name is taken; the prefilled one
+    // states that the question is already answered.
+    payload.place_intent = String(values.get('place_intent') || 'ask');
+    await sendRecommendation(payload, chosenPhoto(form), {
+      venueName: String(payload.venue_name),
+      city: String(payload.city),
+      note,
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-collision-second]')?.addEventListener('click', async () => {
+    const pending = pendingCollision;
+    if (!pending || submitting) return;
+    // Resolved by entry id, which is the path a private share and the ledger's
+    // own edit already take. The name and city ride along so the server can still
+    // check they describe the entry being joined.
+    await sendRecommendation(
+      {
+        waitlist: pending.collision.entry,
+        venue_name: pending.venueName,
+        city: pending.city,
+        note: pending.note,
+      },
+      pending.photo,
+      pending
+    );
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-collision-distinct]')?.addEventListener('click', () => {
+    if (!pendingCollision || submitting) return;
+    pendingCollision = { ...pendingCollision, distinguishing: true };
+    render();
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-collision-back]')?.addEventListener('click', () => {
+    if (!pendingCollision || submitting) return;
+    pendingCollision = { ...pendingCollision, distinguishing: false };
+    render();
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-collision-cancel]')?.addEventListener('click', () => {
+    if (submitting) return;
+    pendingCollision = null;
+    notice = null;
+    render();
+  });
+
+  root.querySelector<HTMLFormElement>('[data-collision-distinct-form]')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const pending = pendingCollision;
+    if (!pending || submitting) return;
+    const disambiguator = String(new FormData(event.currentTarget as HTMLFormElement).get('disambiguator') || '').trim();
+    if (!disambiguator) return;
+    await sendRecommendation(
+      {
+        venue_name: pending.venueName,
+        city: pending.city,
+        note: pending.note,
+        disambiguator,
+        place_intent: 'distinct',
+      },
+      pending.photo,
+      pending
+    );
   });
 
   root.querySelectorAll<HTMLFormElement>('[data-community-edit]').forEach((form) => {
@@ -1986,7 +2425,7 @@ export function bindCommunity(
       const recommendationId = form.dataset.recommendation || '';
       const category = String(values.get('category') || '').trim();
       const occasions = values.getAll('occasions').map((value) => String(value));
-      const proposedImage = String(values.get('image_url') || '').trim();
+      const proposedPhoto = chosenPhoto(form);
       submitting = true;
       notice = null;
       render();
@@ -1999,6 +2438,7 @@ export function bindCommunity(
           address: String(values.get('address') || '').trim(),
           city: String(values.get('city') || '').trim(),
           country: String(values.get('country') || '').trim(),
+          disambiguator: String(values.get('disambiguator') || '').trim(),
           category,
           occasions,
           official_url: String(values.get('official_url') || '').trim(),
@@ -2013,9 +2453,9 @@ export function bindCommunity(
         }
         resetNetworkDiscovery();
         notice = { kind: 'success', text: 'Recommendation updated.' };
-        if (proposedImage) {
+        if (proposedPhoto) {
           try {
-            await submitImageForReview(entryId, proposedImage);
+            await submitImageForReview(entryId, proposedPhoto);
             notice.text += ' Your photo is awaiting review and will appear with your note.';
           } catch (error) {
             notice = {
@@ -2225,5 +2665,8 @@ export function bindCommunity(
   if (member() && !invitesLoaded && !loadingInvites) void loadInvites(render);
   if (member() && foundingMember && memberTab === 'curation' && !curationLoaded && !loadingCuration) {
     void loadCuration(render);
+  }
+  if (member() && foundingMember && memberTab === 'curation' && !coverlessLoaded && !loadingCoverless) {
+    void loadCoverless(render);
   }
 }

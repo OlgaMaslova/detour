@@ -16,6 +16,14 @@ import {
   openSharePlace,
   signOutMember,
 } from './community';
+import {
+  beginOnboarding,
+  bindOnboarding,
+  onboardingMarkup,
+  onboardingOpen,
+  resetOnboarding,
+  resumeOnboarding,
+} from './onboarding';
 import { pb } from './pocketbase';
 import { bindCircle, circleMarkup, resetCircle } from './circle';
 import {
@@ -50,6 +58,8 @@ type AppView =
   | 'destination'
   | 'place'
   | 'account'
+  /** The new-member flow: handle and city, then the first place. */
+  | 'welcome'
   | 'survey';
 /** The two ways a destination's places can be browsed. */
 type CityView = 'list' | 'map';
@@ -392,6 +402,13 @@ function routeHref(
   if (view === 'country' && country) url.searchParams.set('country', country);
   else url.searchParams.delete('country');
   if (view === 'account') url.searchParams.set('view', 'members');
+  // The invitation code has been spent by the time this route opens (it is held
+  // in the flow's own state), so it comes off the URL here rather than riding
+  // along through every step and back into a share.
+  else if (view === 'welcome') {
+    url.searchParams.set('view', 'welcome');
+    url.searchParams.delete('invite');
+  }
   else if (view === 'explore' || view === 'country') {
     url.searchParams.set('view', 'explore');
     url.searchParams.delete('invite');
@@ -592,6 +609,24 @@ function showAccount(root: HTMLElement): void {
   render(root);
 }
 
+/**
+ * Opens the new-member flow.
+ *
+ * `replace` rather than `push` on purpose: the screen behind this one is the
+ * invitation card whose answers the flow is already holding, so Back would offer
+ * to fill it in a second time.
+ */
+function showWelcome(root: HTMLElement): void {
+  if (state.destination !== null) resetDestinationState();
+  state.view = 'welcome';
+  state.destination = null;
+  state.country = null;
+  state.pendingDestination = null;
+  state.place = null;
+  updateRoute('welcome', null, 'replace');
+  render(root);
+}
+
 function returnToDiscovery(root: HTMLElement): void {
   state.view = state.place && state.destination ? 'place' : state.destination ? 'destination' : 'home';
   updateRoute(state.view, state.destination, 'push', state.place);
@@ -612,6 +647,8 @@ function applyRouteFromUrl(root: HTMLElement): void {
     ? 'survey'
     : url.searchParams.get('view') === 'members' || invitationCode?.trim()
       ? 'account'
+      : url.searchParams.get('view') === 'welcome'
+        ? 'welcome'
       : url.searchParams.get('view') === 'explore'
         ? requestedCountry
           ? 'country'
@@ -658,11 +695,17 @@ function applyRouteFromUrl(root: HTMLElement): void {
         ? 'account'
         : nextView === 'how'
           ? 'how'
+        : nextView === 'welcome'
+          ? 'welcome'
         : requested
           ? requestedPlace
             ? 'place'
             : 'destination'
           : nextView;
+  // A member who followed this route in, or came back to it after leaving, starts
+  // at the first place: the account they would otherwise be asked to create
+  // already exists.
+  if (state.view === 'welcome' && pb.authStore.isValid) resumeOnboarding();
 
   if (!isSurveyRoute && url.searchParams.has('city')) updateRoute(state.view, requested, 'replace', requestedPlace);
   render(root);
@@ -1675,13 +1718,53 @@ function renderAccount(root: HTMLElement): void {
     </footer>
   `;
 
-  bindCommunity(root, state.venues, () => render(root), () => showHome(root), markFirstPlaceContributed, refreshCatalogue);
+  bindCommunity(
+    root,
+    state.venues,
+    () => render(root),
+    () => showHome(root),
+    markFirstPlaceContributed,
+    refreshCatalogue,
+    (credentials) => {
+      beginOnboarding(credentials);
+      showWelcome(root);
+    }
+  );
   bindRouteLinks(root);
   if (pendingFocus) {
     const target = root.querySelector<HTMLElement>(pendingFocus);
     pendingFocus = null;
     target?.focus({ preventScroll: true });
   }
+}
+
+/**
+ * The new-member flow's page: one question at a time, and nothing else on screen.
+ *
+ * Deliberately without the member nav. Explore, My Circle and the account are all
+ * places to go instead of answering, and the whole point of this route is that
+ * there is one thing to do. The wordmark stays a link home, because leaving has to
+ * be possible from the one step that has no "later" of its own — the invitation
+ * has not been spent yet there, so it survives being abandoned.
+ */
+function renderWelcome(root: HTMLElement): void {
+  destroyMap();
+  syncDocumentMeta(null, true);
+  root.innerHTML = `
+    <header class="welcome-masthead">
+      <a class="welcome-brand" href="${esc(homeHref())}" data-home>${brandMark()}<span class="brand-word">Detour</span></a>
+    </header>
+    ${onboardingMarkup(state.venues)}
+  `;
+
+  bindOnboarding(root, state.venues, {
+    render: () => render(root),
+    onFinished: () => showHome(root),
+    onAccount: () => showAccount(root),
+    onPlaceContributed: markFirstPlaceContributed,
+    refreshCatalogue,
+  });
+  bindRouteLinks(root);
 }
 
 /**
@@ -2310,6 +2393,8 @@ function render(root: HTMLElement) {
   root.dataset.restyle =
     state.view === 'survey'
       ? 'survey'
+      : state.view === 'welcome'
+        ? 'welcome'
       : state.view === 'account'
         ? 'account'
         : state.view === 'explore' || state.view === 'country'
@@ -2341,6 +2426,20 @@ function render(root: HTMLElement) {
 
   if (state.view === 'account') {
     renderAccount(root);
+    return;
+  }
+
+  // Nothing to welcome: no held invitation and no session. The invitation card is
+  // where both come from, so that is where a bare link to this route lands.
+  if (state.view === 'welcome' && !onboardingOpen()) {
+    state.view = 'account';
+    updateRoute('account', null, 'replace');
+    renderAccount(root);
+    return;
+  }
+
+  if (state.view === 'welcome') {
+    renderWelcome(root);
     return;
   }
 
@@ -2723,6 +2822,9 @@ if (root instanceof HTMLElement) {
     const nextIdentity = pb.authStore.isValid ? record?.id || '' : '';
     if (nextIdentity === authIdentity) return;
     authIdentity = nextIdentity;
+    // Signing in is how the new-member flow's own first step ends, so its state
+    // survives that; signing out is the end of anybody's onboarding.
+    if (!nextIdentity) resetOnboarding();
     resetNetworkDiscovery();
     resetCircle();
     // The catalogue is now one member's list, not a shared one, so it cannot

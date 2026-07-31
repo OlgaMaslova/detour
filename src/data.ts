@@ -215,8 +215,16 @@ function contributionCategory(value: unknown): string {
   return labels[category] ?? category;
 }
 
-function identityKey(name: string, city: string): string {
-  return `${citySlug(city)}::${citySlug(name)}`;
+/**
+ * The key two records have to agree on to be the same place.
+ *
+ * The qualifier is part of it because a name and a city are no longer unique:
+ * two places can share both, told apart by the street or neighbourhood a member
+ * supplied. Leaving it out here would silently collapse them back into one on the
+ * client, which is the exact failure the server-side key was widened to fix.
+ */
+function identityKey(name: string, city: string, disambiguator = ''): string {
+  return `${citySlug(city)}::${citySlug(name)}::${citySlug(disambiguator)}`;
 }
 
 function mergeOccasions(...groups: Array<readonly Occasion[] | undefined>): Occasion[] {
@@ -257,10 +265,19 @@ export function venuePlaceSlug(v: Venue, all: Venue[]): string {
   const base = citySlug(v.name);
   if (!base) return v.id;
   const city = venueCitySlug(v);
-  const clash = all.some(
+  const sharing = all.filter(
     (other) => other.id !== v.id && venueCitySlug(other) === city && citySlug(other.name) === base
   );
-  return clash ? `${base}-${v.id}` : base;
+  if (!sharing.length) return base;
+  // Two places share this name in this city. The qualifier a member gave to tell
+  // them apart for a reader tells them apart in the URL too, so long as it is
+  // unique among the places it is distinguishing this one from. Falling back to
+  // the record id keeps every other clash addressable, just less legibly.
+  const qualifier = citySlug(v.neighborhood);
+  if (qualifier && !sharing.some((other) => citySlug(other.neighborhood) === qualifier)) {
+    return `${base}-${qualifier}`;
+  }
+  return `${base}-${v.id}`;
 }
 
 /**
@@ -285,7 +302,7 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
 
   const [venueRecords, cityRecords, contributionRecords, detouristSignals] = await Promise.all([
     pb.collection('venues').getFullList<VenueRecord>({
-      fields: 'id,name,city,country,address,lat,lng,category,official_url,instagram_url,image_url,approx_location,occasions,suppressed,published',
+      fields: 'id,name,city,country,address,disambiguator,lat,lng,category,official_url,instagram_url,image_url,approx_location,occasions,suppressed,published',
       sort: 'city,name',
       requestKey: null,
     }),
@@ -304,7 +321,7 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       .collection('member_place_contributions')
       .getFullList<MemberContributionRecord>({
         filter: "status = 'approved'",
-        fields: 'id,place_name,city,country,address,category,occasions,status',
+        fields: 'id,place_name,city,country,address,disambiguator,category,occasions,status',
         sort: 'city,place_name',
         requestKey: null,
       })
@@ -424,7 +441,11 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       city: cityName,
       country: cleanString(record.country) || city.country,
       category: cleanString(record.category),
-      neighborhood: '',
+      // The qualifier that tells this place from another of the same name in the
+      // same city. It reads as the place's locality wherever a neighborhood would
+      // have — "Toma Café · Calle de la Palma" — and is empty for almost every
+      // place, since it is only ever asked for after a name collision.
+      neighborhood: cleanString(record.disambiguator),
       address: cleanString(record.address),
       lat: hasCoordinates ? rawLat : null,
       lng: hasCoordinates ? rawLng : null,
@@ -441,7 +462,7 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
 
   const venueByIdentity = new Map<string, Venue>();
   for (const venue of venuesById.values()) {
-    venueByIdentity.set(identityKey(venue.name, venue.city), venue);
+    venueByIdentity.set(identityKey(venue.name, venue.city, venue.neighborhood), venue);
   }
 
   for (const record of contributionRecords) {
@@ -453,7 +474,8 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     if (!id || !name || !city) continue;
 
     const occasions = knownOccasions(record.occasions);
-    const existing = venueByIdentity.get(identityKey(name, city.name));
+    const disambiguator = cleanString(record.disambiguator);
+    const existing = venueByIdentity.get(identityKey(name, city.name, disambiguator));
     if (existing) {
       // No count is asserted here. A contribution is one member's recommendation,
       // so whether it counts for this caller is a scoping question, and only the
@@ -473,7 +495,7 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       city: city.name,
       country: cleanString(record.country) || city.country,
       category: contributionCategory(record.category),
-      neighborhood: '',
+      neighborhood: disambiguator,
       address: cleanString(record.address),
       lat: null,
       lng: null,

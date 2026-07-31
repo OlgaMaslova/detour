@@ -343,7 +343,8 @@ h1 { margin: 0; font-size: clamp(34px, 6vw, 54px); }
    so the logo does not shift vertically when navigating. */
 .network-masthead,
 .account-masthead,
-.survey-masthead {
+.survey-masthead,
+.welcome-masthead {
   /* Above the hero/panel that follows, so the member menu is clickable
      rather than being swallowed by the content below it. */
   position: relative;
@@ -358,7 +359,8 @@ h1 { margin: 0; font-size: clamp(34px, 6vw, 54px); }
   background: none;
 }
 .network-masthead,
-.survey-masthead {
+.survey-masthead,
+.welcome-masthead {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -366,7 +368,8 @@ h1 { margin: 0; font-size: clamp(34px, 6vw, 54px); }
   border-bottom: 2.5px solid var(--tape-chrome);
 }
 .network-masthead { padding-bottom: 16px; box-shadow: none; }
-.survey-masthead { min-height: 76px; padding-bottom: 0.85rem; }
+.survey-masthead,
+.welcome-masthead { min-height: 76px; padding-bottom: 0.85rem; }
 /* The account view puts its rule under the brand row rather than under the
    whole intro block, so the masthead itself carries no border. */
 .account-masthead { padding-bottom: 0; border-bottom: none; color: var(--tape-text); }
@@ -390,7 +393,8 @@ h1 { margin: 0; font-size: clamp(34px, 6vw, 54px); }
 /* wordmarks: Righteous, no chip, identical size on every view */
 .network-brand,
 .account-brand,
-.survey-brand {
+.survey-brand,
+.welcome-brand {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -408,13 +412,17 @@ h1 { margin: 0; font-size: clamp(34px, 6vw, 54px); }
 }
 .network-brand { line-height: 1; }
 .account-brand,
-.survey-brand { min-height: 44px; }
+.survey-brand,
+.welcome-brand { min-height: 44px; }
 a.network-brand,
 a.network-brand:visited,
 a.account-brand,
-a.account-brand:visited { color: var(--tape-text); text-decoration: none; }
+a.account-brand:visited,
+a.welcome-brand,
+a.welcome-brand:visited { color: var(--tape-text); text-decoration: none; }
 a.network-brand:hover,
 a.account-brand:hover,
+a.welcome-brand:hover,
 .survey-brand:hover { color: var(--tape-accent-strong); }
 .brand-mark {
   display: block;
@@ -3865,6 +3873,41 @@ legend { color: var(--tape-text); }
   gap: 1rem;
 }
 
+/* Places with no photo: a worklist of lines, not cards — there is no image to
+   show, so a card would be a frame around two lines of text. Sized to content,
+   above a hairline that separates it from the review queue. */
+.community-coverless {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: clamp(1.4rem, 4vw, 2.4rem);
+  padding-top: clamp(1.1rem, 3vw, 1.8rem);
+  border-top: 1px solid var(--tape-rule);
+}
+.community-coverless-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.community-coverless-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--tape-hairline);
+}
+.community-coverless-row:last-child { border-bottom: none; }
+.community-coverless-place { display: grid; gap: 0.18rem; min-width: 0; }
+.community-coverless-name {
+  color: var(--tape-text);
+  font-family: var(--tape-mono);
+  font-size: 0.92rem;
+  font-weight: 750;
+}
+.community-coverless-where,
+.community-coverless-links { color: var(--tape-muted); font-size: 0.8rem; line-height: 1.5; }
+.community-coverless-exhausted { font-style: italic; }
+@media (max-width: 34rem) {
+  .community-coverless-row { grid-template-columns: minmax(0, 1fr); }
+  .community-coverless-row button { justify-self: start; }
+}
+
 .community-curation-card {
   display: grid;
   grid-template-columns: minmax(14rem, .8fr) minmax(18rem, 1.2fr);
@@ -4060,6 +4103,42 @@ legend { color: var(--tape-text); }
 }
 .community-prefilled-place strong { font-size: 1rem; }
 .community-prefilled-place span { color: var(--tape-muted); font-size: 0.8rem; line-height: 1.5; }
+/* "Is this the same place?" — a question, not an error, so it takes the inset
+   frame the prefilled place uses rather than the notice styling. Sized to the
+   two or three lines it holds. */
+.community-collision { display: grid; gap: 0.85rem; max-width: 38rem; }
+.community-collision h4 {
+  margin: 0;
+  color: var(--tape-text);
+  font-family: var(--tape-mono);
+  font-size: 0.95rem;
+  font-weight: 750;
+}
+.community-collision h4:focus-visible { outline: 2.5px solid var(--tape-orange); outline-offset: 3px; }
+.community-collision-copy { margin: 0; color: var(--tape-muted); font-size: 0.86rem; line-height: 1.55; }
+.community-collision-form { max-width: none; }
+/* Three answers, so they wrap rather than compress: the two real choices lead and
+   Cancel follows them onto the next line on a narrow screen. */
+.community-collision-actions { margin-top: 0; }
+/* The photo picker. The shared input rule gives it the field frame; these keep
+   the native button legible inside it rather than sitting at default height. */
+.community-photo-field input[type='file'] {
+  padding: 0.6rem 0.7rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.community-photo-field input[type='file']::file-selector-button {
+  margin-right: 0.7rem;
+  padding: 0.35rem 0.7rem;
+  color: var(--tape-text);
+  background: var(--tape-inset);
+  border: 2px solid var(--tape-chrome);
+  border-radius: 0;
+  font-family: var(--tape-mono);
+  font-size: 0.78rem;
+  font-weight: 750;
+  cursor: pointer;
+}
 .community-direct-editor { width: min(100%, 42rem); }
 .community-direct-editor .community-form { max-width: none; }
 .community-view-all-recommendations { width: fit-content; }
@@ -5236,4 +5315,125 @@ legend { color: var(--tape-text); }
   .survey-submit:active,
   .survey-primary-link:hover,
   .survey-primary-link:active { transform: none; }
+}
+
+/* ---------------------------------------------------------------
+   The new-member flow (?view=welcome)
+
+   One question per screen. The page fills the viewport because it
+   IS the page — no masthead nav, no feed under it, nothing to
+   scroll to — but the question itself is sized to its content, so
+   two fields do not get a full-height box drawn around them.
+   Everything else is the shared vocabulary: cream panel, chunky
+   chrome border, hard rust offset, mono kicker, sticker buttons.
+   --------------------------------------------------------------- */
+.welcome-layout {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  width: min(100%, 1080px);
+  margin-inline: auto;
+  padding-block: clamp(1.5rem, 5vw, 3.5rem);
+  /* 76px of masthead, plus its rule and padding; there is no footer here */
+  min-height: calc(100vh - 92px - env(safe-area-inset-top));
+  background: none;
+}
+.welcome-question {
+  width: min(100%, 34rem);
+  padding: clamp(1.5rem, 4vw, 2.5rem) clamp(1.1rem, 3.5vw, 2.25rem);
+  color: var(--tape-text);
+  background: var(--tape-surface);
+  border: 3px solid var(--tape-chrome);
+  box-shadow: 8px 8px 0 var(--tape-rust);
+}
+.welcome-kicker {
+  margin: 0 0 0.75rem;
+  color: var(--tape-accent);
+  font-family: var(--tape-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.welcome-question h1 {
+  max-width: 18ch;
+  margin: 0;
+  font-size: clamp(1.6rem, 4.5vw, 2.35rem);
+  line-height: 1.06;
+  text-wrap: balance;
+}
+.welcome-question h1:focus-visible { outline-offset: 6px; }
+.welcome-lead {
+  max-width: 44ch;
+  margin: 0.85rem 0 0;
+  color: var(--tape-muted);
+  font-size: 0.98rem;
+  line-height: 1.6;
+}
+.welcome-form {
+  display: grid;
+  gap: 1.1rem;
+  margin-top: clamp(1.35rem, 4vw, 1.9rem);
+}
+.welcome-form label {
+  display: grid;
+  gap: 0.45rem;
+  font-family: var(--tape-mono);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.welcome-form textarea { min-height: 6.5rem; line-height: 1.6; resize: vertical; }
+.welcome-note {
+  margin: 0;
+  color: var(--tape-muted);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+/* Two answers to one decision, so they share a row and wrap together rather
+   than stacking the secondary one out of sight below the fold. */
+.welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+.welcome-notice {
+  margin: 1rem 0 0;
+  padding: 0.7rem 0.85rem;
+  border: 2px solid currentColor;
+  font-family: var(--tape-mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.welcome-notice-error { color: var(--tape-rust); }
+.welcome-notice-info { color: var(--tape-accent-strong); }
+/* The place already on the list, quoted so the same-place question is answered
+   by looking at it rather than by remembering what was typed. */
+.welcome-place-card {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 1.1rem;
+  padding: 0.85rem 1rem;
+  background: var(--tape-inset);
+  border-left: 4px solid var(--tape-accent);
+}
+.welcome-place-card strong { font-size: 1.05rem; }
+.welcome-place-card span {
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 0.76rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 640px) {
+  .welcome-masthead { min-height: 68px; }
+  /* The offset shadow would push a full-width card past the viewport edge. */
+  .welcome-question { box-shadow: 5px 5px 0 var(--tape-rust); }
+  .welcome-actions > .primary-button,
+  .welcome-actions > .secondary-button { flex: 1 1 100%; }
 }

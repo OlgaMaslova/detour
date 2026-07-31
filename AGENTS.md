@@ -124,6 +124,14 @@ routerAdd("POST", "/api/detour/example", (e) => {
   every handler that needs them. Never rely on closure over the hook file's
   top-level scope.
 
+**Only `*.pb.js` files register anything.** PocketBase loads hook files by
+filename pattern, so `routerAdd`/`onRecord*`/`cronAdd` calls in a plain `.js`
+file under `pb_hooks/` are never seen — the file simply never runs, the route
+404s or the event never fires, and nothing is logged. That is exactly why the
+plain `.js` files here (`community_waitlist.js`, `mailer.js`, `member_profile.js`
+and the rest) contain no registrations at all: they are modules other hooks
+`require()`. A file that registers a hook must be named `<name>.pb.js`.
+
 ## Debug locally, verify on live
 
 A Fly deploy restarts the machine and briefly takes the API down. Do not use
@@ -190,3 +198,32 @@ live redeploys as a debug loop.
 - Keep it to one hop. Extending the walk, or adding a field to the projection,
   widens what every member can see about every other member — treat it as a
   product decision, not a refactor.
+
+## The new-member flow
+
+Redeeming an invitation does not land on the account page. `?view=welcome`
+(`src/onboarding.ts`) owns the first visit and asks one thing per screen:
+invitation card (email, password, code) → pseudo and city → the place you keep
+going back to → "got another?" up to three → the feed.
+
+- **The account is created on the second screen, not the first.** A public signup
+  must carry a pseudo and a home city, so the card's email and password are held
+  in module state until the pseudo-and-city screen can send all four together.
+  This is also why an invalid or already-claimed code surfaces on that second
+  screen: the invitation is only spent there.
+- **The place step is the ordinary recommendation path.** Same
+  `community_recommendations` create, same `place_intent` collision question, same
+  publication rule — which is what puts the member's own card in the feed they
+  land on. Everything optional (category, occasions, links, photo) is deliberately
+  absent and stays available on the recommendation's own line. Do not fork a
+  private submission path for onboarding.
+- **Autocomplete is the catalogue and nothing else.** Suggestions come from the
+  places Detour already has, client-side; a place nobody has added is typed and
+  enriched after publication like any other. This screen makes no external lookup.
+- **Three places, and stopping after one is the expected outcome.** The offer to
+  add another is an invitation, not a quota; do not gate the feed on a count.
+- **The inviter is told once.** `pb_hooks/first_place_notice.pb.js` emails the
+  member's inviter when their first place lands, claiming
+  `members.inviter_introduced_at` before sending so it can never send twice.
+  Fixture and smoke-test accounts (`.invalid`) and internal members are excluded
+  on both sides of the edge.

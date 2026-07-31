@@ -182,6 +182,29 @@ buttons.
   in-review record. Approved details may be public; rejected details remain
   non-public.
 
+## The new-member flow (`?view=welcome`)
+
+- **One question per screen, and the screen is the page.** No member nav, no feed
+  beneath it, nothing to scroll to: the masthead carries the wordmark alone (it
+  links home, which is the only way out of the one step that has no "later" of
+  its own). The page fills the viewport; the question card is sized to its
+  content, so two fields never get a full-height box drawn around them.
+- **The shared vocabulary, not a new one.** Panel on `--tape-surface`, 3px
+  `--tape-chrome` border, `8px 8px 0 var(--tape-rust)` hard offset (5px under
+  640px, where a full-width card's shadow would cross the viewport edge), mono
+  letterspaced kicker and labels, and the existing ink/white sticker buttons for
+  the actions. Both answers to a step sit on one wrapping row rather than
+  stacking the secondary one below the fold.
+- **Steps:** invitation card (on the account route) → pseudo and city → the
+  place → "got another?" → the feed. Copy names the member's own words as the
+  point ("Where do you keep going back to?"), and the saved screen says the card
+  is in the feed rather than promising review.
+- **Typed values live in module state, not the DOM.** Signing in swaps the
+  catalogue and re-renders the whole app, so a value read only at submit time
+  would be wiped mid-sentence.
+- **Focus moves once per step**, to the step's own `<h1>` — `autofocus` does not
+  fire on injected markup, and re-focusing on every render fights the cursor.
+
 ## My Circle
 
 - **A second member-only nav item, beside Explore.** `?view=circle` renders its

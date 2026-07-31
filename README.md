@@ -51,7 +51,8 @@ curl -fsS https://api.takedetour.app/api/detour/ready
 
 ## Repository layout
 
-- `pb_migrations/` — schema and seeds, six files:
+- `pb_migrations/` — schema and seeds, in timestamp order (a migration runs once,
+  so a shipped change means a new file, never an edit to an old one):
   - `1768100000_baseline_schema.js` — every collection the app owns, in one
     file. This replaced the entire previous migration history (~90 files of
     guide catalogue, itinerary model, and provenance tables that were
@@ -71,6 +72,10 @@ curl -fsS https://api.takedetour.app/api/detour/ready
     migrates existing rows and drops the old table.
   - `1785801600_recommendation_photos.js` — moves a screened photo from the
     place to the recommendation that authored it.
+  - `1785974400_first_place_notice.js` — `members.inviter_introduced_at`, the
+    once-only marker behind the email a member's inviter gets when their first
+    place lands. Backfills every member who already has recommendations, so no
+    existing member's next place reads as their first.
 - `pb_hooks/` — backend behavior: custom routes and record hooks (see below).
 - `pb_public/` — optional static fallback assets served by PocketBase.
 - `src/`, `index.html`, `vite.config.ts`, `wrangler.toml` — the frontend and
@@ -93,7 +98,7 @@ platform-provisioned or otherwise unmanaged collections in the database.
 
 | Collection | What it holds |
 |---|---|
-| `members` | the invite-only circle (auth collection); readable only by the member it belongs to |
+| `members` | the invite-only circle (auth collection); readable only by the member it belongs to. A public signup carries pseudo, email, password, home city, and an invitation code — the two-screen join in `src/onboarding.ts` sends all five together |
 | `invites` | issued invitation codes and who claimed them |
 | `invite_requests` | requests to join, from the public form |
 | `cities` | the destinations places route under, and how each presents |
@@ -137,6 +142,12 @@ POST /api/detour/curation/members/{id}/founding-verification
 POST /api/detour/curation/submissions/{id}/publish
 POST /api/detour/curation/submissions/{id}/unpublish
 ```
+
+Hooks live in `pb_hooks/`, but only files named `*.pb.js` are loaded and can
+register anything — `main.pb.js`, `invite_requests.pb.js`, and
+`first_place_notice.pb.js` (one email to a new member's inviter when their first
+place lands, claimed once via `members.inviter_introduced_at`). Every other `.js`
+file there is a module the loaded hooks `require()`.
 
 **There are no scheduled jobs.** The five sweeps that used to run (daily launch
 numbers, nightly geocode, nightly cover, hourly LLM web discovery, and the

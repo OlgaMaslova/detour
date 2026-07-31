@@ -38,6 +38,16 @@ function sendMail(app, options) {
     );
   }
 
+  // Optional, and normally unset: mail is sent as takedetour.app, which
+  // Cloudflare Email Routing already receives, so replies arrive without help.
+  // Set DETOUR_REPLY_TO only to point replies somewhere other than the From
+  // address.
+  const headers = {};
+  const replyTo = String($os.getenv("DETOUR_REPLY_TO") || "").trim();
+  if (replyTo) {
+    headers["Reply-To"] = replyTo;
+  }
+
   const message = new MailerMessage({
     from: {
       address: senderAddress,
@@ -47,6 +57,7 @@ function sendMail(app, options) {
     subject: options.subject,
     text: options.text,
     html: options.html,
+    headers: headers,
   });
 
   app.newMailClient().send(message);

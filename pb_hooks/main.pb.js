@@ -1802,11 +1802,19 @@ onRecordCreateRequest((e) => {
     officialUrl: requestBody.official_url,
     instagram: requestBody.instagram_url,
   });
+  // `place_intent` says what to do when this name and city already belong to a
+  // place: see createOrResolveEntry. The recommendation form sends "ask" so the
+  // member is shown the existing place and decides; the "recommend this exact
+  // place" form sends "second", because arriving from a place page *is* the
+  // decision. It is read from the request body rather than the record because it
+  // is a routing instruction, not a stored fact about the recommendation.
   const resolved = community.resolveEntry(e.app, e.record.getString("waitlist"), {
     venueName: e.record.getString("venue_name"),
     city: e.record.getString("city"),
     country: e.record.getString("country"),
     address: e.record.getString("address"),
+    disambiguator: requestBody.disambiguator,
+    intent: requestBody.place_intent,
   });
 
   const duplicate = community.findMemberRecommendation(
@@ -2198,6 +2206,46 @@ onRecordAfterCreateSuccess((e) => {
   e.next();
 }, "community_place_images");
 
+// The place a name and city already belong to, for the "is this the same place?"
+// question.
+//
+// This exists as its own route because a thrown ApiError cannot carry it:
+// PocketBase treats an error's `data` as a validation-error map and rewrites every
+// leaf into {code, message}, so place facts put there arrive destroyed. The 409
+// from the create path stays the authoritative refusal; this answers "which place
+// was that, then" so the member can be shown what they are about to agree with.
+//
+// Place facts only, and deliberately no count. `signal_count` is global — it
+// includes members in circles the caller cannot see — so reporting it would
+// disclose their existence and their number. The caller supplied the name and the
+// city themselves; what this adds is a street and a qualifier, both public facts
+// about a restaurant, and whether it is already live.
+routerAdd(
+  "GET",
+  "/api/detour/place-identity",
+  (e) => {
+    const community = require(__hooks + "/community_waitlist.js");
+    community.requireVerifiedMember(e.auth, "checking whether a place is on the list");
+    const query = e.request.url.query();
+    const normalizedName = community.normalizePlacePart(query.get("name") || "");
+    const normalizedCity = community.normalizePlacePart(query.get("city") || "");
+    const normalizedDisambiguator = community.normalizePlacePart(
+      query.get("disambiguator") || ""
+    );
+    if (!normalizedName || !normalizedCity) {
+      throw new BadRequestError("A name and a city are required.");
+    }
+    const entry = community.findEntryByPlace(
+      e.app,
+      normalizedName,
+      normalizedCity,
+      normalizedDisambiguator
+    );
+    return e.json(200, entry ? community.placeCollisionData(entry) : { entry: "" });
+  },
+  $apis.requireAuth("members")
+);
+
 routerAdd(
   "POST",
   "/api/detour/curation/images",
@@ -2242,20 +2290,18 @@ routerAdd(
       );
     }
 
-    const links = community.validateMemberPlaceLinks({
-      imageUrl: body.source_url,
-    });
-    if (!links.image_url) {
-      throw new BadRequestError("Add a direct public link to an image.");
-    }
-
-    let snapshot;
-    try {
-      snapshot = $filesystem.fileFromURL(links.image_url);
-    } catch {
-      throw new BadRequestError(
-        "That image could not be copied for private review."
-      );
+    // The member uploads the photo itself. Asking for a "direct link to an
+    // image" asked for something most people cannot produce from a phone, and it
+    // made the honest answer to "add your photo" a detour through an image host.
+    //
+    // The bytes arrive as multipart and go straight into the snapshot field, so
+    // there is no fetch of a member-controlled URL on this path at all. The
+    // field's own schema enforces the limits — 8 MB, JPEG/PNG/WebP — and
+    // PocketBase rejects the save if the upload misses them.
+    const uploads = e.findUploadedFiles("photo");
+    const snapshot = uploads && uploads.length ? uploads[0] : null;
+    if (!snapshot) {
+      throw new BadRequestError("Choose a photo to upload.");
     }
 
     const collection = e.app.findCollectionByNameOrId(
@@ -2265,7 +2311,8 @@ routerAdd(
     image.set("waitlist", entry.id);
     image.set("recommendation", recommendation.id);
     image.set("submitted_by", e.auth.id);
-    image.set("source_url", links.image_url);
+    // An upload has no origin on the public web to record.
+    image.set("source_url", "");
     image.set("snapshot", snapshot);
     image.set("status", "screening");
     image.set("safety_flagged", false);
@@ -2276,7 +2323,16 @@ routerAdd(
     image.set("reviewed_by", "");
     image.set("reviewed_at", "");
     image.set("curator_note", "");
-    e.app.save(image);
+    try {
+      e.app.save(image);
+    } catch {
+      // Almost always the file field rejecting the upload: too large, or not one
+      // of the three image types. Say which, rather than surfacing a validation
+      // payload the member cannot act on.
+      throw new BadRequestError(
+        "That photo could not be accepted. Use a JPEG, PNG or WebP image under 8 MB."
+      );
+    }
 
     // Model success hooks normally screen this save. Calling the idempotent
     // helper here also covers direct route saves on PocketBase versions where
@@ -2289,6 +2345,129 @@ routerAdd(
       waitlist: saved.getString("waitlist"),
       recommendation: saved.getString("recommendation"),
       status: saved.getString("status"),
+    });
+  },
+  $apis.requireAuth("members")
+);
+
+// Published places showing no photograph at all, for the founding circle to deal
+// with by hand.
+//
+// The automatic tiers get most places a cover and will not get all of them: a
+// venue's own site increasingly renders its og tags in JavaScript, Instagram
+// serves bots an empty shell, and the OSM `image` tag is set on roughly one food
+// venue in six hundred. Rather than keep adding sources with diminishing returns,
+// what is left over becomes a worklist.
+//
+// "No photo" means what a visitor would see: no enrichment cover on the venue
+// *and* no approved photo on any recommendation for it. A place whose cover comes
+// from a member's photo is not missing one, even though `venues.image_url` is
+// empty — that field is only ever the fallback.
+routerAdd(
+  "GET",
+  "/api/detour/curation/coverless",
+  (e) => {
+    const founding = require(__hooks + "/founding_cap.js");
+    founding.requireFoundingMember(e.app, e.auth, "reviewing places without photos");
+
+    let venues = [];
+    try {
+      venues = e.app.findRecordsByFilter(
+        "venues",
+        "published = true && suppressed != true && (image_url = '' || image_url = null)",
+        "-published_at",
+        200,
+        0
+      );
+    } catch {
+      venues = [];
+    }
+    if (!venues.length) return e.json(200, { items: [] });
+
+    // The waiting-list entries behind those venues, and the entries that already
+    // have an approved photo. Two bulk reads rather than a query per venue.
+    const entryByVenue = {};
+    const entryIds = [];
+    for (const venue of venues) {
+      let entry = null;
+      try {
+        entry = e.app.findFirstRecordByFilter(
+          "community_waitlist_entries",
+          "published_venue = {:venue}",
+          { venue: venue.id }
+        );
+      } catch {
+        entry = null;
+      }
+      if (!entry) continue;
+      entryByVenue[venue.id] = entry;
+      entryIds.push(entry.id);
+    }
+
+    const hasApprovedPhoto = {};
+    for (const entryId of entryIds) {
+      try {
+        const approved = e.app.findFirstRecordByFilter(
+          "community_place_images",
+          "waitlist = {:waitlist} && status = 'approved'",
+          { waitlist: entryId }
+        );
+        if (approved) hasApprovedPhoto[entryId] = true;
+      } catch {
+        // No approved photo for this entry.
+      }
+    }
+
+    const items = [];
+    for (const venue of venues) {
+      const entry = entryByVenue[venue.id];
+      if (entry && hasApprovedPhoto[entry.id]) continue;
+      items.push({
+        id: venue.id,
+        waitlist: entry ? entry.id : "",
+        place_name: venue.getString("name"),
+        city: venue.getString("city"),
+        country: venue.getString("country"),
+        disambiguator: venue.getString("disambiguator"),
+        // Whether there is anywhere left for the automatic passes to look. A place
+        // with neither link has exhausted them and needs a person.
+        official_url: venue.getString("official_url"),
+        instagram_url: venue.getString("instagram_url"),
+        published_at: venue.getString("published_at"),
+      });
+    }
+    return e.json(200, { items });
+  },
+  $apis.requireAuth("members")
+);
+
+// Re-runs the automatic passes for one venue on demand, so a founder looking at
+// the worklist does not have to wait for the nightly sweep to find out whether a
+// place that gained a website since publication now has a cover too. Same
+// functions the sweeps call, each a no-op when nothing is missing.
+routerAdd(
+  "POST",
+  "/api/detour/curation/coverless/{id}/refresh",
+  (e) => {
+    const founding = require(__hooks + "/founding_cap.js");
+    founding.requireFoundingMember(e.app, e.auth, "refreshing a place's photo");
+    const community = require(__hooks + "/community_waitlist.js");
+    const venueId = e.request.pathValue("id");
+    let venue;
+    try {
+      venue = e.app.findRecordById("venues", venueId);
+    } catch {
+      throw new NotFoundError("That place does not exist.");
+    }
+    community.enrichVenueFromOsm(e.app, venue.id);
+    community.enrichVenueFromWebSearch(e.app, venue.id);
+    community.resolveCoverImage(e.app, venue.id);
+    const refreshed = e.app.findRecordById("venues", venue.id);
+    return e.json(200, {
+      id: refreshed.id,
+      image_url: refreshed.getString("image_url"),
+      official_url: refreshed.getString("official_url"),
+      instagram_url: refreshed.getString("instagram_url"),
     });
   },
   $apis.requireAuth("members")
@@ -2514,34 +2693,47 @@ onRecordUpdateRequest((e) => {
   const city = community.cleanText(e.record.getString("city"), 120);
   const country = community.cleanText(e.record.getString("country"), 120);
   const address = community.cleanText(e.record.getString("address"), 300);
+  const disambiguator = community.cleanText(e.record.getString("disambiguator"), 120);
   const normalizedName = community.normalizePlacePart(venueName);
   const normalizedCity = community.normalizePlacePart(city);
+  const normalizedDisambiguator = community.normalizePlacePart(disambiguator);
   if (venueName.length < 2 || !normalizedName) {
     throw new BadRequestError("A valid place name is required.");
   }
   if (city.length < 2 || !normalizedCity) {
     throw new BadRequestError("A valid city is required.");
   }
-  if (country.length < 2) {
-    throw new BadRequestError("A valid country is required.");
-  }
+  // Country is optional here for the same reason it is optional on create: the
+  // member was never asked for one, and clearing this field is a legitimate
+  // correction. The enrichment pass refills it.
   if (
     normalizedName !== original.getString("normalized_name") ||
-    normalizedCity !== original.getString("normalized_city")
+    normalizedCity !== original.getString("normalized_city") ||
+    normalizedDisambiguator !== (original.getString("normalized_disambiguator") || "")
   ) {
     let clash = null;
+    const clashParams = { name: normalizedName, city: normalizedCity, id: original.id };
+    if (normalizedDisambiguator) clashParams.qualifier = normalizedDisambiguator;
     try {
       clash = e.app.findFirstRecordByFilter(
         "community_waitlist_entries",
-        "normalized_name = {:name} && normalized_city = {:city} && id != {:id}",
-        { name: normalizedName, city: normalizedCity, id: original.id }
+        "normalized_name = {:name} && normalized_city = {:city} && id != {:id} && " +
+          // A bound empty string is dropped by the filter resolver, so the
+          // no-qualifier case has to be written literally. See UNQUALIFIED_PLACE
+          // in community_waitlist.js.
+          (normalizedDisambiguator
+            ? "normalized_disambiguator = {:qualifier}"
+            : "(normalized_disambiguator = '' || normalized_disambiguator = null)"),
+        clashParams
       );
     } catch {
       clash = null;
     }
     if (clash) {
       throw new BadRequestError(
-        "Another place with this name and city is already on the list."
+        normalizedDisambiguator
+          ? "Another place with this name, city and street is already on the list."
+          : "Another place with this name and city is already on the list. Add the street or neighbourhood that tells them apart."
       );
     }
   }
@@ -2549,8 +2741,10 @@ onRecordUpdateRequest((e) => {
   e.record.set("city", city);
   e.record.set("country", country);
   e.record.set("address", address);
+  e.record.set("disambiguator", disambiguator);
   e.record.set("normalized_name", normalizedName);
   e.record.set("normalized_city", normalizedCity);
+  e.record.set("normalized_disambiguator", normalizedDisambiguator);
   e.record.set(
     "category",
     community.validateCategory(e.record.getString("category"))

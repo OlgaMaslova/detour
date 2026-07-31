@@ -222,12 +222,14 @@ function validateShareNote(value) {
   return note;
 }
 
-function findCanonicalVenue(app, normalizedName, normalizedCity) {
+function findCanonicalVenue(app, normalizedName, normalizedCity, normalizedDisambiguator) {
+  const wanted = normalizedDisambiguator || "";
   const venues = app.findRecordsByFilter("venues", "id != ''", "created", 10000, 0);
   for (const venue of venues) {
     if (
       normalizePlacePart(venue.getString("name")) === normalizedName &&
-      normalizePlacePart(venue.getString("city")) === normalizedCity
+      normalizePlacePart(venue.getString("city")) === normalizedCity &&
+      normalizePlacePart(venue.getString("disambiguator")) === wanted
     ) {
       return venue;
     }
@@ -240,8 +242,10 @@ function sanitizePlaceInput(app, input) {
   let city = cleanText(input.city, 120);
   let country = cleanText(input.country, 120);
   let address = cleanText(input.address, 300);
+  let disambiguator = cleanText(input.disambiguator, 120);
   const normalizedName = normalizePlacePart(venueName);
   const normalizedCity = normalizePlacePart(city);
+  const normalizedDisambiguator = normalizePlacePart(disambiguator);
 
   if (venueName.length < 2 || !normalizedName) {
     throw new BadRequestError("A valid venue name is required.");
@@ -250,37 +254,49 @@ function sanitizePlaceInput(app, input) {
     throw new BadRequestError("A valid city is required.");
   }
 
-  const canonicalVenue = findCanonicalVenue(app, normalizedName, normalizedCity);
+  const canonicalVenue = findCanonicalVenue(
+    app,
+    normalizedName,
+    normalizedCity,
+    normalizedDisambiguator
+  );
   if (canonicalVenue) {
+    // A catalogue venue is the authority on its own facts. Its country may still
+    // be blank on a place the enrichment pass has not reached yet, which is no
+    // longer an error — it simply means there is nothing to adopt or contradict.
     const canonicalCountry = cleanText(canonicalVenue.getString("country"), 120);
-    if (!canonicalCountry) {
-      throw new BadRequestError("The matching catalogue venue is missing its country.");
-    }
-    if (country && normalizePlacePart(country) !== normalizePlacePart(canonicalCountry)) {
+    if (
+      country &&
+      canonicalCountry &&
+      normalizePlacePart(country) !== normalizePlacePart(canonicalCountry)
+    ) {
       throw new BadRequestError(
         "The supplied country does not match the existing catalogue venue."
       );
     }
     venueName = cleanText(canonicalVenue.getString("name"), 200);
     city = cleanText(canonicalVenue.getString("city"), 120);
-    country = canonicalCountry;
+    if (canonicalCountry) country = canonicalCountry;
     const canonicalAddress = cleanText(canonicalVenue.getString("address"), 300);
     if (canonicalAddress) address = canonicalAddress;
+    const canonicalDisambiguator = cleanText(canonicalVenue.getString("disambiguator"), 120);
+    if (canonicalDisambiguator) disambiguator = canonicalDisambiguator;
   }
 
-  if (country.length < 2) {
-    throw new BadRequestError(
-      "Country is required when the place is not already in the catalogue."
-    );
-  }
+  // Country is no longer asked of the member: the recommendation form takes a
+  // name, a city and a note. enrichVenueFromOsm fills it from Nominatim's
+  // address details after publication, and until then the client falls back to
+  // the city's own country for display.
 
   return {
     venueName,
     city,
     country,
     address,
+    disambiguator,
     normalizedName: normalizePlacePart(venueName),
     normalizedCity: normalizePlacePart(city),
+    normalizedDisambiguator: normalizePlacePart(disambiguator),
     canonicalVenue,
   };
 }
@@ -289,6 +305,7 @@ function validateEntryMatchesInput(entry, input) {
   const suppliedName = cleanText(input.venueName, 200);
   const suppliedCity = cleanText(input.city, 120);
   const suppliedCountry = cleanText(input.country, 120);
+  const entryCountry = cleanText(entry.getString("country"), 120);
 
   if (
     suppliedName &&
@@ -302,48 +319,140 @@ function validateEntryMatchesInput(entry, input) {
   ) {
     throw new BadRequestError("The supplied city does not match the waiting-list entry.");
   }
+  // An entry whose country has not been enriched yet contradicts nothing.
   if (
     suppliedCountry &&
-    normalizePlacePart(suppliedCountry) !==
-      normalizePlacePart(entry.getString("country"))
+    entryCountry &&
+    normalizePlacePart(suppliedCountry) !== normalizePlacePart(entryCountry)
   ) {
     throw new BadRequestError("The supplied country does not match the waiting-list entry.");
   }
 }
 
-function createOrResolveEntry(app, input) {
-  const place = sanitizePlaceInput(app, input);
-  let existing = null;
+// The unqualified-place half of a place-identity filter.
+//
+// Written as a literal rather than a bound parameter because a bound empty string
+// does not survive PocketBase's filter resolver — the comparison is dropped and
+// the filter silently widens to every place with the same name and city, which
+// then reads as "no match" and lands on the unique index instead. The null arm
+// covers a row written while the column still allowed one; the index COALESCEs
+// for the same reason.
+const UNQUALIFIED_PLACE =
+  "(normalized_disambiguator = '' || normalized_disambiguator = null)";
+
+// Finds the entry that owns a place identity, or null.
+function findEntryByPlace(app, normalizedName, normalizedCity, normalizedDisambiguator) {
+  const qualifier = normalizedDisambiguator || "";
+  const params = { name: normalizedName, city: normalizedCity };
+  if (qualifier) params.qualifier = qualifier;
   try {
-    existing = app.findFirstRecordByFilter(
+    return app.findFirstRecordByFilter(
       "community_waitlist_entries",
-      "normalized_name = {:name} && normalized_city = {:city}",
-      { name: place.normalizedName, city: place.normalizedCity }
+      "normalized_name = {:name} && normalized_city = {:city} && " +
+        (qualifier ? "normalized_disambiguator = {:qualifier}" : UNQUALIFIED_PLACE),
+      params
     );
   } catch {
-    existing = null;
+    return null;
+  }
+}
+
+// What the member is told when their name and city already belong to a place.
+//
+// Deliberately place facts only. `signal_count` is global — it counts members in
+// circles the caller cannot see — so reporting it here would disclose their
+// existence and their number, which is the one thing scoped visibility exists to
+// prevent. The client says "already on the list", never how many.
+//
+// Served by GET /api/detour/place-identity rather than attached to the 409 that
+// refuses the create: PocketBase rewrites an ApiError's `data` into a
+// validation-error map, turning every fact here into {code:"validation_invalid_value"}.
+function placeCollisionData(entry) {
+  return {
+    entry: entry.id,
+    venue_name: entry.getString("venue_name"),
+    city: entry.getString("city"),
+    address: entry.getString("address"),
+    disambiguator: entry.getString("disambiguator"),
+    published: entry.getString("status") === "published",
+  };
+}
+
+// Adopts whatever the caller knows that the shared entry does not.
+function fillEntryGaps(app, entry, place) {
+  let changed = false;
+  if (!entry.getString("canonical_venue") && place.canonicalVenue) {
+    entry.set("canonical_venue", place.canonicalVenue.id);
+    changed = true;
+  }
+  if (!cleanText(entry.getString("address"), 300) && place.address) {
+    entry.set("address", place.address);
+    changed = true;
+  }
+  if (!cleanText(entry.getString("country"), 120) && place.country) {
+    entry.set("country", place.country);
+    changed = true;
+  }
+  if (changed) app.save(entry);
+  return entry;
+}
+
+/**
+ * Resolves a place identity to its waiting-list entry, creating one if the
+ * identity is new.
+ *
+ * `input.intent` decides what happens when the identity is already taken:
+ *
+ *   absent / "auto"  Converge on the existing entry. This is what a private
+ *                    share and a curator submission want — and what every
+ *                    caller did before the recommendation form began asking.
+ *   "ask"            Refuse with a 409 and the existing place's facts, so the
+ *                    member can say whether it is the place they mean. Only the
+ *                    recommendation form sets this.
+ *   "second"         Converge deliberately: the member looked at the existing
+ *                    place and said yes, that one.
+ *   "distinct"       A different place that happens to share the name. Requires
+ *                    a disambiguator, which becomes part of its identity.
+ *
+ * The "ask" branch exists because converging silently is right most of the time
+ * and wrong invisibly: two members recommending the same restaurant is the
+ * common case and the whole point of seconding, but two different restaurants
+ * sharing a name used to be indistinguishable from it — the second member's note
+ * simply appeared on the first one's page.
+ */
+function createOrResolveEntry(app, input) {
+  const intent = cleanText(input.intent, 20).toLowerCase() || "auto";
+  const place = sanitizePlaceInput(app, input);
+
+  if (intent === "distinct" && !place.normalizedDisambiguator) {
+    throw new BadRequestError(
+      "Add the street or neighbourhood that tells this place apart from the one already on the list."
+    );
   }
 
+  const existing = findEntryByPlace(
+    app,
+    place.normalizedName,
+    place.normalizedCity,
+    place.normalizedDisambiguator
+  );
+
   if (existing) {
-    if (
-      normalizePlacePart(existing.getString("country")) !==
-      normalizePlacePart(place.country)
-    ) {
-      throw new BadRequestError(
-        "A waiting-list entry already exists for this name and city with a different country."
+    if (intent === "ask") {
+      // Message only. The facts come from GET /api/detour/place-identity,
+      // because an ApiError's data is rewritten into a validation-error map.
+      throw new ApiError(409, "That place is already on the Detourist List.");
+    }
+    if (intent === "distinct") {
+      // The qualifier the member gave is taken too, so it does not distinguish
+      // anything. Ask again rather than converging onto a place they just said
+      // theirs was not.
+      throw new ApiError(
+        409,
+        "A place with that name and street is already on the Detourist List."
       );
     }
-    let changed = false;
-    if (!existing.getString("canonical_venue") && place.canonicalVenue) {
-      existing.set("canonical_venue", place.canonicalVenue.id);
-      changed = true;
-    }
-    if (!existing.getString("address") && place.address) {
-      existing.set("address", place.address);
-      changed = true;
-    }
-    if (changed) app.save(existing);
-    return { entry: existing, created: false };
+    return { entry: fillEntryGaps(app, existing, place), created: false };
   }
 
   const collection = app.findCollectionByNameOrId("community_waitlist_entries");
@@ -352,8 +461,10 @@ function createOrResolveEntry(app, input) {
   entry.set("city", place.city);
   entry.set("country", place.country);
   entry.set("address", place.address);
+  entry.set("disambiguator", place.disambiguator);
   entry.set("normalized_name", place.normalizedName);
   entry.set("normalized_city", place.normalizedCity);
+  entry.set("normalized_disambiguator", place.normalizedDisambiguator);
   entry.set("status", "pending");
   entry.set("signal_count", 0);
   entry.set("participants", []);
@@ -363,29 +474,24 @@ function createOrResolveEntry(app, input) {
     app.save(entry);
     return { entry, created: true };
   } catch (error) {
-    // A concurrent request can win the normalized-name/city unique index. If it
-    // did, converge on that row; otherwise preserve the original validation or
-    // storage error.
-    let concurrent = null;
-    try {
-      concurrent = app.findFirstRecordByFilter(
-        "community_waitlist_entries",
-        "normalized_name = {:name} && normalized_city = {:city}",
-        { name: place.normalizedName, city: place.normalizedCity }
-      );
-    } catch {
-      concurrent = null;
-    }
+    // A concurrent request can win the place-identity unique index. If it did,
+    // converge on that row; otherwise preserve the original validation or
+    // storage error. An "ask" caller is told about the winner the same way it
+    // would have been told about a row that was already there.
+    const concurrent = findEntryByPlace(
+      app,
+      place.normalizedName,
+      place.normalizedCity,
+      place.normalizedDisambiguator
+    );
     if (!concurrent) throw error;
-    if (
-      normalizePlacePart(concurrent.getString("country")) !==
-      normalizePlacePart(place.country)
-    ) {
-      throw new BadRequestError(
-        "A waiting-list entry already exists for this name and city with a different country."
+    if (intent === "ask" || intent === "distinct") {
+      throw new ApiError(
+        409,
+        "That place reached the Detourist List a moment before yours."
       );
     }
-    return { entry: concurrent, created: false };
+    return { entry: fillEntryGaps(app, concurrent, place), created: false };
   }
 }
 
@@ -439,8 +545,13 @@ function findMemberRecommendation(app, memberId, entryId) {
 function publishEntry(app, entry) {
   const normalizedName = entry.getString("normalized_name");
   const normalizedCity = entry.getString("normalized_city");
+  const normalizedDisambiguator = entry.getString("normalized_disambiguator") || "";
   const country = cleanText(entry.getString("country"), 120);
-  if (!normalizedName || !normalizedCity || country.length < 2) {
+  // A name and a city are what a place cannot publish without. Country is not
+  // among them any more: the member is not asked for one, and enrichVenueFromOsm
+  // supplies it after publication. Gating on it here would hold a place off the
+  // list waiting for a fact no one had been asked to provide.
+  if (!normalizedName || !normalizedCity) {
     throw new BadRequestError("The waiting-list entry is missing valid publication place data.");
   }
 
@@ -451,7 +562,8 @@ function publishEntry(app, entry) {
       const linked = app.findRecordById("venues", canonicalId);
       if (
         normalizePlacePart(linked.getString("name")) === normalizedName &&
-        normalizePlacePart(linked.getString("city")) === normalizedCity
+        normalizePlacePart(linked.getString("city")) === normalizedCity &&
+        normalizePlacePart(linked.getString("disambiguator")) === normalizedDisambiguator
       ) {
         venue = linked;
       }
@@ -459,24 +571,37 @@ function publishEntry(app, entry) {
       venue = null;
     }
   }
-  if (!venue) venue = findCanonicalVenue(app, normalizedName, normalizedCity);
+  if (!venue) {
+    venue = findCanonicalVenue(app, normalizedName, normalizedCity, normalizedDisambiguator);
+  }
 
   const entryAddress = cleanText(entry.getString("address"), 300);
+  const entryDisambiguator = cleanText(entry.getString("disambiguator"), 120);
   const entryCategoryLabel = PLACE_CATEGORY_LABELS[entry.getString("category")] || "";
   if (venue) {
-    if (!cleanText(venue.getString("country"), 120)) {
-      throw new BadRequestError("The canonical venue is missing its required country.");
-    }
+    const venueCountry = cleanText(venue.getString("country"), 120);
+    // Only a genuine contradiction is an error. Either side may still be waiting
+    // on enrichment for its country, and a blank contradicts nothing.
     if (
-      normalizePlacePart(venue.getString("country")) !== normalizePlacePart(country)
+      country &&
+      venueCountry &&
+      normalizePlacePart(venueCountry) !== normalizePlacePart(country)
     ) {
       throw new BadRequestError(
         "The waiting-list country does not match the canonical venue country."
       );
     }
     let venueChanged = false;
+    if (!venueCountry && country) {
+      venue.set("country", country);
+      venueChanged = true;
+    }
     if (!cleanText(venue.getString("address"), 300) && entryAddress) {
       venue.set("address", entryAddress);
+      venueChanged = true;
+    }
+    if (!cleanText(venue.getString("disambiguator"), 120) && entryDisambiguator) {
+      venue.set("disambiguator", entryDisambiguator);
       venueChanged = true;
     }
     if (!cleanText(venue.getString("category"), 120) && entryCategoryLabel) {
@@ -491,6 +616,7 @@ function publishEntry(app, entry) {
     venue.set("city", cleanText(entry.getString("city"), 120));
     venue.set("country", country);
     venue.set("address", entryAddress);
+    venue.set("disambiguator", entryDisambiguator);
     venue.set("official_url", "");
     venue.set("category", entryCategoryLabel);
     venue.set("approx_location", false);
@@ -819,6 +945,30 @@ function nominatimBaseUrl() {
   return $os.getenv("DETOUR_NOMINATIM_BASE_URL") || "https://nominatim.openstreetmap.org";
 }
 
+// Turns an OSM `image` tag into a usable cover URL, or "".
+//
+// The tag is free text and mappers put several things in it. Only a direct
+// http(s) link is taken: a bare "File:Frontage.jpg" Commons reference names an
+// asset rather than addressing one, and resolving those is the Wikimedia tier's
+// job, not this one — publicHttpUrl would otherwise prepend a scheme and turn it
+// into a nonsense host. The value then gets exactly the guards a scraped
+// candidate gets, including the range GET that confirms the bytes really are an
+// image, because an `image` tag pointing at an HTML gallery page is common enough
+// to matter.
+function osmImageUrl(value) {
+  const raw = cleanText(value, 2048);
+  if (!raw || !/^https?:\/\//i.test(raw)) return "";
+  // Some tags carry several URLs separated by ";". The first usable one wins.
+  for (const candidate of raw.split(";")) {
+    const trimmed = candidate.trim();
+    if (!trimmed || trimmed.length > 2048) continue;
+    const origin = (trimmed.match(/^(https?:\/\/[^/?#]+)/i) || [])[1] || "";
+    if (!origin || !publicHttpUrl(origin)) continue;
+    if (coverUrlServesImage(trimmed)) return trimmed;
+  }
+  return "";
+}
+
 // Normalizes an OSM contact:instagram tag — either a full profile URL or a
 // bare handle like "@thebistro" — into a canonical profile link, or "".
 function instagramProfileUrl(value) {
@@ -839,12 +989,19 @@ function instagramProfileUrl(value) {
 
 // Fills a published venue's public facts from OpenStreetMap by looking the
 // place up by name and city: official website and Instagram profile (OSM
-// contact tags) always when missing, plus street address and coordinates when
-// the recommending members supplied none. Fill-if-missing only — existing
-// values are never overwritten — and the same claimed-city guard the address
-// geocoder uses is applied before trusting a match. Best-effort and never
-// throws: publication must not depend on an external service; the nightly
+// contact tags) always when missing, plus street address, country, coordinates
+// and a cover image when the recommending members supplied none. Fill-if-missing
+// only — existing values are never overwritten — and the same claimed-city guard
+// the address geocoder uses is applied before trusting a match. Best-effort and
+// never throws: publication must not depend on an external service; the nightly
 // sweep retries.
+//
+// The `image` tag is tried here rather than left to resolveCoverImage because it
+// is both freer and better: no extra page fetch beyond the one that validates it,
+// and an OSM `image` is usually a mapper's photograph of the actual frontage
+// rather than a marketing still. resolveCoverImage runs after this in every call
+// site and exits early once image_url is set, so the cheap source wins and the
+// scrape stays the fallback.
 function enrichVenueFromOsm(app, venueId) {
   let venue;
   try {
@@ -866,7 +1023,21 @@ function enrichVenueFromOsm(app, venueId) {
   const needsWebsite = !venue.getString("official_url");
   const needsInstagram = !venue.getString("instagram_url");
   const needsAddress = !cleanText(venue.getString("address"), 300);
-  if (!needsWebsite && !needsInstagram && !needsAddress && hasCoords) return;
+  // The recommendation form no longer asks for a country, so this pass is where
+  // most places get theirs. Nominatim returns it in the same addressdetails
+  // payload the address and the claimed-city guard already read.
+  const needsCountry = !country;
+  const needsCover = !venue.getString("image_url");
+  if (
+    !needsWebsite &&
+    !needsInstagram &&
+    !needsAddress &&
+    !needsCountry &&
+    !needsCover &&
+    hasCoords
+  ) {
+    return;
+  }
 
   let response;
   try {
@@ -926,6 +1097,22 @@ function enrichVenueFromOsm(app, venueId) {
     const address = cleanText((houseNumber ? houseNumber + " " : "") + road, 300);
     if (address) {
       venue.set("address", address);
+      changed = true;
+    }
+  }
+  if (needsCountry) {
+    // accept-language=en on the query above means this is the English short name,
+    // which is the same vocabulary src/countries.ts uses.
+    const resolvedCountry = cleanText(String((hit.address || {}).country || ""), 120);
+    if (resolvedCountry.length >= 2) {
+      venue.set("country", resolvedCountry);
+      changed = true;
+    }
+  }
+  if (needsCover) {
+    const cover = osmImageUrl(tags.image);
+    if (cover) {
+      venue.set("image_url", cover);
       changed = true;
     }
   }
@@ -1344,6 +1531,7 @@ function mergeEntryPlaceIntoVenue(app, entry, venue) {
     ["city", "city", 120],
     ["country", "country", 120],
     ["address", "address", 300],
+    ["disambiguator", "disambiguator", 120],
   ];
   for (const [entryField, venueField, max] of pairs) {
     const supplied = cleanText(entry.getString(entryField), max);
@@ -1485,8 +1673,10 @@ module.exports = {
   createOrResolveEntry,
   enrichVenueFromOsm,
   enrichVenueFromWebSearch,
+  findEntryByPlace,
   findMemberRecommendation,
   geocodeVenue,
+  placeCollisionData,
   hasConfirmedCoordinates,
   isParticipant,
   mergeEntryLinksIntoVenue,
