@@ -559,6 +559,7 @@ routerAdd(
   (e) => {
     const founding = require(__hooks + "/founding_cap.js");
     const photos = require(__hooks + "/recommendation_photos.js");
+    const scope = require(__hooks + "/circle_scope.js");
     // Route handlers run in isolated VMs, so all route-specific helpers and
     // query models live inside this handler.
     function recommendationRowShape() {
@@ -624,6 +625,10 @@ routerAdd(
         recommender_pseudo: row.recommender_pseudo,
         is_own: row.member_id === callerId,
         founding_member: Boolean(row.founding_member),
+        // Whether the invitation graph put this member in reach, independently of
+        // the founding circle. Selected only by the member feed; the anonymous
+        // sample has no caller to be in the graph of, and no switch to drive.
+        in_graph: Boolean(row.in_graph),
         note: row.note,
         city: row.city,
         country: row.country,
@@ -757,17 +762,33 @@ routerAdd(
       repliesByShare[row.share_id].push(projectReply(row));
     }
 
-    const recommendationRows = arrayOf(new DynamicModel(recommendationRowShape()));
+    const memberRowShape = recommendationRowShape();
+    memberRowShape.in_graph = false;
+    const recommendationRows = arrayOf(new DynamicModel(memberRowShape));
     e.app
       .db()
       .newQuery(
+        // Notes, and the photos joined to them, reach the caller from their own
+        // circle plus the founding circle — the set My Circle draws, derived in
+        // pb_hooks/circle_scope.js. Two clauses, always: graph membership OR
+        // founding member. `discovery_visible` is the member's own opt-out on top
+        // of that, never a substitute for it.
+        //
+        // `in_graph` reports which of the two clauses actually placed this
+        // recommender in reach, because the feed's Founders' places switch needs
+        // to hide the members who are there *only* as founders. A caller's own
+        // inviter is very often founding too; hiding founders' places must not
+        // hide the person who brought them in.
         "SELECT " + recommendationColumns +
+          ", CASE WHEN " + scope.graphMemberSql("m", "caller") +
+          " THEN TRUE ELSE FALSE END AS in_graph " +
           "FROM community_recommendations r " +
           "JOIN members m ON m.id = r.member " +
           photos.photoJoin("r") +
           "WHERE COALESCE(m.internal_member, FALSE) = FALSE " +
           "AND (m.id = {:caller} " +
-          "OR (m.community_status = 'verified' AND m.discovery_visible = TRUE)) " +
+          "OR (m.community_status = 'verified' AND m.discovery_visible = TRUE " +
+          "AND " + scope.visibleRecommenderSql("m", "caller") + ")) " +
           "ORDER BY r.created DESC, r.id DESC LIMIT 100"
       )
       .bind({ caller: callerId })
@@ -826,35 +847,70 @@ routerAdd(
   $apis.requireAuth("members")
 );
 
-// Public, aggregate-only social proof for the catalogue: how many distinct
-// Detourists have recommended each place. Recommendation signals and
-// contributions are private collections, so this route exposes counts keyed by
-// public venue id and nothing else — no member identity, prose, or timing ever
-// leaves the server. Shares stay completely private: sending a place to
-// someone is never social proof and never moves a count here.
-routerAdd("GET", "/api/detour/place-detourists", (e) => {
-  const foundingPolicy = require(__hooks + "/founding_cap.js");
-  const { normalizePlacePart } = require(__hooks + "/community_waitlist.js");
+// Aggregate-only social proof, scoped to the caller's circle: how many members
+// *they can see* have recommended each place. A count is derived from
+// member-authored recommendations, so it is scoped content, not a global fact —
+// two members legitimately read different numbers for the same place at the same
+// moment, and a member outside every recommender's circle receives no entry for
+// that venue at all. The client derives what appears on its list from exactly
+// this payload, so this route is the visibility boundary for the whole catalogue.
+//
+// No member identity, prose, or timing leaves the server. Shares stay completely
+// private: sending a place to someone is never social proof and never moves a
+// count here, in either direction.
+routerAdd(
+  "GET",
+  "/api/detour/place-detourists",
+  (e) => {
+    const foundingPolicy = require(__hooks + "/founding_cap.js");
+    const scope = require(__hooks + "/circle_scope.js");
+    const { normalizePlacePart } = require(__hooks + "/community_waitlist.js");
+    const callerId = e.auth.id;
+    // Visibility has two clauses, and which one matched is part of the answer.
+    // A recommender reached through the invitation graph is in the caller's
+    // circle; a recommender reached through the founding tier is visible to
+    // everyone and is in nobody's circle in particular. Returning only "visible"
+    // forces the copy layer to guess, and the only word available to guess with
+    // is "circle" — which is how a founding member's place came to be labelled as
+    // being in the reader's circle.
+    const visible = scope.visibleRecommenderSql("m", "caller");
+    const inGraph = scope.graphMemberSql("m", "caller");
 
   // Distinct (venue, member) pairs from recommendation signals only. Waiting-
   // list entries resolve to their published venue first, then to the canonical
   // catalogue venue they were matched to before publication.
+  //
+  // Visibility is selected as a column rather than applied as a filter, because
+  // two different numbers come out of one pass: the caller's scoped count, which
+  // decides what is on their list, and the place's total, which is displayed
+  // beside it as social proof. Only the scoped column may ever gate visibility —
+  // see the pruning step below, which is what stops the totals from naming a
+  // place the caller is not allowed to know exists.
   const pairs = arrayOf(
-    new DynamicModel({ venue_id: "", member_id: "", founding_member: false })
+    new DynamicModel({
+      venue_id: "",
+      member_id: "",
+      founding_member: false,
+      visible_to_caller: false,
+      in_graph: false,
+    })
   );
   e.app
     .db()
     .newQuery(
-      "SELECT venue_id, member_id, founding_member FROM (" +
+      "SELECT venue_id, member_id, founding_member, visible_to_caller, in_graph FROM (" +
         "SELECT COALESCE(NULLIF(w.published_venue, ''), w.canonical_venue) AS venue_id, " +
         "r.member AS member_id, " +
-        "CASE WHEN " + foundingPolicy.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member " +
+        "CASE WHEN " + foundingPolicy.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
+        "CASE WHEN " + visible + " THEN TRUE ELSE FALSE END AS visible_to_caller, " +
+        "CASE WHEN " + inGraph + " THEN TRUE ELSE FALSE END AS in_graph " +
         "FROM community_recommendations r " +
         "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
         "JOIN members m ON m.id = r.member " +
         "WHERE LOWER(TRIM(m.email)) NOT LIKE '%.invalid'" +
         ") WHERE venue_id IS NOT NULL AND venue_id != '' AND member_id != ''"
     )
+    .bind({ caller: callerId })
     .all(pairs);
 
   // Approved legacy contributions are one member's recommendation each,
@@ -868,6 +924,8 @@ routerAdd("GET", "/api/detour/place-detourists", (e) => {
       normalized_name: "",
       normalized_city: "",
       founding_member: false,
+      visible_to_caller: false,
+      in_graph: false,
     })
   );
   e.app
@@ -875,12 +933,17 @@ routerAdd("GET", "/api/detour/place-detourists", (e) => {
     .newQuery(
       "SELECT c.id AS contribution_id, c.member AS member_id, " +
         "c.normalized_name, c.normalized_city, " +
-        "CASE WHEN " + foundingPolicy.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member " +
+        "CASE WHEN " + foundingPolicy.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
+        // The review-gated lane is one member's recommendation each, so it
+        // carries the same two clauses as the waiting-list loop.
+        "CASE WHEN " + visible + " THEN TRUE ELSE FALSE END AS visible_to_caller, " +
+        "CASE WHEN " + inGraph + " THEN TRUE ELSE FALSE END AS in_graph " +
         "FROM member_place_contributions c " +
         "JOIN members m ON m.id = c.member " +
         "WHERE c.status = 'approved' " +
         "AND LOWER(TRIM(m.email)) NOT LIKE '%.invalid'"
     )
+    .bind({ caller: callerId })
     .all(contributions);
   const contributionRows = [];
   for (const row of contributions) {
@@ -890,6 +953,8 @@ routerAdd("GET", "/api/detour/place-detourists", (e) => {
       normalized_name: row.normalized_name,
       normalized_city: row.normalized_city,
       founding_member: Boolean(row.founding_member),
+      visible_to_caller: Boolean(row.visible_to_caller),
+      in_graph: Boolean(row.in_graph),
     });
   }
   if (contributionRows.length) {
@@ -913,30 +978,85 @@ routerAdd("GET", "/api/detour/place-detourists", (e) => {
           venue_id: resolvedVenueId,
           member_id: row.member_id,
           founding_member: row.founding_member,
+          visible_to_caller: row.visible_to_caller,
+          in_graph: row.in_graph,
         });
       }
     }
   }
 
+  // Accumulators over one deduplicated pass, split by the reason each recommender
+  // is in reach. `circle` and `founders` are disjoint and sum to what the caller
+  // can see; `counts` is that sum, kept because it is what decides whether a place
+  // is on their list at all; `totals` is every distinct recommender the place has,
+  // in any circle, for display beside it.
+  //
+  // The split exists so no surface has to infer a relationship from the mere fact
+  // of visibility. A founding member's place is visible to everybody and is in
+  // nobody's circle; a copy layer handed one number can only call it "circle", and
+  // that is a claim about a relationship that does not exist.
   const seen = {};
   const counts = {};
+  const circle = {};
+  const founders = {};
+  const totals = {};
   const founding = {};
-  function addPair(venueId, memberId, foundingMember) {
+  function addPair(venueId, memberId, foundingMember, visibleToCaller, inGraphSet) {
     const key = venueId + "::" + memberId;
     if (seen[key]) return;
     seen[key] = true;
+    totals[venueId] = (totals[venueId] || 0) + 1;
+    if (!visibleToCaller) return;
     counts[venueId] = (counts[venueId] || 0) + 1;
+    // A founding member who is also in the graph — an inviter very often is —
+    // counts as circle. The graph clause is the stronger claim, so it wins.
+    if (inGraphSet) circle[venueId] = (circle[venueId] || 0) + 1;
+    else founders[venueId] = (founders[venueId] || 0) + 1;
     if (foundingMember) founding[venueId] = true;
   }
   for (const row of pairs) {
-    addPair(row.venue_id, row.member_id, Boolean(row.founding_member));
+    addPair(
+      row.venue_id,
+      row.member_id,
+      Boolean(row.founding_member),
+      Boolean(row.visible_to_caller),
+      Boolean(row.in_graph)
+    );
   }
   for (const pair of contributionPairs) {
-    addPair(pair.venue_id, pair.member_id, pair.founding_member);
+    addPair(
+      pair.venue_id,
+      pair.member_id,
+      pair.founding_member,
+      pair.visible_to_caller,
+      pair.in_graph
+    );
   }
 
-  return e.json(200, { counts: counts, founding: founding });
-});
+    // The containment step, and the reason totals are safe to serve at all: a
+    // total survives only for a place the caller can already see. Without this,
+    // the payload would enumerate every recommended venue in the database and
+    // hand a member the size and shape of a catalogue they have no access to —
+    // which is the leak, not the number beside a place they already have.
+    for (const venueId in totals) {
+      if (!counts[venueId]) delete totals[venueId];
+    }
+
+    // `scope` tells the client the payload is caller-scoped, so it can refuse to
+    // fall back to a global publication marker when this route is unavailable.
+    // Degrading to "show everything a server ever published" would turn one
+    // failed request into a catalogue-wide visibility breach.
+    return e.json(200, {
+      scope: "circle",
+      counts: counts,
+      circle: circle,
+      founders: founders,
+      totals: totals,
+      founding: founding,
+    });
+  },
+  $apis.requireAuth("members")
+);
 
 routerAdd(
   "GET",
@@ -1311,6 +1431,16 @@ routerAdd(
     if (!targetId) {
       throw new NotFoundError("That member is not in your circle.");
     }
+    // The positional derivation above already walks the caller's own graph, so
+    // this cannot normally fail. It is asserted anyway against the stored edge
+    // set, because "the reference resolved" and "this member's content may reach
+    // the caller" are two different claims, and only the second one is the rule.
+    // If the circle payload's ordering ever drifts from the visibility set, this
+    // is what refuses to serve the notes.
+    const scope = require(__hooks + "/circle_scope.js");
+    if (!scope.canSee(e.app, callerId, targetId)) {
+      throw new NotFoundError("That member is not in your circle.");
+    }
     const target = e.app.findRecordById("members", targetId);
     const name = target.getString("pseudo") || target.getString("display_name");
 
@@ -1464,6 +1594,11 @@ onRecordAfterCreateSuccess((e) => {
     } catch {}
   }
 
+  // Nothing to do here for visibility. Setting `invited_by` above IS the graph
+  // edge, and circle scoping reads that column directly (see
+  // pb_hooks/circle_scope.js), so a redeemed invitation takes effect on the next
+  // read with no derived set to rebuild and no cache to invalidate.
+
   try {
     function escapeHtml(value) {
       return String(value || "")
@@ -1590,6 +1725,28 @@ onRecordAfterCreateSuccess((e) => {
 
   e.next();
 }, "members");
+
+// The waiting-list entry is shared by every member who recommended the place,
+// across every circle, so three of its fields are global facts about members the
+// caller may not be allowed to see: how many got there first (`signal_count`),
+// when the place was first proposed (`created`), and when it went live
+// (`published_at`). A caller reading them learns the size and age of a circle
+// that is not theirs.
+//
+// Hidden on the way out, for every caller, on every read path the records API
+// offers — list, view, and the response to the caller's own update. Deliberately
+// unconditional rather than "hidden only from callers who can't see every
+// recommender": that version would make the fields' presence a reliable signal
+// that somebody outside your circle got there first, which is a cleaner oracle
+// than the one the model already accepts.
+//
+// Nothing in the client needs them. What a member may know about who else stands
+// behind a place comes from their own circle-scoped catalogue count — see
+// waitlistRow in src/community.ts.
+onRecordEnrich((e) => {
+  e.record.hide("signal_count", "created", "published_at");
+  e.next();
+}, "community_waitlist_entries");
 
 // Members may edit their own profile and auth details, but never alter the
 // verification or invitation provenance that is maintained on the server.

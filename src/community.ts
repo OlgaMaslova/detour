@@ -41,9 +41,12 @@ interface WaitlistEntry {
   official_url?: string;
   instagram_url?: string;
   status?: 'pending' | 'published';
-  signal_count?: number;
   published_venue?: string;
-  created?: string;
+  // `signal_count`, `published_at` and `created` are deliberately absent. They
+  // are global facts about members from other circles — how many got here first,
+  // and when — and the server hides them on the record rather than trusting every
+  // surface to ignore them. What this member may know about who else stands
+  // behind the place comes from their own scoped catalogue.
   updated?: string;
 }
 
@@ -562,12 +565,33 @@ function waitlistRow(entry: WaitlistEntry): string {
   const rec = recommendationForEntry(entry.id);
   const published = entry.status === 'published';
   const publishedVenue = published ? publishedVenueForEntry(entry) : undefined;
-  const otherSeconders = Math.max(0, cleanCount(entry.signal_count) - (rec ? 1 : 0));
-  const secondingCopy = otherSeconders === 1
-    ? 'Seconded by 1 other member.'
-    : otherSeconders > 1
-      ? `Seconded by ${otherSeconders} other members.`
-      : 'No other members have seconded this place yet.';
+  // Seconding is read from the caller's own scoped catalogue, never from the
+  // entry's server-side signal count. That count is global: it includes members
+  // in circles the caller cannot see, and printing it here would report their
+  // existence and their number — the one thing scoped visibility is for.
+  //
+  // Split by reason, for the same purpose the badge is: a founding member who
+  // seconded the place is not "in your circle", and saying so would invent a
+  // relationship. Only graph-matched members earn that phrase.
+  const circleSeconders = publishedVenue ? cleanCount(publishedVenue.circleCount) : 0;
+  const founderSeconders = publishedVenue ? cleanCount(publishedVenue.founderCount) : 0;
+  const otherSeconders = Math.max(0, circleSeconders - (rec ? 1 : 0));
+  const secondingParts: string[] = [];
+  if (otherSeconders > 0) {
+    secondingParts.push(
+      otherSeconders === 1
+        ? '1 other member in your circle'
+        : `${otherSeconders} other members in your circle`
+    );
+  }
+  if (founderSeconders > 0) {
+    secondingParts.push(
+      founderSeconders === 1 ? '1 founding member' : `${founderSeconders} founding members`
+    );
+  }
+  const secondingCopy = secondingParts.length
+    ? `Seconded by ${secondingParts.join(' and ')}.`
+    : 'No one else has seconded this place yet.';
   const statusLabel = published ? 'Live' : rec ? 'Not live' : 'Needs recommendation';
   const statusClass = published ? 'published' : rec ? 'unpublished' : 'incomplete';
   const directoryKey = `share-${entry.id}`;
@@ -720,7 +744,9 @@ function recommendationPanel(): string {
               <p>${
                 draft
                   ? 'You are recommending this exact place. Add your own note; its existing details stay attached.'
-                  : 'As a verified member, you can recommend a restaurant, café, bar, or other food-and-drink destination anywhere in the world. It will be published on the Detourist List.'
+                  : `As a verified member, you can recommend a restaurant, café, bar, or other food-and-drink destination anywhere in the world. It joins the Detourist List for ${
+                      foundingMember ? 'every member of Detour' : 'the members whose circles you appear in'
+                    }.`
               }</p>
             </div>
             <div class="community-action-grid community-recommend-action">
@@ -945,12 +971,16 @@ function settingsPanel(record: MemberRecord): string {
     <div class="community-visibility-row">
       <div class="community-visibility-copy">
         <h3>Food-and-drink discovery</h3>
-        <p class="community-form-note">Your food-and-drink recommendations are discoverable by the full invite-only Detour circle by default. Private shares and replies stay private.</p>
+        <p class="community-form-note">${
+          foundingMember
+            ? 'As a founding member, your food-and-drink recommendations reach every member of Detour.'
+            : 'Your food-and-drink recommendations reach the members whose circles you appear in: the person who invited you, the people you invited, the others they invited, and the person who invited your inviter. Nobody further out sees them.'
+        } Private shares and replies stay private.</p>
       </div>
       <label class="community-switch">
         <input type="checkbox" data-community-visibility ${keepPrivate ? 'checked' : ''} ${visibilitySaving ? 'disabled' : ''}>
         <span class="community-switch-track" aria-hidden="true"></span>
-        <span class="community-switch-copy"><strong>Keep recommendations private</strong><small>${visibilitySaving ? 'Saving…' : keepPrivate ? 'Hidden from the circle' : 'Discoverable by the circle'}</small></span>
+        <span class="community-switch-copy"><strong>Keep recommendations private</strong><small>${visibilitySaving ? 'Saving…' : keepPrivate ? 'Hidden from your circle' : 'Discoverable by your circle'}</small></span>
       </label>
     </div>
     <div class="community-danger-row">
@@ -1796,8 +1826,10 @@ export function bindCommunity(
       notice = {
         kind: 'success',
         text: keepPrivate
-          ? 'Your recommendations are now private and hidden from the Detour circle.'
-          : 'Your recommendations are now discoverable by the full Detour circle.',
+          ? 'Your recommendations are now private and hidden from your circle.'
+          : foundingMember
+            ? 'Your recommendations are now discoverable by every member of Detour.'
+            : 'Your recommendations are now discoverable by the members whose circles you appear in.',
       };
     } catch (error) {
       if (member()?.id !== record.id) return;

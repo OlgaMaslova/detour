@@ -15,7 +15,7 @@ Detour's active community workflow is a shared private waiting list, not an edit
 
 The signal count is computed from distinct recommendation rows, not from a client-supplied counter, and is retained as distinct-member social proof rather than a publication threshold. Deleting a recommendation updates the count while an entry is pending. Deleting a recommendation after publication does not automatically remove the public selection; corrections and rights requests are handled deliberately rather than by silently reversing an already completed publication.
 
-A published entry does not accept new community recommendations. The automatic first-recommendation rule is a publication rule, not permission to copy member text or unsupported place facts.
+A published entry **does** accept a new recommendation from any member who has not already recommended it. Publication is not a closed door: the entry and its canonical venue stay the same, and the request adds only that member's own note and their distinct signal. This matters under circle-scoped visibility, where a member routinely recommends a place they could not see — their own recommendation is what puts it on their list. The automatic first-recommendation rule is a publication rule, not permission to copy member text or unsupported place facts.
 
 ## 2. Distinct review-gated contribution lane
 
@@ -45,7 +45,51 @@ The San Francisco starter layer in this lane is inspectable on `venue_awards`: `
 
 Share notes remain private. They are not catalogue descriptions, public attribution, evidence of a recommendation, or permission to publish third-party material.
 
-## 4. Privacy and collection boundary
+## 4. Circle-scoped visibility
+
+Member-authored content reaches a member two ways, and the two are not the same thing.
+
+**Their circle** is the invitation graph, and nothing else. It is exactly what My Circle draws:
+
+- the caller themself;
+- the member who invited them;
+- every member they invited; and
+- the other members their inviter invited, and the members their invitees invited — one hop past their own two edges.
+
+**The founding tier** is the first fifty members of Detour: the Founder, and the first forty-nine real accounts the Founder personally invited, ordered by when they joined (`FOUNDING_SEATS` in `pb_hooks/founding_cap.js`). Founding members are visible to every member at any distance, which is what keeps a new member's app from being empty. They are *not* in anybody's circle, and no surface may describe them that way.
+
+Seats are **derived, not granted** — nothing is written at signup, so the answer cannot drift from the invitation graph — and they are **finite**, which is the promise the landing page makes ("fifty founding seats, and no more"). The fifty-first person the Founder invites is an ordinary member, exactly as applicants are told. Seats are ordered by join time so an existing founding member never loses one to a later arrival; a seat freed by a departing member passes to the next member in order, because fifty counts who holds a seat rather than who ever did. Internal accounts and reserved `.invalid` fixtures never occupy one.
+
+This was uncapped until it was caught: every account the Founder invited was founding, which made each of the Founder's personal invitations a permanent broadcast right and the landing page's fifty unenforceable.
+
+Content is visible when either applies. Membership of a circle is a relationship; membership of the founding tier is a property of the author. Conflating them is not a wording slip but a false claim about who the reader knows.
+
+**Founding membership is a property of the author, never a privilege of the reader.** What a founding member writes reaches every member; what a founding member *sees* is their own circle plus the other founding members, exactly like anybody else. A founding member two branches away from an author sees nothing of theirs. Copy of the form "your recommendations reach your circle and the founding members" is therefore false — it was live in three surfaces before being caught — because it describes the founding tier as an audience rather than as a class of author.
+
+**Reach is the inverse of the circle, and the graph is asymmetric,** so who can read a member is not the set that member can read. Inverting the predicate, an author is visible to: themselves, their inviter, their invitees, the others their inviter invited, and **the member who invited their inviter**. Their own circle instead contains their invitees' invitees. A member therefore sees their grandchildren but is read by their grandparent, and neither list is the other. Copy describing outbound reach must be derived from the inverted set, never read off the My Circle drawing.
+
+The set is derived live from `members.invited_by` by `visibleRecommenderSql` in `pb_hooks/circle_scope.js`. Nothing is materialised and nothing is cached, so a redeemed invitation takes effect on the next read and no stored copy can drift from the graph. Visibility is computed per caller at read time and never stamped onto content: a member who joins a circle later gains that circle's existing notes with no backfill, and no card silently stops updating.
+
+**Two clauses, always — and which one matched is part of the answer.** Every read path that returns member-authored content — notes, photos, and any count derived from them — must filter on graph membership **or** founding membership, and must report which clause admitted each recommender rather than a single "visible" boolean. A member's circle is the invitation graph and nothing else: their inviter, their invitees, one hop out, themselves. Founding members are a second tier — visible to everyone, in nobody's circle. A surface handed only "visible to you" can describe it with one word, and that word will be "circle", which asserts a relationship that does not exist; `/api/detour/place-detourists` therefore returns `circle` and `founders` as separate counts, and copy maps one reason to one phrase with no default. A founding member who is *also* in the graph — an inviter very often is — counts as circle, because the graph is the stronger claim. A filter carrying only the first clause is the most likely defect in this model; audit each read path for both. The scoped paths today are `/api/detour/place-detourists`, the member branch of `/api/detour/network-discovery`, and `/api/detour/circle/places`. Photos inherit their note's visibility by construction, because they are joined into the same projection (`pb_hooks/recommendation_photos.js`).
+
+Scoped and global divide as follows:
+
+- **Scoped** — recommendation notes, member photos, recommender names, recommendation dates, and whether a place appears on the caller's list at all.
+- **Global** — venue identity, address, coordinates, website, category, enrichment cover, and curator suppression. A takedown hides a place from every circle.
+
+Three consequences are accepted deliberately rather than solved:
+
+- **A place's total recommender count is global, and shown.** The signal badge shows the total — how much weight the place carries on Detour — and its label and tooltip add how much of that comes from members the caller can see: "Recommended by 10 Detourists, 4 in your circle". Only the second figure has notes the caller can open, and it is the figure the page's notes always match. This is a deliberate exception to the scoping of derived counts, and it holds only under two conditions, both enforced in `/api/detour/place-detourists`: a total is emitted **only** for a place the caller can already see, so it can never disclose that a place exists; and it is a bare integer, so the notes, names, dates and photos behind the difference between the two figures stay invisible. A member may infer that recommenders exist beyond their circle. They learn nothing about who, or what was said.
+- **Occasion tags merge globally.** Publication unions the recommending members' tags onto the shared venue, so a tag added by a member outside your circle is visible on your card. This is a member opinion presented as a place fact, and it is the one member-authored *value* that is not scoped.
+- **Dedup is a write-time oracle.** Place identity stays global — one canonical venue per normalized name and city — so a member recommending a place they could not see receives an entry that predates their write and a venue already carrying enrichment data, and can infer that somebody got there first. They cannot learn who, when, or what was said: `signal_count`, `created` and `published_at` are hidden from every caller on the entry record, and the seconding count a member reads is their own circle's.
+
+A signed-out visitor has no circle and therefore no list. They are shown no catalogue at all rather than a partial one; the landing page speaks for the founding circle through its own projection. When the scoped visibility route fails, the client shows an error and retries — it must never fall back to the server's publication marker, which would answer with every place ever published.
+
+Unpublication follows the same rule from the other side: a venue survives while any recommendation exists in any circle, and disappears from one caller's list when the last recommendation *they* can see is gone, without being unpublished globally.
+
+Private shares stay cross-circle by design. A shared place reaches the recipient's inbox at any distance; it does not join their list, which requires their own recommendation.
+
+## 5. Privacy and collection boundary
 
 The active loop uses intentionally private collections:
 
@@ -65,7 +109,7 @@ The automatic verified-member recommendation workflow publishes only through the
 
 No public client should query a community waiting-list, recommendation, share, endorsement, visit-evidence, or legacy submission collection to render catalogue content. Public clients may query `member_place_contributions` only through its approved-only read rules and must never treat its hidden contributor or review fields as public catalogue data.
 
-## 5. Place identity and publication facts
+## 6. Place identity and publication facts
 
 The normalized venue-name and city pair is the queue identity. Normalization is used for deduplication and canonical matching; it does not authorize a fuzzy merge between different branches, hotels, similarly named venues, or ambiguous places.
 
@@ -82,7 +126,7 @@ It does not infer or guess address, coordinates, category, official URL, opening
 
 Publication must be idempotent. A retry reuses the same normalized waiting-list entry, canonical venue, `detour-community` source, and current community-selection award where they already exist. The waiting-list status changes to `published` only after the public records have been saved successfully.
 
-## 6. Rights, provenance, and no-copy rule
+## 7. Rights, provenance, and no-copy rule
 
 A community recommendation is a private member signal, not public prose or third-party provenance. The public attribution is collective and anonymous: **“Detour community selection.”** It identifies the community publication outcome, not a named member, external guide, venue endorsement, sponsorship, or partnership.
 
@@ -99,7 +143,7 @@ A member-supplied URL or source mention is a private lead only. It is not automa
 
 Named member credit is outside this automatic workflow. It would require a separate explicit-consent design and private audit record; recommendation or share creation never implies consent to public attribution.
 
-## 7. Invitation-only membership and legacy endorsements
+## 8. Invitation-only membership and legacy endorsements
 
 A valid, one-time personal invitation issued by an existing member is the sole requirement for Detour community membership. Redeeming the invitation activates membership immediately.
 
@@ -111,7 +155,7 @@ A valid, one-time personal invitation issued by an existing member is the sole r
 
 Existing `endorsements` records are retained only as private legacy records. They have no current role in membership activation, continued membership, recommendations, place publication, attribution, or any public workflow. They must not be exposed or used to reconstruct or publish a trust graph.
 
-## 8. Historical private workflows
+## 9. Historical private workflows
 
 `detour_submissions` and `visit_evidence` are retained for historical and private audit continuity. Their existing records, statuses, curator notes, publication audit links, and legacy curator endpoints must not be deleted, rewritten, or exposed.
 
@@ -124,7 +168,7 @@ They are no longer the governing intake/publication path for new community-loop 
 
 Historic approval or threshold language applies only to the legacy records it describes. It must not be presented as a requirement for the active first-recommendation automatic workflow.
 
-## 9. Corrections, privacy requests, and release acceptance
+## 10. Corrections, privacy requests, and release acceptance
 
 Automatic publication does not remove Detour's obligation to respond to credible corrections, closures, moves, privacy concerns, source-owner objections, or rights requests. Remove or deactivate disputed public material deliberately, retain only the minimum private audit information needed, and do not expose member participation while investigating. Recommendation deletion alone is not an unpublication mechanism.
 

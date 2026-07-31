@@ -37,10 +37,11 @@ export type SignalVariant = 'plate' | 'inline';
  * count cannot support. It was written for an "unknown count" case, but in
  * production zero meant *nobody*, so a leftover catalogue row with no
  * recommender behind it was badged as recommended. Visibility is now derived
- * from the member signal (see isPubliclyVisible in main.ts), so a zero-count
- * place is not rendered at all and this branch should be unreachable on a public
- * surface. It stays as a neutral fallback rather than a claim: if it ever renders
- * again, it must not assert something no member said.
+ * from the caller's scoped signal (see `visibleToCaller` in data.ts and
+ * `allVenues` in main.ts), so a place with no visible recommender is not
+ * rendered at all and this branch should be unreachable. It stays as a neutral
+ * fallback rather than a claim: if it ever renders again, it must not assert
+ * something nobody the caller can see actually said.
  */
 const NO_COUNT_LABEL = 'On Detour';
 
@@ -49,16 +50,81 @@ function clampCount(count: number | undefined): number {
 }
 
 /**
- * The phrase a screen reader should hear, and the one the plate shows. Kept to
- * two words after the figure so the badge stays a label, not a sentence.
+ * What the figure is counting, in the reader's own terms.
+ *
+ * Being able to see a recommendation and being in someone's circle are two
+ * different things, and this phrase is where the difference is either stated or
+ * lost. Visibility has two clauses — the invitation graph, or the founding tier —
+ * and each gets its own words:
+ *
+ *   reached through the graph     "in your circle"
+ *   reached as a founding member  "founding member"
+ *   the reader themself           "you"
+ *
+ * There is deliberately no fallback that reaches for "circle" when the reason is
+ * unknown. A founding member's place is visible to every member and is in nobody's
+ * circle in particular; labelling it "1 Detourist in your circle" asserts a
+ * relationship that does not exist, which is exactly what happened when this
+ * function was handed a single "visible to you" number and had only that one word
+ * to spend. If a count arrives with no reason attached it is described as visible
+ * and nothing more.
+ *
+ *   you alone                    Recommended by you
+ *   one founder, nobody you know Recommended by 1 founding member
+ *   your inviter, who is founding Recommended by 1 Detourist in your circle
+ *   you and a founder            Recommended by you and 1 founding member
+ *   mixed, some hidden           Recommended by 6 Detourists, including you,
+ *                                2 in your circle and 1 founding member
  */
-function signalPhrase(count: number): string {
-  if (count < 1) return NO_COUNT_LABEL;
-  return count === 1 ? '1 Detourist recommends' : `${count} Detourists recommend`;
+interface SignalCounts {
+  /** Every distinct member who recommended this place, in any circle. */
+  total: number;
+  /** Reached through the invitation graph, the reader included if they are one. */
+  circle: number;
+  /** Reached only through the founding tier. In nobody's circle. */
+  founders: number;
+  /** Whether the reader is one of the recommenders. */
+  own: boolean;
 }
 
-function signalTooltipPhrase(count: number): string {
-  return count === 1 ? 'Recommended by 1 Detourist' : `Recommended by ${count} Detourists`;
+function plural(n: number, word: string): string {
+  return n === 1 ? `1 ${word}` : `${n} ${word}s`;
+}
+
+function joinClauses(parts: string[]): string {
+  if (parts.length < 2) return parts[0] || '';
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
+function signalSentence({ total, circle, founders, own }: SignalCounts): string {
+  if (total < 1) return NO_COUNT_LABEL;
+  const visible = circle + founders;
+  const circleOthers = Math.max(0, circle - (own ? 1 : 0));
+  const everyoneVisible = visible >= total;
+
+  // Nothing about the reason survived to here — an older backend, or a surface
+  // that only knows the visible total. Say what is certain and claim nothing.
+  if (visible < 1) return `Recommended by ${plural(total, 'Detourist')}`;
+
+  const parts: string[] = [];
+  if (own) parts.push('you');
+  if (circleOthers > 0) {
+    // Which noun depends on what precedes this clause. After "you" they are
+    // others; opening the sentence they are Detourists; after a total that
+    // already said "Detourists" they are a bare figure.
+    parts.push(
+      own
+        ? `${plural(circleOthers, 'other')} in your circle`
+        : everyoneVisible
+          ? `${plural(circleOthers, 'Detourist')} in your circle`
+          : `${circleOthers} in your circle`
+    );
+  }
+  if (founders > 0) parts.push(plural(founders, 'founding member'));
+
+  const clauses = joinClauses(parts);
+  if (everyoneVisible) return `Recommended by ${clauses}`;
+  return `Recommended by ${plural(total, 'Detourist')}, including ${clauses}`;
 }
 
 /**
@@ -70,18 +136,28 @@ function signalTooltipPhrase(count: number): string {
  * along as the accessible name; a bare "2" must never be what a screen reader
  * announces. The two variants differ only in scale, so there is one template.
  */
-export function detouristSignalBadge(count: number | undefined, variant: SignalVariant = 'inline'): string {
-  const n = clampCount(count);
-  const phrase = signalPhrase(n);
+export function detouristSignalBadge(
+  counts: Partial<SignalCounts>,
+  variant: SignalVariant = 'inline'
+): string {
+  const n = clampCount(counts.total);
+  const circle = Math.min(clampCount(counts.circle), n);
+  const founders = Math.min(clampCount(counts.founders), n - circle);
+  const own = counts.own === true;
 
   // No count on file: the mark alone, with the wording carried in the label.
   if (n < 1) {
     return `<p class="signal-badge signal-badge-${variant} signal-badge-bare" aria-label="${NO_COUNT_LABEL}">${DETOUR_MARK}</p>`;
   }
 
-  const tooltipPhrase = signalTooltipPhrase(n);
+  const tooltipPhrase = signalSentence({ total: n, circle, founders, own });
   const tooltip = `<span class="signal-tooltip" role="tooltip" aria-hidden="true">${tooltipPhrase}</span>`;
 
+  // One figure in the box: the total. The badge is a stamp the size of two
+  // characters and a mark — a second figure inside it either crowds the plate or
+  // shrinks to an unreadable pair of digits, and on a card it reads as two badges
+  // pushed together. The circle figure is carried by the accessible name and the
+  // tooltip instead, which is where the sentence can afford to be a sentence.
   return `<p class="signal-badge signal-badge-${variant}" aria-label="${tooltipPhrase}" tabindex="0">
     <strong class="signal-count">${n}</strong>
     ${DETOUR_MARK}
@@ -90,6 +166,13 @@ export function detouristSignalBadge(count: number | undefined, variant: SignalV
 }
 
 /** Plain-text form for aria-labels that already describe a larger control. */
-export function detouristSignalText(count: number | undefined): string {
-  return signalPhrase(clampCount(count));
+export function detouristSignalText(counts: Partial<SignalCounts>): string {
+  const n = clampCount(counts.total);
+  const circle = Math.min(clampCount(counts.circle), n);
+  return signalSentence({
+    total: n,
+    circle,
+    founders: Math.min(clampCount(counts.founders), n - circle),
+    own: counts.own === true,
+  });
 }

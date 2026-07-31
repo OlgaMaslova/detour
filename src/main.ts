@@ -45,6 +45,7 @@ type AppView =
   | 'home'
   | 'explore'
   | 'circle'
+  | 'how'
   | 'country'
   | 'destination'
   | 'place'
@@ -176,17 +177,34 @@ function brandMark(): string {
 /* ---------- public member-list framing ---------- */
 
 /**
- * The aggregate member signal — how many Detourists put this place on the list.
- * Both the badge and its plain-text form come from signal.ts, so the figure
- * reads identically on a card, in the map preview and on the place page. Shares
- * are private and never counted or named here.
+ * The aggregate member signal — how many Detourists put this place on the list,
+ * and how many of them are in this member's circle. Both the badge and its
+ * plain-text form come from signal.ts, so the pair reads identically on a card,
+ * in the map preview and on the place page. Shares are private and never counted
+ * or named here.
+ *
+ * The total falls back to the circle figure when the server sent no total, so a
+ * badge can never claim fewer recommenders than the member can already read.
+ *
+ * `own` comes from the notes the member can actually read, which is the only
+ * honest source for it: the scoped count includes them, so without this the badge
+ * would describe a member as their own circle.
  */
+function venueSignalCounts(v: Venue) {
+  return {
+    total: v.detouristTotal ?? v.detouristCount,
+    circle: v.circleCount,
+    founders: v.founderCount,
+    own: recommendationNotesForVenue(v).some((item) => item.is_own),
+  };
+}
+
 function venueSignalBadge(v: Venue): string {
-  return detouristSignalBadge(v.detouristCount, 'inline');
+  return detouristSignalBadge(venueSignalCounts(v), 'inline');
 }
 
 function venueSignalText(v: Venue): string {
-  return detouristSignalText(v.detouristCount);
+  return detouristSignalText(venueSignalCounts(v));
 }
 
 function venueOccasions(v: Venue): string[] {
@@ -221,14 +239,17 @@ interface DestinationCountry {
 const SHORT_LIST_DESTINATION_MAX = 6;
 
 /**
- * Every place the public may see: those a real member recommended, minus curator
- * takedowns. The rule itself is derived in `loadLiveCatalogue` (see
- * `publiclyVisible` in data.ts), which is the only place that knows whether the
- * member-signal route answered — so this filter is the single gate and never a
- * second opinion about what counts as published.
+ * Every place on *this member's* list: those recommended by someone in their
+ * circle or the founding circle, minus curator takedowns. The rule is derived
+ * server-side and applied once in `loadLiveCatalogue` (see `visibleToCaller` in
+ * data.ts) — so this filter is the single gate and never a second opinion about
+ * who may see what.
+ *
+ * A signed-out visitor has no circle and therefore no list; the catalogue is
+ * empty for them by construction, not by a check here.
  */
 function allVenues(): Venue[] {
-  return state.mode === 'live' ? state.venues.filter((v) => v.publiclyVisible === true) : [];
+  return state.mode === 'live' ? state.venues.filter((v) => v.visibleToCaller === true) : [];
 }
 
 /** Every destination with at least one published place, largest selection first. */
@@ -379,6 +400,10 @@ function routeHref(
     url.searchParams.set('view', 'circle');
     url.searchParams.delete('invite');
   }
+  else if (view === 'how') {
+    url.searchParams.set('view', 'how');
+    url.searchParams.delete('invite');
+  }
   else {
     url.searchParams.delete('view');
     url.searchParams.delete('invite');
@@ -403,6 +428,10 @@ function exploreHref(): string {
 
 function circleHref(): string {
   return routeHref('circle', null);
+}
+
+function howHref(): string {
+  return routeHref('how', null);
 }
 
 function countryHref(slug: string): string {
@@ -511,6 +540,25 @@ function showExplore(root: HTMLElement): void {
   render(root);
 }
 
+/**
+ * How it works: the one page that explains the rules the rest of the app only
+ * implies. Deliberately reachable without an account — a prospective member
+ * reading the footer link is exactly who it is for — so it is dispatched before
+ * the member-only gate.
+ */
+function showHowItWorks(root: HTMLElement): void {
+  if (state.destination !== null) resetDestinationState();
+  state.view = 'how';
+  state.destination = null;
+  state.country = null;
+  state.pendingDestination = null;
+  state.place = null;
+  state.exploreQuery = '';
+  updateRoute('how', null, 'push');
+  pendingFocus = '#how-title';
+  render(root);
+}
+
 function showCircle(root: HTMLElement): void {
   if (state.destination !== null) resetDestinationState();
   state.view = 'circle';
@@ -570,6 +618,8 @@ function applyRouteFromUrl(root: HTMLElement): void {
           : 'explore'
         : url.searchParams.get('view') === 'circle'
           ? 'circle'
+          : url.searchParams.get('view') === 'how'
+            ? 'how'
       : 'home';
   // Legacy ?city= links resolve to the same destination.
   const requested = isSurveyRoute
@@ -606,6 +656,8 @@ function applyRouteFromUrl(root: HTMLElement): void {
       ? 'survey'
       : nextView === 'account'
         ? 'account'
+        : nextView === 'how'
+          ? 'how'
         : requested
           ? requestedPlace
             ? 'place'
@@ -1287,6 +1339,9 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
     countryHref: country ? countryHref(country.slug) : exploreHref(),
     exploreHref: exploreHref(),
     canExplore: memberCanExplore(),
+    // The same nav the shared masthead renders, so Explore and My Circle travel
+    // together here too.
+    memberNav: memberCanExplore() ? memberNavLinks('other') : '',
     homeHref: homeHref(),
     accountHref: accountHref(),
     recommendHref,
@@ -1294,6 +1349,7 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
     brandMark: brandMark(),
     communityControl: communityControl(accountHref()),
     footerTagline: FOOTER_TAGLINE,
+    footerLinks: footerLinksMarkup(),
     themeToggle: tapeThemeToggleMarkup(),
   };
   const helpers: PlaceHelpers = {
@@ -1540,6 +1596,13 @@ function bindRouteLinks(root: HTMLElement): void {
       showExplore(root);
     });
   });
+  root.querySelectorAll<HTMLAnchorElement>('[data-how]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      showHowItWorks(root);
+    });
+  });
   root.querySelectorAll<HTMLAnchorElement>('[data-circle]').forEach((link) => {
     link.addEventListener('click', (event) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -1603,7 +1666,7 @@ function renderAccount(root: HTMLElement): void {
     </header>
     ${communityPanel(state.venues)}
     <footer class="footer account-footer">
-      <p>${FOOTER_TAGLINE}</p>
+      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
       ${tapeThemeToggleMarkup()}
     </footer>
   `;
@@ -1807,9 +1870,9 @@ function renderExplore(root: HTMLElement): void {
     ${mastheadMarkup('explore')}
     <main class="explore-page">
       <header class="explore-hero">
-        <p class="network-kicker">The full Detour directory</p>
+        <p class="network-kicker">Everywhere Detour reaches you</p>
         <h1 id="explore-title" tabindex="-1">Find your next city.</h1>
-        <p>Search a place directly, browse every covered city by country, or start with the destinations members recommend most.</p>
+        <p>Search a place directly, browse every city on your list by country, or start with the destinations your circle and the founding members recommend most.</p>
         ${exploreSearchMarkup()}
       </header>
       ${
@@ -1832,7 +1895,7 @@ function renderExplore(root: HTMLElement): void {
       </section>
     </main>
     <footer class="footer explore-footer">
-      <p>${FOOTER_TAGLINE}</p>
+      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
       ${tapeThemeToggleMarkup()}
     </footer>
   `;
@@ -1874,7 +1937,7 @@ function renderCircle(root: HTMLElement): void {
       ${circleMarkup(accountHref(), resolveNetworkPlace)}
     </main>
     <footer class="footer explore-footer">
-      <p>${FOOTER_TAGLINE}</p>
+      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
       ${tapeThemeToggleMarkup()}
     </footer>
   `;
@@ -1938,7 +2001,7 @@ function renderCountry(root: HTMLElement): void {
       </section>
     </main>
     <footer class="footer explore-footer">
-      <p>${FOOTER_TAGLINE}</p>
+      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
       ${tapeThemeToggleMarkup()}
     </footer>
   `;
@@ -1989,7 +2052,7 @@ function renderDiscoveryGate(
       </a>
     </section>
     <footer class="footer">
-      <p>${FOOTER_TAGLINE}</p>
+      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
       ${tapeThemeToggleMarkup()}
     </footer>
   `;
@@ -2074,6 +2137,114 @@ function tapeThemeToggleMarkup(): string {
 // cannot drift back into writing their own wording.
 const FOOTER_TAGLINE = 'Recommended by members. Ready for your next detour.';
 
+/**
+ * The footer's one link. How it works is the only page that states the rules the
+ * app otherwise only implies — who can see what, and why a place is on your list —
+ * so it belongs where somebody goes looking for it rather than in a nav slot
+ * competing with Explore.
+ */
+function footerLinksMarkup(): string {
+  return `<nav class="footer-links" aria-label="About Detour">
+    <a href="${esc(howHref())}" data-how>How Detour works</a>
+  </nav>`;
+}
+
+/**
+ * How it works. Written for two readers at once: someone holding an invitation
+ * deciding whether to redeem it, and a member wondering why a place they can see
+ * has one note when the badge says three.
+ *
+ * Every claim here is enforced somewhere in the code, and the pairing is
+ * deliberate — a page that describes rules the app does not keep is worse than no
+ * page. The visibility section in particular mirrors circle_scope.js; if the reach
+ * of the graph ever changes, this copy changes with it.
+ */
+function renderHowItWorks(root: HTMLElement): void {
+  destroyMap();
+  root.dataset.restyle = 'how';
+  applyTapeTheme();
+  document.title = 'How Detour works — Detour';
+  document
+    .querySelector<HTMLMetaElement>('meta[name="description"]')
+    ?.setAttribute(
+      'content',
+      'How Detour works: invitation-only membership, what your circle is, why founding members reach everyone, and how a place gets on your list.'
+    );
+  root.innerHTML = `
+    <a class="skip-link" href="#how-title">Skip to how Detour works</a>
+    ${mastheadMarkup('other')}
+    <main class="how-page">
+      <header class="explore-hero how-hero">
+        <p class="network-kicker">The short version</p>
+        <h1 id="how-title" tabindex="-1">How Detour works.</h1>
+        <p>Detour is a private list of places to eat and drink, grown by invitation. Members recommend somewhere and say why; you see what your own circle recommends — the people who invited you, the people you invited, one hop past that — plus the founding members, who reach everyone. Nothing else reaches your list. No ads, no paid listings, no anonymous stars, no editors.</p>
+      </header>
+
+      <div class="how-faq">
+        <details class="how-faq-item" open>
+          <summary>How do I get in?</summary>
+          <p>One personal invitation from a member. Redeeming it makes you a member immediately — there is no queue to wait in. While Detour is still being built you can also ask for an invitation from the home page; we read every request and reply personally.</p>
+        </details>
+
+        <details class="how-faq-item">
+          <summary>What counts as my circle?</summary>
+          <p>You, whoever invited you, everyone you invited, and one hop further out. It is drawn for you on <a href="${esc(circleHref())}" data-circle>My Circle</a>, and it stops there.</p>
+        </details>
+
+        <details class="how-faq-item">
+          <summary>Then why do I see places from people I have never met?</summary>
+          <p>Founding members are the first fifty people here — the Founder and the forty-nine they invited — and their recommendations reach every member. They are a second tier, not part of your circle, and they are why the app has something in it before you have invited anyone. Their own invitees are ordinary members: it does not pass down.</p>
+        </details>
+
+        <details class="how-faq-item">
+          <summary>Why does a place say six people recommend it and show me one note?</summary>
+          <p>The figure counts everyone on Detour who recommended it. The notes are only from people who reach you. The rest stay anonymous — you don't see who they are or what they wrote.</p>
+        </details>
+
+        <details class="how-faq-item">
+          <summary>How does a place get on the list?</summary>
+          <p>A member recommends it with a note explaining why, and it is on — immediately. No queue, no curator, no minimum number of people agreeing.</p>
+        </details>
+
+        <details class="how-faq-item">
+          <summary>Can I recommend somewhere that is already there?</summary>
+          <p>Yes, once each. Your note joins the same place rather than making a second copy of it. If it was not on your list before, your own recommendation is what puts it there.</p>
+        </details>
+
+        <details class="how-faq-item">
+          <summary>Who sees what I write?</summary>
+          <p>Whoever invited you and the people one step around them, plus everyone you invited. Nobody further out. You can switch your recommendations to private in your member area, and then nobody sees them.</p>
+        </details>
+
+        <details class="how-faq-item">
+          <summary>Do founding members see everything?</summary>
+          <p>No. It only works one way: what a founding member recommends reaches every member, but what they see is their own circle plus the other founding members — the same as anybody else. A founding member far from you in the graph reads nothing of yours.</p>
+        </details>
+
+        <details class="how-faq-item">
+          <summary>Can I send one place to one person?</summary>
+          <p>Yes. Find the member by their handle and <a href="${esc(accountHref())}" data-community-route="share-place">share it privately</a> with a note only they see. A share is not a recommendation: it changes no figure, and it does not put the place on their list.</p>
+        </details>
+
+        <details class="how-faq-item">
+          <summary>What Detour does not do</summary>
+          <p>Sell a spot on the list, publish a star rating or an anonymous review, copy a guide's writing or photographs, or credit you publicly outside the circle you wrote for. What you write is not sold, not handed to advertisers, and not reordered to keep you scrolling — your list is chronological, and it is yours.</p>
+        </details>
+      </div>
+    </main>
+    <footer class="footer explore-footer">
+      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
+      ${tapeThemeToggleMarkup()}
+    </footer>
+  `;
+  bindRouteLinks(root);
+  if (pendingFocus) {
+    const target = root.querySelector<HTMLElement>(pendingFocus);
+    pendingFocus = null;
+    target?.focus({ preventScroll: true });
+  }
+}
+
 function renderHome(root: HTMLElement): void {
   destroyMap();
   root.dataset.restyle = 'home';
@@ -2085,7 +2256,7 @@ function renderHome(root: HTMLElement): void {
     ${mastheadMarkup('home')}
     ${networkDiscoveryMarkup(accountHref(), resolveNetworkPlace)}
     <footer class="footer network-footer">
-      <p>${FOOTER_TAGLINE}</p>
+      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
       ${tapeThemeToggleMarkup()}
     </footer>
   `;
@@ -2141,6 +2312,8 @@ function render(root: HTMLElement) {
           ? 'explore'
         : state.view === 'circle'
           ? 'circle'
+        : state.view === 'how'
+          ? 'how'
         : state.mode === 'loading' || state.view === 'home' || !state.destination
           ? 'home'
           : state.view === 'place'
@@ -2164,6 +2337,13 @@ function render(root: HTMLElement) {
 
   if (state.view === 'account') {
     renderAccount(root);
+    return;
+  }
+
+  // Before the member-only gate on purpose: the page explains the rules to people
+  // deciding whether to join, and it names no member and no place.
+  if (state.view === 'how') {
+    renderHowItWorks(root);
     return;
   }
 
@@ -2220,7 +2400,7 @@ function render(root: HTMLElement) {
         <p class="city-chooser-status"><a href="${esc(exploreHref())}" data-explore><span class="nav-arrow nav-arrow-back" aria-hidden="true">←</span> Back to Explore</a></p>
       </section>
       <footer class="footer city-chooser-footer">
-        <p>${FOOTER_TAGLINE}</p>
+        <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
         ${tapeThemeToggleMarkup()}
       </footer>
     `;
@@ -2308,7 +2488,7 @@ function render(root: HTMLElement) {
     </div>
     ${destinationContent}
     <footer class="footer">
-      <p>${FOOTER_TAGLINE}</p>
+      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
       ${tapeThemeToggleMarkup()}
     </footer>
   `;
@@ -2541,7 +2721,20 @@ if (root instanceof HTMLElement) {
     authIdentity = nextIdentity;
     resetNetworkDiscovery();
     resetCircle();
+    // The catalogue is now one member's list, not a shared one, so it cannot
+    // survive a change of member: signing in has to fetch the new circle's
+    // places, and signing out has to drop the previous member's entirely. It is
+    // cleared first so no frame can render the old list under the new identity.
+    state.mode = 'loading';
+    state.venues = [];
     render(root);
+    refreshCatalogue()
+      .then(() => render(root))
+      .catch(() => {
+        state.mode = 'error';
+        state.venues = [];
+        render(root);
+      });
   }, false);
   applyRouteFromUrl(root);
   window.addEventListener('popstate', () => applyRouteFromUrl(root));

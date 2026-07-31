@@ -41,6 +41,13 @@ export interface PlaceChrome {
   countryHref: string;
   exploreHref: string;
   canExplore: boolean;
+  /**
+   * The member-only primary nav, rendered by main.ts so this page cannot drift
+   * from the masthead every other surface shows. It used to hardcode an Explore
+   * link here, which is how the place page ended up as the one screen with no way
+   * through to My Circle.
+   */
+  memberNav: string;
   homeHref: string;
   accountHref: string;
   recommendHref(v: Venue): string;
@@ -48,6 +55,8 @@ export interface PlaceChrome {
   brandMark: string;
   communityControl: string;
   footerTagline: string;
+  /** The footer's How it works link, rendered by main.ts so every footer carries it. */
+  footerLinks: string;
   themeToggle: string;
 }
 
@@ -200,11 +209,7 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
     <header class="network-masthead">
       <a class="network-brand" href="${h.esc(chrome.homeHref)}" data-home>${chrome.brandMark}<span class="brand-word">Detour</span></a>
       <nav class="network-primary-nav" aria-label="Primary navigation">
-        ${
-          chrome.canExplore
-            ? `<a class="network-explore-link" href="${h.esc(chrome.exploreHref)}" data-explore>Explore</a>`
-            : ''
-        }
+        ${chrome.memberNav}
         ${chrome.communityControl}
       </nav>
     </header>
@@ -241,7 +246,15 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
                 : ''
             }
             <div class="place-signal-row">
-              ${detouristSignalBadge(v.detouristCount, 'plate')}
+              ${detouristSignalBadge(
+                {
+                  total: v.detouristTotal ?? v.detouristCount,
+                  circle: v.circleCount,
+                  founders: v.founderCount,
+                  own: alreadyRecommended,
+                },
+                'plate'
+              )}
               ${
                 v.foundingRecommended
                   ? '<span class="place-founding-star" title="Recommended by a founding member"><span aria-hidden="true">★</span> Founder’s choice</span>'
@@ -275,7 +288,7 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
       }
     </article>
     <footer class="footer place-footer">
-      <p>${chrome.footerTagline}</p>
+      <p>${chrome.footerTagline}</p>${chrome.footerLinks}
       ${chrome.themeToggle}
     </footer>
   `;

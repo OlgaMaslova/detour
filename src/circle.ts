@@ -690,11 +690,18 @@ function summaryMarkup(): string {
  * A member's recommendations come from the people drawn here and from the
  * founding members — so the graph explains what shows up everywhere else. Kept
  * to a few lines beside the drawing, in the small print register.
+ *
+ * This claim is enforced, not decorative. The same five relational branches this
+ * page is drawn from are the filter on every read path that returns
+ * member-authored content — see visibleRecommenderSql in
+ * pb_hooks/circle_scope.js. Two things it deliberately does not claim: a place
+ * someone sends you privately reaches your inbox whatever the distance, and the
+ * occasion tags on a place are shared by everyone who recommended it.
  */
 function visibilityNoteMarkup(): string {
   return `<aside class="circle-note">
     <p class="circle-note-title">What you can see</p>
-    <p>Recommendations reach you from this circle only — the members drawn here — plus every founding member. Nobody else's places show up on your list.</p>
+    <p>Recommendations reach you from this circle only — the members drawn here — plus every founding member. Nobody else's places show up on your list. A place someone sends you privately still arrives, wherever they are.</p>
   </aside>`;
 }
 

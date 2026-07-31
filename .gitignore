@@ -7,3 +7,10 @@ LOCAL_DEV.md
 .env.local
 .env.backend.local
 pocketbase
+.detour-prod-secrets.env
+detour-prod-secrets.env
+*.backup.zip
+
+# Local-only member/circle reference (passwords, local pb_data state)
+LOCAL_CIRCLES.md
+.DS_Store

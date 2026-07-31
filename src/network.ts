@@ -13,6 +13,12 @@ export interface DiscoveryRecommendation {
   recommender_pseudo?: string;
   is_own?: boolean;
   founding_member?: boolean;
+  /**
+   * Whether the invitation graph put this recommender in reach, independently of
+   * the founding circle. Distinct from `founding_member`: an inviter who is also a
+   * founding member is both, and the Founders' places switch must keep them.
+   */
+  in_graph?: boolean;
   note?: string;
   venue_name?: string;
   venue_id?: string;
@@ -107,6 +113,15 @@ let status: DiscoveryStatus = 'idle';
 let loadedFor = '';
 let errorMessage = '';
 let recommendationsExpanded = false;
+/**
+ * Whether the landing feed includes the founding circle's places. On by default —
+ * switching it off is a deliberate act, and for most members it would otherwise
+ * empty most of the page. Remembered per browser, like the column choice: only the
+ * explicit "off" is stored, so a new browser and a cleared browser both default to
+ * showing them.
+ */
+const FOUNDING_PLACES_KEY = 'detour-show-founding-places';
+let showFoundingPlaces = localStorage.getItem(FOUNDING_PLACES_KEY) !== 'off';
 type RecommendationColumns = 2 | 3;
 const RECOMMENDATION_COLUMNS_KEY = 'detour-recommendation-columns';
 let recommendationColumns: RecommendationColumns =
@@ -214,6 +229,10 @@ function cleanRecommendation(value: unknown): DiscoveryRecommendation | null {
     recommender_pseudo: cleanText(item.recommender_pseudo),
     is_own: item.is_own === true,
     founding_member: item.founding_member === true,
+    // Absent on a backend that predates the flag, and absent from the anonymous
+    // sample. `undefined` must not read as "not in my circle", so the Founders'
+    // places switch hides an item only on an explicit false.
+    in_graph: typeof item.in_graph === 'boolean' ? item.in_graph : undefined,
     note: cleanText(item.note),
     city: cleanText(item.city),
     country: cleanText(item.country),
@@ -955,6 +974,49 @@ export function memberSharesMarkup(): string {
   </section>`;
 }
 
+/**
+ * The founding circle reaches every member, at any distance, so for a member with
+ * few invitations of their own it can be most of the feed — a new member with one
+ * inviter and no invitees sees the founding circle's places and little else. That
+ * is what keeps the app from being empty on day one, and it is also why they need
+ * a way to set it aside and look at what their own people brought.
+ *
+ * A LIGHT FILTER OVER PLACES, NOT A REDACTION OF NOTES. A card either appears or
+ * it doesn't; nothing inside one changes. This filter used to drop the founders'
+ * individual notes from the cards that survived, which quietly rewrote their
+ * bylines and — because a photo belongs to the note it was attached to, not to the
+ * venue — stripped the cover image off a place whose only photo came from a
+ * founder. The member was always allowed to see that photo and those words. They
+ * asked to see fewer places, so only places are removed.
+ *
+ * A place stays when anyone in the caller's own invitation graph stands behind it,
+ * themselves included. Note that a founder who is *also* in the graph — an inviter
+ * is very often founding too — keeps their places: `in_graph` and
+ * `founding_member` are reported separately by the server for exactly this
+ * distinction.
+ */
+function fromOwnCircle(item: DiscoveryRecommendation): boolean {
+  return item.is_own === true || item.in_graph !== false;
+}
+
+function groupIsFromOwnCircle(group: { items: DiscoveryRecommendation[] }): boolean {
+  return group.items.some(fromOwnCircle);
+}
+
+function foundingFeedToggleMarkup(hiddenPlaceCount: number): string {
+  // Nothing to set aside — so no control, rather than a switch that visibly does
+  // nothing. This is the normal state for a member the Founder invited directly:
+  // the founding circle is their inviter and their siblings, so it is already
+  // their own circle and there is nothing to separate out. The further from the
+  // founding circle a member sits, the more this switch has to do.
+  if (hiddenPlaceCount < 1) return '';
+  // On or off, and the plate's own fill says which — the same pressed/unpressed
+  // language as the layout picker beside it. No count, no explanation, no separate
+  // state box: a member who flips it sees the answer in the feed a moment later.
+  const pressed = showFoundingPlaces ? 'true' : 'false';
+  return `<button type="button" class="network-founding-toggle" data-network-founding aria-pressed="${pressed}">Founders’ places</button>`;
+}
+
 function memberFeedMarkup(
   accountHref: string,
   resolvePlace?: NetworkPlaceResolver
@@ -975,7 +1037,13 @@ function memberFeedMarkup(
     </div>`;
   }
 
-  const grouped = groupRecommendations(recommendations, resolvePlace);
+  // Grouped once, from every note the member can see, so each card is built from
+  // its full set of recommendations however the filter sits. Then whole cards are
+  // kept or dropped — never edited.
+  const allGrouped = groupRecommendations(recommendations, resolvePlace);
+  const ownCircleGrouped = allGrouped.filter(groupIsFromOwnCircle);
+  const foundingOnlyPlaces = allGrouped.length - ownCircleGrouped.length;
+  const grouped = showFoundingPlaces ? allGrouped : ownCircleGrouped;
   const previewLimit = recommendationColumns * 2;
   const latest = recommendationsExpanded ? grouped : grouped.slice(0, previewLimit);
   const hiddenCount = grouped.length - latest.length;
@@ -988,6 +1056,7 @@ function memberFeedMarkup(
     <section class="network-stream" aria-label="Places recommended by the circle">
       <div class="network-section-heading network-section-toolbar">
         <p class="network-recency-status">${recentLabel}<span>Last 24 hours</span></p>
+        ${foundingFeedToggleMarkup(foundingOnlyPlaces)}
         <div class="network-layout-picker" role="group" aria-label="Cards per row">
           ${([2, 3] as const)
             .map(
@@ -1015,7 +1084,11 @@ function memberFeedMarkup(
                   ? '<button type="button" class="secondary-button network-retry network-show-more" data-network-show-more>Show fewer</button>'
                   : ''
             }`
-          : `<div class="network-empty"><h3>No places from the circle yet</h3><p>Places will appear here as members recommend them, unless they choose to keep their notes private.</p></div>`
+          : !showFoundingPlaces && allGrouped.length
+            ? // Emptied by the filter, not by the circle. Saying "no places yet"
+              // here would blame the circle for a filter the member just applied.
+              `<div class="network-empty"><h3>Nothing from your own circle yet</h3><p>Every place you can see right now came from a founding member. Switch Founders’ places back on, or invite someone whose taste you want here.</p></div>`
+            : `<div class="network-empty"><h3>No places from the circle yet</h3><p>Places will appear here as members recommend them, unless they choose to keep their notes private.</p></div>`
       }
     </section>
   </div>`;
@@ -1300,6 +1373,14 @@ export function bindNetworkDiscovery(root: HTMLElement, render: () => void): voi
 
   root.querySelector<HTMLButtonElement>('[data-network-show-more]')?.addEventListener('click', () => {
     recommendationsExpanded = !recommendationsExpanded;
+    render();
+  });
+  root.querySelector<HTMLButtonElement>('[data-network-founding]')?.addEventListener('click', () => {
+    showFoundingPlaces = !showFoundingPlaces;
+    localStorage.setItem(FOUNDING_PLACES_KEY, showFoundingPlaces ? 'on' : 'off');
+    // The preview limit counts places, so a feed that just shrank should not stay
+    // expanded from the larger one.
+    recommendationsExpanded = false;
     render();
   });
   root.querySelectorAll<HTMLButtonElement>('[data-network-columns]').forEach((button) => {

@@ -48,30 +48,55 @@ export interface Venue {
    */
   suppressed?: boolean;
   /**
-   * The derived publication answer: true only when a real member recommendation
-   * stands behind this place and no curator has suppressed it. Computed once per
-   * load in `loadLiveCatalogue`, which is the only place that knows whether the
-   * member-signal route actually answered. Every public surface filters on it —
+   * Whether this place is on *this caller's* list: true only when a member they
+   * can see stands behind it and no curator has suppressed it.
+   *
+   * Not a property of the place. Two members legitimately disagree about it at
+   * the same moment, because the recommendations behind a place are scoped to the
+   * reader's circle. Computed once per load in `loadLiveCatalogue` from the
+   * server's caller-scoped signal payload, and filtered on by every surface —
    * see `allVenues` in main.ts.
    */
-  publiclyVisible?: boolean;
+  visibleToCaller?: boolean;
   /**
-   * The server's own publication marker, as stored on the venue. Used only as the
-   * degradation fallback when the member-signal route does not answer — never as
-   * the primary reason a place is public. Prefer `publiclyVisible`.
-   */
-  publicationMarked?: boolean;
-  /**
-   * Distinct members who have recommended this place through the member loops.
-   * Aggregate only — no identity attached. Private shares never contribute to
-   * this figure. Absent when the backend predates the signals route or the
-   * place has no recorded signals.
+   * Members the caller can see who have recommended this place — the sum of
+   * `circleCount` and `founderCount`. Aggregate only, no identity attached;
+   * private shares never contribute to it. Absent when nobody the caller can see
+   * recommended the place, which is also why the place is not on their list.
+   *
+   * Do not use this to say anything about the reader's circle. It counts both
+   * reasons a recommender can be in reach, and only one of them is a relationship.
    */
   detouristCount?: number;
   /**
-   * True when at least one distinct recommendation came from the founding
-   * circle. This derived flag carries no member identity and is rendered only
-   * on the place page.
+   * Recommenders reached through the caller's invitation graph: their inviter,
+   * their invitees, one hop out, and themselves. These are the people who are
+   * genuinely in the reader's circle, and the only ones any surface may describe
+   * that way.
+   */
+  circleCount?: number;
+  /**
+   * Recommenders reached only because they are founding members. Visible to every
+   * member at any distance, and therefore in nobody's circle — a place with
+   * `circleCount: 0` and `founderCount: 2` is on the reader's list without one
+   * person they know standing behind it, and the copy has to say so.
+   */
+  founderCount?: number;
+  /**
+   * Every distinct member who has recommended this place, in any circle.
+   *
+   * The one member-authored figure that is not scoped, and a deliberate carve-out:
+   * a place carries more weight when you can see that people beyond your own
+   * circle back it too. It is safe only because the server sends it exclusively
+   * for places the caller can already see — it can never reveal that a place
+   * exists — and because it is a bare count. The notes, names, dates and photos
+   * behind the difference between this and `detouristCount` stay invisible.
+   */
+  detouristTotal?: number;
+  /**
+   * True when at least one of those distinct recommendations came from the
+   * founding circle. Carries no member identity and is rendered only on the
+   * place page.
    */
   foundingRecommended?: boolean;
 }
@@ -239,12 +264,25 @@ export function venuePlaceSlug(v: Venue, all: Venue[]): string {
 }
 
 /**
- * Load the public catalogue. `venues` is the canonical place list and now carries
- * everything public about a place — its facts, its occasion tags, its publication
- * marker. There is no award join: Detour has one lane, and a place is on it
- * because a real member recommended it.
+ * Load the caller's catalogue.
+ *
+ * `venues` carries everything global about a place — its identity, address,
+ * coordinates, links, category, occasion tags, enrichment cover. What is *not*
+ * global is whether a place is on your list: that follows from the members who
+ * recommended it, and those are scoped to your circle plus the founding circle.
+ * So the venue rows are only candidates. `/api/detour/place-detourists` decides
+ * which of them you can actually see, and a candidate with no visible
+ * recommender is dropped entirely below.
+ *
+ * A signed-out visitor has no circle, so they have no list. They are not shown a
+ * degraded or partial catalogue — they are shown none of it, and the landing page
+ * speaks for the founding circle through its own route instead.
  */
 export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
+  if (!pb.authStore.isValid || !pb.authStore.record) {
+    return { cities: [], venues: [] };
+  }
+
   const [venueRecords, cityRecords, contributionRecords, detouristSignals] = await Promise.all([
     pb.collection('venues').getFullList<VenueRecord>({
       fields: 'id,name,city,country,address,lat,lng,category,official_url,instagram_url,image_url,approx_location,occasions,suppressed,published',
@@ -271,30 +309,37 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
         requestKey: null,
       })
       .catch(() => [] as MemberContributionRecord[]),
-    // Aggregate social proof: distinct members who recommended each venue,
-    // keyed by venue id. Private shares are excluded. Purely additive —
-    // tolerate backends without the route by falling back to no counts.
-    pb
-      .send<{ counts?: Record<string, unknown>; founding?: Record<string, unknown> }>(
-        '/api/detour/place-detourists',
-        { requestKey: null }
-      )
-      .then((payload) => ({
-        counts: payload?.counts ?? {},
-        founding: payload?.founding ?? {},
-        // The signal answered, so an absent count genuinely means "no
-        // recommender" and publication can be derived from it.
-        available: true,
-      }))
-      .catch(() => ({
-        counts: {} as Record<string, unknown>,
-        founding: {} as Record<string, unknown>,
-        // The signal did NOT answer. Publication must not be derived from an
-        // empty payload — every count would read as zero and the whole public
-        // catalogue would vanish on a transient route failure.
-        available: false,
-      })),
+    // The visibility boundary: how many members the caller can see recommended
+    // each venue, keyed by venue id. Private shares are excluded.
+    //
+    // Deliberately not caught. This used to degrade to the server's `published`
+    // marker so a transient failure could not blank the catalogue, which was the
+    // right trade while the list was the same for everyone. It is the wrong trade
+    // now: the fallback would answer "every place a member ever published"
+    // to a caller entitled to a fraction of it, turning one failed request into a
+    // catalogue-wide visibility breach. A rejection here fails the whole load, the
+    // app enters its error state, and the member retries.
+    pb.send<{
+      scope?: string;
+      counts?: Record<string, unknown>;
+      circle?: Record<string, unknown>;
+      founders?: Record<string, unknown>;
+      totals?: Record<string, unknown>;
+      founding?: Record<string, unknown>;
+    }>('/api/detour/place-detourists', { requestKey: null }),
   ]);
+
+  // A payload without the scope marker came from a backend that predates
+  // circle-scoped visibility and would be answering globally. Refuse it rather
+  // than render another circle's places.
+  if (detouristSignals?.scope !== 'circle') {
+    throw new Error('The place-visibility route did not answer with a circle-scoped payload.');
+  }
+  const signalCounts = detouristSignals.counts ?? {};
+  const signalCircle = detouristSignals.circle ?? {};
+  const signalFounders = detouristSignals.founders ?? {};
+  const signalTotals = detouristSignals.totals ?? {};
+  const signalFounding = detouristSignals.founding ?? {};
 
   const citiesByName = new Map<string, LiveCity>();
 
@@ -391,7 +436,6 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       // for backends that predate the move, but this is the authority.
       occasions: knownOccasions(record.occasions),
       suppressed: record.suppressed === true,
-      publicationMarked: record.published === true,
     });
   }
 
@@ -411,9 +455,9 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     const occasions = knownOccasions(record.occasions);
     const existing = venueByIdentity.get(identityKey(name, city.name));
     if (existing) {
-      // The contributing member is at least one signal even when the counts
-      // route is unavailable or missed this identity.
-      existing.detouristCount = Math.max(existing.detouristCount ?? 0, 1);
+      // No count is asserted here. A contribution is one member's recommendation,
+      // so whether it counts for this caller is a scoping question, and only the
+      // server can answer it — see the scoped payload below.
       existing.occasions = mergeOccasions(existing.occasions, occasions);
       if (!existing.country) existing.country = cleanString(record.country) || city.country;
       if (!existing.address) existing.address = cleanString(record.address);
@@ -435,46 +479,53 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       lng: null,
       approxLocation: false,
       occasions,
-      // Contribution-only places have no catalogue venue record for the
-      // counts route to key on; the contributing member is the one signal.
-      detouristCount: 1,
+      // Contribution-only places have no catalogue venue row, so the scoped
+      // payload keys them by `member-contribution-<id>` instead. No count is
+      // assumed here either.
     };
     venuesById.set(venue.id, venue);
     venueByIdentity.set(identityKey(venue.name, venue.city), venue);
   }
 
-  // Attach aggregate member signals (distinct recommenders/sharers) to their
-  // venues. Server counts win when larger — they dedupe across every loop.
+  // Attach the caller's scoped signal to each candidate: how many members they
+  // can see recommended it, whether any of those was a founding member, and the
+  // place's total across every circle.
+  //
+  // The total is clamped to at least the scoped count. The server derives both
+  // from one deduplicated pass so they cannot disagree, but a total lower than
+  // the number of notes a member can actually read would be visibly wrong, and
+  // silently wrong is worse than absent.
   for (const venue of venuesById.values()) {
-    const count = positiveInteger(detouristSignals.counts[venue.id]);
-    if (count !== null) venue.detouristCount = Math.max(venue.detouristCount ?? 0, count);
-    if (detouristSignals.founding[venue.id] === true) venue.foundingRecommended = true;
+    const count = positiveInteger(signalCounts[venue.id]);
+    if (count !== null) venue.detouristCount = count;
+    // Split by the reason each recommender is in reach. Kept as two separate
+    // figures all the way to the copy, so no surface has to infer "in your circle"
+    // from "visible to you" — those are different claims and only one of them is
+    // about a relationship.
+    venue.circleCount = positiveInteger(signalCircle[venue.id]) ?? 0;
+    venue.founderCount = positiveInteger(signalFounders[venue.id]) ?? 0;
+    const total = positiveInteger(signalTotals[venue.id]);
+    if (total !== null) venue.detouristTotal = Math.max(total, venue.detouristCount ?? 0);
+    if (signalFounding[venue.id] === true) venue.foundingRecommended = true;
   }
 
-  // Publication, derived.
+  // Visibility, derived — per caller, at read time, never stored.
   //
-  // A place is public because a real member recommended it — nothing else. This
-  // used to be *asserted* by the existence of a catalogue row while the reason a
-  // place belonged here lived in `community_recommendations`, with nothing
-  // keeping the two honest; a leftover guide-era venue could therefore sit on
-  // the public list with no recommender behind it. Deriving it from the member
-  // signal (which the server computes from real recommendations only, excluding
-  // synthetic `.invalid` members) makes that state unrepresentable.
+  // A place is on your list because a member you can see recommended it. Nothing
+  // else puts it there: not the server's publication marker, not the existence of
+  // a catalogue row, not a share someone sent you. That makes two states
+  // unrepresentable — a place with no recommender behind it, and a place whose
+  // only recommenders are outside your circle.
   //
-  // Two deliberate carve-outs:
-  //   - `suppressed` always wins: a curator takedown hides a place even though
-  //     the recommendation behind it still stands.
-  //   - When the signal route did not answer, fall back to the server's own
-  //     publication marker instead of treating every count as zero. A transient
-  //     failure must degrade to the previous behaviour, never blank the public
-  //     catalogue.
+  // Recomputed on every load rather than remembered against the venue, so a
+  // member who joins your circle tomorrow brings their places with them and no
+  // card silently stops updating.
+  //
+  // One carve-out: `suppressed` always wins. A curator takedown hides a place
+  // from everyone, in every circle, even though the recommendation behind it
+  // still stands.
   for (const venue of venuesById.values()) {
-    const recommended = (venue.detouristCount ?? 0) > 0;
-    venue.publiclyVisible = venue.suppressed
-      ? false
-      : detouristSignals.available
-        ? recommended
-        : recommended || venue.publicationMarked === true;
+    venue.visibleToCaller = venue.suppressed ? false : (venue.detouristCount ?? 0) > 0;
   }
 
   const cities = [...citiesByName.values()].sort((a, b) => a.name.localeCompare(b.name));
