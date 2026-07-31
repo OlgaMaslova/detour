@@ -318,6 +318,9 @@ function samePlaceMarkup(): string {
             <button class="secondary-button" type="button" data-welcome-distinct-open ${
               submitting ? 'disabled' : ''
             }>A different place, same name</button>
+            <button class="secondary-button" type="button" data-welcome-reopen ${
+              submitting ? 'disabled' : ''
+            }>Change what I typed</button>
           </div>`
     }
   </section>`;
@@ -577,6 +580,20 @@ export function bindOnboarding(root: HTMLElement, venues: Venue[], callbacks: Ca
     if (!collision || submitting) return;
     distinguishing = false;
     notice = null;
+    render();
+  });
+
+  // The way out of the question. Without it the same-place step is a dead end:
+  // both its answers commit to a place, and a member who collided because they
+  // mistyped a name — or who has changed their mind about answering at all — has
+  // nothing to press. Their words are still in `draft`, so the question they came
+  // from reopens filled in, and "Later" is one tap from there.
+  root.querySelector<HTMLButtonElement>('[data-welcome-reopen]')?.addEventListener('click', () => {
+    if (submitting) return;
+    collision = null;
+    distinguishing = false;
+    notice = null;
+    step = 'place';
     render();
   });
 
