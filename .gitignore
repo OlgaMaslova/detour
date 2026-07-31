@@ -14,3 +14,4 @@ detour-prod-secrets.env
 # Local-only member/circle reference (passwords, local pb_data state)
 LOCAL_CIRCLES.md
 .DS_Store
+wrangler.personal.toml

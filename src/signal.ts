@@ -76,7 +76,7 @@ function clampCount(count: number | undefined): number {
  *   mixed, some hidden           Recommended by 6 Detourists, including you,
  *                                2 in your circle and 1 founding member
  */
-interface SignalCounts {
+export interface SignalCounts {
   /** Every distinct member who recommended this place, in any circle. */
   total: number;
   /** Reached through the invitation graph, the reader included if they are one. */

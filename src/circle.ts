@@ -27,6 +27,13 @@ export interface CirclePerson {
   /** Cities of the member's published places — recommendation geography, not a home address. */
   cities: string[];
   places: number;
+  /**
+   * Whether this person's recommendations reach every member of Detour, rather
+   * than only the circles they belong to. Drives the node's colour in the drawing;
+   * it cannot be derived here, because the rule is a fact about the Founder's
+   * invitations that no client can see.
+   */
+  founding: boolean;
   /** The member's most recent published place — the reason to follow their taste. */
   latest?: { place: string; created: string };
   /** Only on one-hop-out rows: the member who links this person to the caller. */
@@ -142,6 +149,7 @@ function cleanPerson(value: unknown): CirclePerson | null {
     home: cleanText(row.home, 120),
     cities,
     places: cleanCount(row.places),
+    founding: row.founding_member === true,
     ...(latestPlace ? { latest: { place: latestPlace, created: cleanText(latestRaw.created, 40) } } : {}),
     ...(connector ? { connector } : {}),
     ...(/^(inviter|invited:\d+)$/.test(connectorRef) ? { connectorRef } : {}),
@@ -414,23 +422,35 @@ function drawnName(name: string): string {
 }
 
 /**
- * Contribution is the node: a member with published places is a filled disc
- * sized by how many, with the count printed inside; a member with none is a
- * small hollow ring. Who is actually contributing reads at a glance, without
- * hovering anyone.
+ * One characteristic per channel.
+ *
+ *   size    how many places they have published
+ *   colour  whether they are a founding member
+ *
+ * These used to be the same variable twice — filled *and* larger both meant
+ * "has places" — so the drawing spent two channels saying one thing and left
+ * founding membership, which decides whose places reach the whole app, invisible.
+ * A reader's first guess at the coloured discs was "founders, or my inner circle";
+ * now it is the first of those.
+ *
+ * Radius is a square-root scale so area tracks the count rather than the radius:
+ * nine places has to look like appreciably more than two, which a linear ramp of
+ * 1.2px per place did not manage. A member with nothing published is still a
+ * member and still a disc, just the smallest one — no longer a hollow ring, since
+ * hollow now means "not founding".
  */
 function nodeRadius(places: number): number {
-  return places ? Math.min(24, 12 + places * 1.2) : 7;
+  if (!places) return 8;
+  return Math.min(28, 10 + Math.sqrt(places) * 6);
 }
 
 function nodeMarkup(node: DrawnNode): string {
   const radius = nodeRadius(node.person.places);
-  const filled = node.person.places > 0;
   return `<g class="circle-map-person" data-tip="${esc(personTitle(node.person, node.kind))}" data-circle-person="${esc(node.ref)}" role="button" tabindex="0" aria-haspopup="dialog" aria-label="${esc(`${personTitle(node.person, node.kind)} — open their places`)}">
-    <circle class="circle-map-node${filled ? ' has-places' : ''} circle-map-node-${node.kind}" cx="${node.x.toFixed(1)}" cy="${node.y.toFixed(1)}" r="${radius}"></circle>
+    <circle class="circle-map-node${node.person.founding ? ' is-founding' : ''} circle-map-node-${node.kind}" cx="${node.x.toFixed(1)}" cy="${node.y.toFixed(1)}" r="${radius}"></circle>
     ${
-      filled
-        ? `<text class="circle-map-node-count" x="${node.x.toFixed(1)}" y="${(node.y + 4.5).toFixed(1)}" text-anchor="middle">${node.person.places}</text>`
+      node.person.places
+        ? `<text class="circle-map-node-count${node.person.founding ? '' : ' on-outline'}" x="${node.x.toFixed(1)}" y="${(node.y + 4.5).toFixed(1)}" text-anchor="middle">${node.person.places}</text>`
         : ''
     }
     <text class="circle-map-name" x="${node.x.toFixed(1)}" y="${(node.y + radius + 17).toFixed(1)}" text-anchor="middle">${esc(drawnName(node.person.name))}</text>
@@ -656,7 +676,7 @@ function panelMarkup(): string {
           ? `<p class="circle-panel-status">${esc(person.name)} keeps their recommendations private.</p>`
           : data.items.length
             ? `<div class="circle-panel-cards">${data.items
-                .map((item) => groupedRecommendationCardMarkup([item], resolvePlaceFn))
+                .map((item) => groupedRecommendationCardMarkup([item], resolvePlaceFn, { signalCounts: null }))
                 .join('')}</div>`
             : `<p class="circle-panel-status">${esc(person.name)} has no published places yet.</p>`;
   return `<div class="circle-panel-overlay" data-circle-panel-dismiss></div>
@@ -755,14 +775,21 @@ export function circleMarkup(memberHref: string, resolvePlace?: NetworkPlaceReso
   if (status !== 'ready') {
     return '<p class="circle-status" role="status">Loading your circle…</p>';
   }
-  // The spoke legend rides in the toolbar, on the same line as the view switch —
-  // two words, and only when the rings are showing. Its box is rendered either
-  // way: it holds the toolbar's centre column, and the drawing below is centred
-  // on the same axis, so legend and rings share one vertical line.
+  // The legend rides in the toolbar, on the same line as the view switch, and only
+  // when the rings are showing. Its box is rendered either way: it holds the
+  // toolbar's centre column, and the drawing below is centred on the same axis, so
+  // legend and rings share one vertical line.
+  //
+  // Three entries: two line styles for how a person is connected, and the disc's
+  // fill for whether they are founding. Size needs no entry — the count is printed
+  // inside the disc, so a bigger disc explains itself. Fill was the one that
+  // needed saying: a reader's first guess at a coloured disc was "founders, or my
+  // inner circle", and with nothing to check it against the guess stood.
   const legend =
     view === 'rings'
       ? `<span class="circle-legend-item"><span class="circle-legend-line"></span>invited</span>
-         <span class="circle-legend-item"><span class="circle-legend-line is-second"></span>friend of a friend</span>`
+         <span class="circle-legend-item"><span class="circle-legend-line is-second"></span>friend of a friend</span>
+         <span class="circle-legend-item"><span class="circle-legend-dot is-founding"></span>founding member</span>`
       : '';
   return `<header class="circle-lead">
     ${summaryMarkup()}

@@ -1964,19 +1964,13 @@ legend { color: var(--tape-text); }
   text-transform: uppercase;
   overflow-wrap: anywhere;
 }
-.network-place-recommendation-count {
-  width: fit-content;
-  margin: 0.45rem 0 0;
-  padding: 3px 7px;
-  color: var(--tape-ink);
-  background: var(--tape-orange);
-  font-family: var(--tape-mono);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  line-height: 1.25;
-  text-transform: uppercase;
-}
+/* The card's signal row: the stamped badge from signal.ts, not a worded sticker.
+   It reuses .place-signal-row so the row a card shows and the row on the page it
+   opens are the same object at the same scale — the count is one shape across
+   the app, and the words it used to spell are carried by the badge's tooltip and
+   accessible name. */
+.network-place-signal { margin-top: 0.45rem; }
+.network-place-signal .place-founding-star { min-height: 0; }
 /* The feed toolbar counts places added in the last 24 hours; this sticker is
    how that count is visible in the list itself. Both come from one predicate,
    so the header can never name a number the cards do not show. */
@@ -3337,6 +3331,15 @@ legend { color: var(--tape-text); }
 }
 .circle-legend-line { width: 26px; border-top: 2px solid var(--tape-muted); }
 .circle-legend-line.is-second { border-top-style: dashed; border-top-color: var(--tape-accent-strong); }
+/* The node's fill channel, shown as the drawing draws it. */
+.circle-legend-dot {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border: 2px solid var(--tape-chrome);
+  border-radius: 50%;
+}
+.circle-legend-dot.is-founding { background: var(--tape-accent); border-color: var(--tape-accent); }
 /* The list: stacked rows with mass, separated by space rather than rules —
    row hairlines over the graph-paper ground read as an unfilled table. One
    divider per section, nothing per row, and no rule across the top: the first
@@ -3515,16 +3518,17 @@ legend { color: var(--tape-text); }
   stroke-width: 2;
   stroke-dasharray: 3 5;
 }
-/* Contribution is the node state: hollow ring = no places yet; amber disc,
-   sized by count with the number printed inside = publishing member. The
-   inviter keeps the gold ring; you stay the orange centre. Nothing else
-   varies, so fill differences are never incidental. */
+/* One characteristic per channel: FILL says whether they are a founding member,
+   SIZE says how many places they have published (set in nodeRadius). Fill and size
+   used to both mean "has places", which spent two channels on one fact and left
+   founding membership undrawn. The inviter keeps its gold ring — that is a third
+   channel for a third thing, who brought you in — and you stay the orange centre. */
 .circle-map-node {
   fill: var(--tape-ground);
   stroke: var(--tape-chrome);
   stroke-width: 2.5;
 }
-.circle-map-node.has-places { fill: var(--tape-accent); }
+.circle-map-node.is-founding { fill: var(--tape-accent); }
 .circle-map-node-inviter { stroke: var(--tape-accent-strong); stroke-width: 3.5; }
 .circle-map-node-you { fill: var(--tape-orange); }
 .circle-map-node-count {
@@ -3533,6 +3537,9 @@ legend { color: var(--tape-text); }
   font-size: 13px;
   font-weight: 700;
 }
+/* An ordinary member's disc is unfilled, so ink on the amber would vanish — the
+   count switches to the page's own text colour over the dark ground. */
+.circle-map-node-count.on-outline { fill: var(--tape-text); }
 .circle-map-name {
   fill: var(--tape-text);
   font-family: var(--tape-mono);

@@ -3,7 +3,9 @@
 **Created:** 2026-07-31
 **Goal:** move Detour production out of the Supernaut-owned Fly and Cloudflare accounts and into accounts Olga owns, with no data loss and a reversible cutover.
 
-Status legend: `[DONE]` · `[TODO]` · `[BLOCKED]`
+Status legend: `[DONE]` · `[IN PROGRESS]` · `[TODO]` · `[BLOCKED]`
+
+**Where things stand (2026-07-31):** the data is rescued and the restore is proven (Phase 0), and a new Worker is live in the personal Cloudflare account at `detour-web.omaslova87.workers.dev`, still talking to the old backend. Nothing user-facing has moved — `takedetour.app` and the old Fly app are untouched and serving. The next real step is Phase 2, standing up `detour-api` on Fly.
 
 ---
 
@@ -60,7 +62,7 @@ The absence of the superuser prompt is the pass condition — it proves PocketBa
 
 ---
 
-## Phase 1 — Own the accounts `[TODO]`
+## Phase 1 — Own the accounts `[IN PROGRESS]`
 
 - `[TODO]` **Fly:** re-authenticate as the personal account and add a payment method to the `personal` org.
   ```sh
@@ -69,11 +71,11 @@ The absence of the superuser prompt is the pass condition — it proves PocketBa
   ```
   The **$29/month Standard support plan is optional** and opt-in. The 30-day trial expires on its own; you are only charged if you click "Upgrade Now" in the Support portal. Compute is the real cost: shared-cpu-1x 512MB ≈ $3.19/mo plus a 3GB volume ≈ $0.45/mo. Verify any minimum-spend floor on the billing page.
   When Fly offers **"Launch from GitHub"** vs **"Launch from your machine"**, choose *from your machine*. Build-on-push would deploy before secrets are set, booting PocketBase against an empty volume with no encryption key and initialising a blank database.
-- `[TODO]` **Cloudflare:** re-authenticate wrangler to the personal account.
+- `[DONE]` **Cloudflare:** re-authenticated wrangler to the personal account.
   ```sh
   npx wrangler logout && npx wrangler login && npx wrangler whoami
   ```
-  Record the personal account ID — it gets pinned in `wrangler.toml` in Phase 4.
+  Personal account ID: `a92a6db0c65c8a9fc0bd0b2ce3da4276` — confirmed distinct from Supernaut AI (`9fbbb5bb3e99b38d7821047385434fd9`).
 
 ---
 
@@ -124,27 +126,41 @@ Nothing user-facing has moved yet — the live frontend still points at the old 
 
 ---
 
-## Phase 4 — New frontend on Cloudflare `[TODO]`
+## Phase 4 — New frontend on Cloudflare `[IN PROGRESS]`
 
 Detour's Worker has **no `main`** — only `[assets]`, serving `public/` (Vite's `outDir`) with SPA fallback. No server code executes, so static-asset requests are free and unlimited on both Free and Paid plans. **This costs $0.** The $5/mo plan buys CPU time for Workers that run code; yours doesn't. Custom domains work on Free.
 
-- `[TODO]` Pin the account and rename in `wrangler.toml`:
+- `[DONE]` Created `wrangler.personal.toml` rather than editing `wrangler.toml`, so **both stacks stay deployable** during the migration:
   ```toml
   name = "detour-web"
-  account_id = "<personal-account-id>"
+  account_id = "a92a6db0c65c8a9fc0bd0b2ce3da4276"
+  compatibility_date = "2026-06-22"
+
+  [assets]
+  directory = "./public"
+  not_found_handling = "single-page-application"
   ```
-  Pinning means a stale login errors out instead of silently deploying into the wrong account.
-- `[TODO]` Claim the account's workers.dev subdomain (one-time, dashboard: Workers & Pages). Each Worker then gets `detour-web.<subdomain>.workers.dev` — a real HTTPS URL with no DNS setup, for clicking through before the apex moves.
-- `[TODO]` Deploy while `src/pocketbase.ts` still points at the **old** backend:
+  Pinning `account_id` means a stale login errors out instead of silently deploying into the wrong account. There is deliberately **no `routes` block** — the Worker is reachable only at workers.dev and cannot affect `takedetour.app`.
+  The `[build]` block from `wrangler.toml` was deliberately **not** carried over — see gotchas.
+- `[DONE]` workers.dev subdomain: `omaslova87.workers.dev` (was already claimed on the account).
+- `[DONE]` Deployed while the frontend still points at the **old** backend:
   ```sh
-  npm run build && npx wrangler deploy
+  npm run build
+  CI=1 npx wrangler deploy -c wrangler.personal.toml
   ```
-  This isolates one variable — it proves the Worker deploy works before the backend moves. PocketBase's `--origins` defaults to `*`, so cross-origin calls succeed. Note `[build]` runs `npm ci`, which reinstalls `node_modules`.
-- `[TODO]` Repoint the API host — `src/pocketbase.ts:3`:
+  Live at **https://detour-web.omaslova87.workers.dev** — 200, bundle targeting `sn-pb-repo-1297566350-a88d3c.fly.dev`, backend healthy. This isolates one variable: the Worker deploy is proven correct before the backend moves. PocketBase's `--origins` defaults to `*`, so cross-origin calls succeed.
+  Note the workers.dev build reflects the **working tree**, not what is on takedetour.app. Commit or stash for a like-for-like comparison.
+- `[DONE]` Added `.env.production` pinning the API host. Vite loads `.env.local` during production builds, so the first deploy baked `127.0.0.1:8090` into the bundle. Verified empirically that `.env.production` takes precedence over `.env.local`.
+- `[TODO]` Repoint the API host once Phase 3 resolves. **Two places, not one:**
+  ```sh
+  # .env.production
+  VITE_POCKETBASE_URL=https://api.takedetour.app
+  ```
   ```ts
+  // src/pocketbase.ts:3 — the fallback when no env file is present (e.g. Cloudflare-side builds)
   const defaultPocketBaseUrl = "https://api.takedetour.app";
   ```
-  Only after Phase 3 resolves. Doing it earlier means any rebuild ships a broken API URL.
+  Changing only `pocketbase.ts` is not enough: `.env.production` overrides it. Changing either one early means a rebuild ships a broken API URL.
 - `[TODO]` Rebuild, redeploy, and exercise the workers.dev URL against the new backend: load the map, open a city, check images, submit a survey, sign in.
 
 ---
@@ -212,6 +228,19 @@ For this migration, yes — the Dockerfile and `fly.toml` already run production
 - **Interactive zsh does not treat `#` as a comment.** Trailing explanations become arguments, and a `#` note containing a glob (e.g. `pbc_*`) aborts the whole command via `nomatch`.
 - **The public API surfaces less than the database holds** — 9 `community_recommendations` rows, 3 returned by `/api/detour/public-recommendations`, because of curation filtering. A backup that looks "bigger" than production is correct.
 
+### Building and deploying the frontend locally
+
+Every step of this migration builds on a laptop. Production has always built on Cloudflare's machines, so these only appear now.
+
+- **`.env.local` poisons production builds.** Vite loads `.env.local` in *all* modes, including `vite build`. It sets `VITE_POCKETBASE_URL=http://127.0.0.1:8090`, which silently overrides the default in `src/pocketbase.ts` — the first workers.dev deploy shipped a bundle pointing at localhost. Cloudflare-side builds never saw this because the file is gitignored and absent there. `.env.production` (committed) now wins over it. **Always verify what the build actually baked in:**
+  ```sh
+  grep -ohE "sn-pb-repo-[a-z0-9-]+\.fly\.dev|api\.takedetour\.app|127\.0\.0\.1:8090" public/assets/*.js | sort -u
+  ```
+- **Do not put `npm ci` in a `[build]` block for local deploys.** `npm ci` deletes `node_modules` while wrangler is running *from* `node_modules`. The first attempt hung silently for eight minutes. Build separately, then deploy.
+- **`npm ci` replaces a pnpm-installed `node_modules`.** The repo carries both `package-lock.json` and `pnpm-lock.yaml`. If you work in pnpm, run `pnpm install` afterwards.
+- **`wrangler deploy` blocks on a first-run telemetry prompt** in a non-interactive shell, producing no output at all. Use `CI=1` (and `WRANGLER_SEND_METRICS=false`) for scripted runs.
+- **Cloudflare caches 404s at the edge.** Requesting an asset before propagation completes caches the miss for minutes. Append `?cb=1` to distinguish a stale 404 from a real one.
+
 ## Verified reference values (2026-07-31)
 
 ```
@@ -221,6 +250,10 @@ superusers 1 · members 1 · venues 9 · cities 5 · recommendations 9
 venues by city: Paris 3 · Madrid 2 · San Francisco 2 · Annecy 1 · Bilbao 1
 old app:      sn-pb-repo-1297566350-a88d3c   (fly org supernaut-ai, fra)
 old volume:   vol_4y8ek35d3j2oq29r           (3GB, encrypted)
-old worker:   supernaut-managed-frontend     (cf account Supernaut AI)
+old worker:   supernaut-managed-frontend     (cf account Supernaut AI, 9fbbb5bb3e99b38d7821047385434fd9)
 domain:       takedetour.app  ·  Cloudflare Registrar  ·  registered 2026-07-21
+
+new cf acct:  a92a6db0c65c8a9fc0bd0b2ce3da4276   subdomain omaslova87.workers.dev
+new worker:   detour-web  ·  https://detour-web.omaslova87.workers.dev  (no routes — workers.dev only)
+new fly app:  detour-api  (not yet created)
 ```

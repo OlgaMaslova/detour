@@ -1216,6 +1216,10 @@ function trustedVenueCard(v: Venue): string {
   return `<li>${groupedRecommendationCardMarkup(recommendations, resolveNetworkPlace, {
     trustedEntry: true,
     selected,
+    // The venue's own signal, so this card, the map preview and the place page
+    // it opens all stamp the same figure — the notes gathered above are only
+    // the ones this member may read, which can be fewer.
+    signalCounts: venueSignalCounts(v),
   })}</li>`;
 }
 

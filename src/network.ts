@@ -1,4 +1,5 @@
 import { apiBaseUrl, pb } from './pocketbase';
+import { detouristSignalBadge, type SignalCounts } from './signal';
 
 type DiscoveryStatus = 'idle' | 'loading' | 'ready' | 'error';
 type PublicRecommendationStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -723,7 +724,8 @@ function recommendationCardMarkup(
     note?: string;
     created?: string;
     bylineHtml: string;
-    recommendationCount?: number;
+    /** The signal badge, already rendered by the caller from its own counts. */
+    signalHtml?: string;
     foundingChoice?: boolean;
     recent?: boolean;
     trustedEntry?: boolean;
@@ -763,11 +765,17 @@ function recommendationCardMarkup(
           <h3>${title}</h3>
           ${whereabouts ? `<p class="network-place-meta">${esc(whereabouts)}</p>` : ''}
           ${
-            view.foundingChoice
-              ? '<p class="network-place-recommendation-count"><span aria-hidden="true">★</span> Founder’s choice</p>'
-              : view.recommendationCount && view.recommendationCount > 1
-                ? `<p class="network-place-recommendation-count">${view.recommendationCount} members recommend</p>`
-                : ''
+            // The same signal row the place page carries, in the same order: the
+            // stamped badge states the count, and the founder chip rides beside
+            // it rather than replacing it. A card and the page it opens must not
+            // state the count two different ways — the badge is the one form.
+            view.signalHtml || view.foundingChoice
+              ? `<div class="place-signal-row network-place-signal">${view.signalHtml || ''}${
+                  view.foundingChoice
+                    ? '<span class="place-founding-star" title="Recommended by a founding member"><span aria-hidden="true">★</span> Founder’s choice</span>'
+                    : ''
+                }</div>`
+              : ''
           }
         </div>
         ${view.recent ? '<p class="network-entry-recent">New<span class="visually-hidden"> in the last 24 hours</span></p>' : ''}
@@ -830,20 +838,57 @@ function groupRecommendations(
 export function groupedRecommendationCardMarkup(
   items: DiscoveryRecommendation[],
   resolvePlace?: NetworkPlaceResolver,
-  options: { trustedEntry?: boolean; selected?: boolean; markRecent?: boolean } = {}
+  options: {
+    trustedEntry?: boolean;
+    selected?: boolean;
+    markRecent?: boolean;
+    /**
+     * The place's aggregate signal, when the caller holds it. The destination
+     * list does: a venue carries server-side totals that can exceed the notes
+     * this member is allowed to read, and the badge must never claim fewer
+     * recommenders than the reader can already count on the page it links to.
+     * Without it the counts are derived from the group itself.
+     *
+     * `null` suppresses the badge: the circle panel lists one member's own notes
+     * one card apiece, so a stamped "1" there would state a place-level count
+     * the panel is not gathering — it knows only what this member wrote.
+     */
+    signalCounts?: Partial<SignalCounts> | null;
+  } = {}
 ): string {
   const fronting = [...items].sort(frontingOrder)[0];
   if (!fronting) return '';
-  const memberLabels = items
-    .map((item) => {
-      if (item.is_own) return '<strong class="network-pseudo">You</strong>';
-      return item.recommender_pseudo?.trim() ? pseudo(item.recommender_pseudo) : '';
-    })
-    .filter(Boolean);
-  const bylineHtml =
-    memberLabels.length <= 2
-      ? memberLabels.join('<span aria-hidden="true"> + </span>')
-      : `${memberLabels[0]}<span> + ${memberLabels.length - 1} others</span>`;
+  // The byline names the author of the note quoted above it — nobody else. A
+  // combined byline read as though both members wrote the one note, and the
+  // date beside it belongs to the fronting recommendation alone. The count of
+  // other recommenders is already stated by the badge in the card header, and
+  // the place page carries every note with its own author.
+  const bylineHtml = fronting.is_own
+    ? '<strong class="network-pseudo">You</strong>'
+    : fronting.recommender_pseudo?.trim()
+      ? pseudo(fronting.recommender_pseudo)
+      : '';
+  // Every card states its own count, so a one-member place is not left with a
+  // blank where its neighbour carries a badge. Only attributed recommendations
+  // are counted: the destination list synthesises a placeholder entry for a
+  // place whose notes the member cannot read, and that entry must not be
+  // counted as a member the card is unable to name.
+  const attributed = items.filter((item) => item.is_own || Boolean(item.recommender_pseudo?.trim()));
+  // Derived counts split by the reason each recommendation is readable here, the
+  // same split signal.ts words: the graph put them in reach, or the founding
+  // tier did. A founding member who is also an inviter counts as circle, which
+  // is the narrower claim of the two.
+  const derived: SignalCounts = {
+    total: attributed.length,
+    circle: attributed.filter((item) => item.is_own || item.in_graph).length,
+    founders: attributed.filter((item) => !item.is_own && !item.in_graph && item.founding_member).length,
+    own: attributed.some((item) => item.is_own),
+  };
+  const counts = options.signalCounts === null ? { total: 0 } : (options.signalCounts ?? derived);
+  // No count at all means the card has nothing to stamp — the badge's own
+  // dashed "nothing recorded" form belongs to surfaces that must hold the slot,
+  // not to a list card that can simply omit the row.
+  const signalHtml = (counts.total ?? 0) > 0 ? detouristSignalBadge(counts, 'plate') : '';
   return recommendationCardMarkup(
     {
       venueName: fronting.venue_name || 'Recommended food-and-drink destination',
@@ -852,7 +897,7 @@ export function groupedRecommendationCardMarkup(
       note: fronting.note,
       created: fronting.created,
       bylineHtml,
-      recommendationCount: items.length,
+      signalHtml,
       foundingChoice: items.some((item) => item.founding_member),
       // Only the home feed states a 24-hour count, so only it asks for badges.
       recent: options.markRecent ? isRecent(fronting) : false,

@@ -1205,6 +1205,11 @@ routerAdd(
         places: placeCounts[row.member_id] || 0,
         cities: (citiesByMember[row.member_id] || []).slice(0, 8),
         latest: latestByMember[row.member_id] || null,
+        // Whether this person's places reach the whole app rather than only the
+        // circles they belong to. The drawing colours nodes by it, so it has to
+        // travel with the person; deriving it on the client is impossible — the
+        // rule is a fact about the Founder's invitations, which no client can see.
+        founding_member: Boolean(row.founding_member),
       };
     }
 
@@ -1212,6 +1217,7 @@ routerAdd(
       return arrayOf(
         new DynamicModel({
           member_id: "",
+          founding_member: false,
           display_name: "",
           pseudo: "",
           home_city: "",
@@ -1225,7 +1231,8 @@ routerAdd(
     e.app
       .db()
       .newQuery(
-        "SELECT m.id AS member_id, m.display_name, m.pseudo, m.home_city " +
+        "SELECT m.id AS member_id, m.display_name, m.pseudo, m.home_city, " +
+          "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member " +
           "FROM members m JOIN members caller ON caller.invited_by = m.id " +
           "WHERE caller.id = {:caller} AND " + realMember("m") + " LIMIT 1"
       )
@@ -1236,7 +1243,8 @@ routerAdd(
     e.app
       .db()
       .newQuery(
-        "SELECT m.id AS member_id, m.display_name, m.pseudo, m.home_city " +
+        "SELECT m.id AS member_id, m.display_name, m.pseudo, m.home_city, " +
+          "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member " +
           "FROM members m WHERE m.invited_by = {:caller} AND m.id != {:caller} " +
           "AND " + realMember("m") + " " +
           "ORDER BY COALESCE(m.joined_at, '') ASC, m.id ASC LIMIT 500"
@@ -1253,6 +1261,7 @@ routerAdd(
     const secondDegreeRows = arrayOf(
       new DynamicModel({
         member_id: "",
+        founding_member: false,
         display_name: "",
         pseudo: "",
         home_city: "",
@@ -1264,6 +1273,7 @@ routerAdd(
       .db()
       .newQuery(
         "SELECT m.id AS member_id, m.display_name, m.pseudo, m.home_city, " +
+          "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
           "CASE WHEN TRIM(COALESCE(c.pseudo, '')) != '' THEN c.pseudo ELSE c.display_name END AS connector, " +
           "c.id AS connector_id " +
           "FROM members m JOIN members c ON c.id = m.invited_by " +
@@ -1283,7 +1293,8 @@ routerAdd(
     e.app
       .db()
       .newQuery(
-        "SELECT m.id AS member_id, m.display_name, m.pseudo, m.home_city FROM members m " +
+        "SELECT m.id AS member_id, m.display_name, m.pseudo, m.home_city, " +
+          "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member FROM members m " +
           "WHERE " + founding.foundingMemberSql("m") + " " +
           "AND " + realMember("m") + " " +
           "ORDER BY COALESCE(m.joined_at, '') ASC, m.id ASC LIMIT 100"
