@@ -44,7 +44,7 @@ jobs:
             exit 1
           fi
           if grep -qh "sn-pb-repo-[a-z0-9-]*\.fly\.dev" public/assets/*.js; then
-            echo "::error::Bundle still references the decommissioned Supernaut backend"
+            echo "::error::Bundle still references the decommissioned managed backend host"
             exit 1
           fi
 
@@ -83,7 +83,7 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "No usable diff base — deploying to be safe."
           elif git diff --name-only "$base" "${{ github.sha }}" \
-               | grep -qE '^(pb_hooks/|pb_migrations/|pb_public/|Dockerfile\.supernaut-pocketbase$|fly\.toml$)'; then
+               | grep -qE '^(pb_hooks/|pb_migrations/|pb_public/|Dockerfile$|fly\.toml$)'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"

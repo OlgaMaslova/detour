@@ -2,7 +2,7 @@ app = "takedetour-api"
 primary_region = "fra"
 
 [build]
-  dockerfile = "Dockerfile.supernaut-pocketbase"
+  dockerfile = "Dockerfile"
 
 [mounts]
   source = "pb_data"

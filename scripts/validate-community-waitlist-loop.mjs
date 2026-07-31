@@ -79,7 +79,7 @@ async function waitForReady(serverLogs) {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     try {
-      const result = await request("/api/supernaut/ready", { expected: 200 });
+      const result = await request("/api/detour/ready", { expected: 200 });
       if (result.data?.ok === true) return;
     } catch {
       // Server is still applying migrations or binding its socket.

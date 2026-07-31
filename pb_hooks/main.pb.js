@@ -1,9 +1,5 @@
 /// <reference path="../pb_data/types.d.ts" />
 
-routerAdd("GET", "/api/supernaut/ready", (event) => {
-  return event.json(200, { ok: true });
-});
-
 // Survey submissions are accepted only through this server-side route: the
 // backing collection has no public CRUD rules. The questions, their options,
 // and their limits come from pb_hooks/survey_forms.json — the same file the
@@ -155,16 +151,11 @@ routerAdd("POST", "/api/detour/survey/{form}", (e) => {
 });
 
 // The route above persists through the normal record lifecycle, so this one
-// after-create hook delivers exactly one dashboard event per saved response.
-// The message is built from the form config, so a new survey is readable in the
-// dashboard without touching this hook.
+// after-create hook delivers exactly one notification per saved response. The
+// message is built from the form config, so a new survey is readable without
+// touching this hook.
 onRecordAfterCreateSuccess((e) => {
   try {
-    const eventsUrl = $os.getenv("SUPERNAUT_EVENTS_URL");
-    if (!eventsUrl) {
-      throw new Error("SUPERNAUT_EVENTS_URL is not configured.");
-    }
-
     const config = require(__hooks + "/survey_forms.json");
     // Require the formatter inside this callback. PocketBase invokes hook
     // callbacks in an isolated VM, so a module-scope helper would not exist here.
@@ -193,35 +184,21 @@ onRecordAfterCreateSuccess((e) => {
     e.record.unmarshalJSONField("answers", answers);
     const report = buildSurveyResponseReport(config, formId, version, answers);
 
-    const response = $http.send({
-      url: eventsUrl,
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event: "detour.survey_response.created",
-        subject: "New Detour survey response: " + formId,
-        text: report,
-      }),
-      timeout: 5,
+    require(__hooks + "/mailer.js").notifyOps(e.app, {
+      subject: "New Detour survey response: " + formId,
+      text: report,
     });
-    if (!response || response.statusCode < 200 || response.statusCode >= 300) {
-      throw new Error(
-        "Dashboard events endpoint returned HTTP " +
-          (response && response.statusCode ? response.statusCode : "unknown") +
-          "."
-      );
-    }
   } catch (error) {
     try {
       e.app.logger().error(
-        "Detour survey-response event delivery failed.",
+        "Detour survey-response notification failed.",
         "responseId",
         e.record.id,
         "error",
         String(error)
       );
     } catch {
-      // Logging must not turn best-effort dashboard delivery into a failed save.
+      // Logging must not turn best-effort notification into a failed save.
     }
   }
 
@@ -1611,67 +1588,29 @@ onRecordAfterCreateSuccess((e) => {
   // read with no derived set to rebuild and no cache to invalidate.
 
   try {
-    function escapeHtml(value) {
-      return String(value || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/\"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-    }
-
-    const apiKey = $os.getenv("AGENTMAIL_API_KEY");
-    const inboxId = $os.getenv("AGENTMAIL_INBOX_ID");
-    if (!apiKey || !inboxId) {
-      throw new Error("AgentMail runtime configuration is missing.");
-    }
-
-    const recipient = e.record.getString("email").trim();
-    if (!recipient) {
-      throw new Error("The new member record has no email address.");
-    }
+    const mailer = require(__hooks + "/mailer.js");
     const displayName = e.record.getString("display_name").trim() || "there";
     const firstPlaceUrl = "https://takedetour.app";
-    const response = $http.send({
-      url:
-        "https://api.agentmail.to/v0/inboxes/" +
-        encodeURIComponent(inboxId) +
-        "/messages/send",
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        to: recipient,
-        subject: "Welcome to Detour",
-        text:
-          "Hello " +
-          displayName +
-          ",\n\nWelcome to Detour — a private circle sharing exceptional food-and-drink places.\n\nAdd your first place: " +
-          firstPlaceUrl +
-          "\n\nYou received this email because you joined Detour.",
-        html:
-          "<p>Hello " +
-          escapeHtml(displayName) +
-          ",</p>" +
-          "<p>Welcome to Detour — a private circle sharing exceptional food-and-drink places.</p>" +
-          '<p><a href="' +
-          firstPlaceUrl +
-          '">Add your first place</a></p>' +
-          "<p>You received this email because you joined Detour.</p>",
-        labels: ["app"],
-      }),
-      timeout: 10,
-    });
 
-    if (!response || response.statusCode < 200 || response.statusCode >= 300) {
-      throw new Error(
-        "AgentMail returned HTTP " +
-          (response && response.statusCode ? response.statusCode : "unknown") +
-          "."
-      );
-    }
+    mailer.sendMail(e.app, {
+      to: e.record.getString("email"),
+      subject: "Welcome to Detour",
+      text:
+        "Hello " +
+        displayName +
+        ",\n\nWelcome to Detour — a private circle sharing exceptional food-and-drink places.\n\nAdd your first place: " +
+        firstPlaceUrl +
+        "\n\nYou received this email because you joined Detour.",
+      html:
+        "<p>Hello " +
+        mailer.escapeHtml(displayName) +
+        ",</p>" +
+        "<p>Welcome to Detour — a private circle sharing exceptional food-and-drink places.</p>" +
+        '<p><a href="' +
+        firstPlaceUrl +
+        '">Add your first place</a></p>' +
+        "<p>You received this email because you joined Detour.</p>",
+    });
   } catch (error) {
     try {
       e.app.logger().error(
@@ -1688,48 +1627,30 @@ onRecordAfterCreateSuccess((e) => {
     }
   }
 
-  // Only invitation-backed public signups reach the dashboard. Reserved
-  // internal fixtures and superuser-created records remain quiet.
+  // Only invitation-backed public signups are reported. Reserved internal
+  // fixtures and superuser-created records remain quiet.
   if (inviteId && !e.record.getBool("internal_member")) {
     try {
-      const eventsUrl = $os.getenv("SUPERNAUT_EVENTS_URL");
-      if (!eventsUrl) {
-        throw new Error("SUPERNAUT_EVENTS_URL is not configured.");
-      }
-
       const displayName = e.record.getString("display_name").trim();
       const pseudo = e.record.getString("pseudo").trim();
       const memberLabel =
         (displayName || "A new member") + (pseudo ? " (@" + pseudo + ")" : "");
-      const response = $http.send({
-        url: eventsUrl,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "detour.member.created",
-          subject: "New Detour member",
-          text: memberLabel + " joined Detour.",
-        }),
-        timeout: 5,
+
+      require(__hooks + "/mailer.js").notifyOps(e.app, {
+        subject: "New Detour member",
+        text: memberLabel + " joined Detour.",
       });
-      if (!response || response.statusCode < 200 || response.statusCode >= 300) {
-        throw new Error(
-          "Dashboard events endpoint returned HTTP " +
-            (response && response.statusCode ? response.statusCode : "unknown") +
-            "."
-        );
-      }
     } catch (error) {
       try {
         e.app.logger().error(
-          "Detour member event delivery failed.",
+          "Detour member notification failed.",
           "memberId",
           e.record.id,
           "error",
           String(error)
         );
       } catch {
-        // Logging must not turn best-effort dashboard delivery into a signup failure.
+        // Logging must not turn a best-effort notification into a signup failure.
       }
     }
   }
@@ -1997,60 +1918,27 @@ onRecordAfterCreateSuccess((e) => {
 
   if (publicationNotification) {
     try {
-      function escapeHtml(value) {
-        return String(value || "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/\"/g, "&quot;")
-          .replace(/'/g, "&#39;");
-      }
-
-      const apiKey = $os.getenv("AGENTMAIL_API_KEY");
-      const inboxId = $os.getenv("AGENTMAIL_INBOX_ID");
-      if (!apiKey || !inboxId) {
-        throw new Error("AgentMail runtime configuration is missing.");
-      }
-
+      const mailer = require(__hooks + "/mailer.js");
       const siteUrl = "https://takedetour.app";
-      const response = $http.send({
-        url:
-          "https://api.agentmail.to/v0/inboxes/" +
-          encodeURIComponent(inboxId) +
-          "/messages/send",
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + apiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          to: publicationNotification.recipient,
-          subject: publicationNotification.placeName + " is on Detour",
-          text:
-            "Good call — " +
-            publicationNotification.placeName +
-            " is now on Detour.\n\nSee it: " +
-            siteUrl +
-            "\n\nYou received this because your recommendation put this place on Detour.",
-          html:
-            "<p>Good call — <strong>" +
-            escapeHtml(publicationNotification.placeName) +
-            "</strong> is now on Detour.</p>" +
-            '<p><a href="' +
-            siteUrl +
-            '">See it on Detour</a></p>' +
-            "<p>You received this because your recommendation put this place on Detour.</p>",
-          labels: ["app"],
-        }),
-        timeout: 10,
+
+      mailer.sendMail(e.app, {
+        to: publicationNotification.recipient,
+        subject: publicationNotification.placeName + " is on Detour",
+        text:
+          "Good call — " +
+          publicationNotification.placeName +
+          " is now on Detour.\n\nSee it: " +
+          siteUrl +
+          "\n\nYou received this because your recommendation put this place on Detour.",
+        html:
+          "<p>Good call — <strong>" +
+          mailer.escapeHtml(publicationNotification.placeName) +
+          "</strong> is now on Detour.</p>" +
+          '<p><a href="' +
+          siteUrl +
+          '">See it on Detour</a></p>' +
+          "<p>You received this because your recommendation put this place on Detour.</p>",
       });
-      if (!response || response.statusCode < 200 || response.statusCode >= 300) {
-        throw new Error(
-          "AgentMail returned HTTP " +
-            (response && response.statusCode ? response.statusCode : "unknown") +
-            "."
-        );
-      }
     } catch (error) {
       try {
         e.app.logger().error(
@@ -2070,37 +1958,19 @@ onRecordAfterCreateSuccess((e) => {
     }
 
     try {
-      const eventsUrl = $os.getenv("SUPERNAUT_EVENTS_URL");
-      if (!eventsUrl) {
-        throw new Error("SUPERNAUT_EVENTS_URL is not configured.");
-      }
-      const response = $http.send({
-        url: eventsUrl,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "detour.place.published",
-          subject: "Detour place published",
-          text:
-            publicationNotification.placeName +
-            (publicationNotification.city
-              ? " in " + publicationNotification.city
-              : "") +
-            " is now on Detour.",
-        }),
-        timeout: 5,
+      require(__hooks + "/mailer.js").notifyOps(e.app, {
+        subject: "Detour place published",
+        text:
+          publicationNotification.placeName +
+          (publicationNotification.city
+            ? " in " + publicationNotification.city
+            : "") +
+          " is now on Detour.",
       });
-      if (!response || response.statusCode < 200 || response.statusCode >= 300) {
-        throw new Error(
-          "Dashboard events endpoint returned HTTP " +
-            (response && response.statusCode ? response.statusCode : "unknown") +
-            "."
-        );
-      }
     } catch (error) {
       try {
         e.app.logger().error(
-          "Detour publication event delivery failed.",
+          "Detour publication notification failed.",
           "recommendationId",
           e.record.id,
           "waitlistId",
@@ -2109,7 +1979,7 @@ onRecordAfterCreateSuccess((e) => {
           String(error)
         );
       } catch {
-        // Dashboard delivery is best-effort after the durable marker is claimed.
+        // Notification is best-effort after the durable marker is claimed.
       }
     }
   }
@@ -2118,11 +1988,6 @@ onRecordAfterCreateSuccess((e) => {
     const memberId = e.record.getString("member");
     const author = e.app.findRecordById("members", memberId);
     if (!author.getBool("internal_member")) {
-      const eventsUrl = $os.getenv("SUPERNAUT_EVENTS_URL");
-      if (!eventsUrl) {
-        throw new Error("SUPERNAUT_EVENTS_URL is not configured.");
-      }
-
       const displayName = author.getString("display_name").trim();
       const pseudo = author.getString("pseudo").trim();
       const memberLabel =
@@ -2130,34 +1995,21 @@ onRecordAfterCreateSuccess((e) => {
         (pseudo ? " (@" + pseudo + ")" : "");
       const placeName = e.record.getString("venue_name").trim() || "a place";
       const city = e.record.getString("city").trim();
-      const response = $http.send({
-        url: eventsUrl,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "detour.community_recommendation.created",
-          subject: "New Detour recommendation",
-          text:
-            memberLabel +
-            " recommended " +
-            placeName +
-            (city ? " in " + city : "") +
-            ".",
-        }),
-        timeout: 5,
+
+      require(__hooks + "/mailer.js").notifyOps(e.app, {
+        subject: "New Detour recommendation",
+        text:
+          memberLabel +
+          " recommended " +
+          placeName +
+          (city ? " in " + city : "") +
+          ".",
       });
-      if (!response || response.statusCode < 200 || response.statusCode >= 300) {
-        throw new Error(
-          "Dashboard events endpoint returned HTTP " +
-            (response && response.statusCode ? response.statusCode : "unknown") +
-            "."
-        );
-      }
     }
   } catch (error) {
     try {
       e.app.logger().error(
-        "Detour recommendation event delivery failed.",
+        "Detour recommendation notification failed.",
         "recommendationId",
         e.record.id,
         "error",
@@ -2170,14 +2022,6 @@ onRecordAfterCreateSuccess((e) => {
 
   e.next();
 }, "community_recommendations");
-
-// Daily production launch-number rollup at 05:15 UTC. The shared helper owns
-// fixture exclusion, zero-activity suppression, delivery, and best-effort
-// failure logging; requiring it inside the callback is required by the hook VM.
-cronAdd("detour_daily_launch_numbers", "15 5 * * *", () => {
-  const launchMetrics = require(__hooks + "/launch_metrics.js");
-  launchMetrics.emitLaunchNumbers($app);
-});
 
 // The work-list every enrichment sweep runs over: published, un-suppressed
 // places, newest first.
@@ -2202,6 +2046,15 @@ function publishedVenuesForSweep(limit) {
     return [];
   }
 }
+
+// Daily launch-number rollup at 05:15 UTC, emailed to DETOUR_REPORTS_EMAIL. The
+// shared helper owns fixture exclusion, zero-activity suppression, delivery, and
+// best-effort failure logging; requiring it inside the callback is required by
+// the hook VM.
+cronAdd("detour_daily_launch_numbers", "15 5 * * *", () => {
+  const launchMetrics = require(__hooks + "/launch_metrics.js");
+  launchMetrics.emitLaunchNumbers($app);
+});
 
 // Nightly retry for published community venues that still lack verified
 // coordinates (geocoder outage, no-match addresses corrected later, …).

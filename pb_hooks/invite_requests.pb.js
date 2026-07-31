@@ -168,34 +168,16 @@ onRecordAfterCreateSuccess((e) => {
   }
 
   try {
-    const eventsUrl = $os.getenv("SUPERNAUT_EVENTS_URL");
-    if (!eventsUrl) {
-      throw new Error("SUPERNAUT_EVENTS_URL is not configured.");
-    }
-
     const name = e.record.getString("name").trim() || "Not provided";
     const city = e.record.getString("city").trim() || "Not provided";
     const reason = e.record.getString("why").trim() || "Not provided";
-    const response = $http.send({
-      url: eventsUrl,
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event: "detour.invite_request.created",
-        subject: "New Detour invite request",
-        text: "Name: " + name + "\nCity: " + city + "\nReason: " + reason,
-      }),
-      timeout: 5,
+
+    require(__hooks + "/mailer.js").notifyOps(e.app, {
+      subject: "New Detour invite request",
+      text: "Name: " + name + "\nCity: " + city + "\nReason: " + reason,
     });
-    if (!response || response.statusCode < 200 || response.statusCode >= 300) {
-      throw new Error(
-        "Dashboard events endpoint returned HTTP " +
-          (response && response.statusCode ? response.statusCode : "unknown") +
-          "."
-      );
-    }
   } catch (error) {
-    logFailure("Detour invite-request event delivery failed.", error);
+    logFailure("Detour invite-request notification failed.", error);
   }
 
   const recipient = e.record.getString("email").trim().toLowerCase();
@@ -203,62 +185,29 @@ onRecordAfterCreateSuccess((e) => {
   const reservedInvalidRecipient = /(^|\.)invalid$/.test(recipientDomain);
 
   // RFC 2606 .invalid addresses are used for smoke tests and can never receive
-  // mail. Suppressing them here guarantees no AgentMail request is attempted.
+  // mail. Suppressing them here guarantees no send is attempted.
   if (!reservedInvalidRecipient) {
     try {
-      function escapeHtml(value) {
-        return String(value || "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/\"/g, "&quot;")
-          .replace(/'/g, "&#39;");
-      }
-
-      const apiKey = $os.getenv("AGENTMAIL_API_KEY");
-      const inboxId = $os.getenv("AGENTMAIL_INBOX_ID");
-      if (!apiKey || !inboxId) {
-        throw new Error("AgentMail runtime configuration is missing.");
-      }
-
+      const mailer = require(__hooks + "/mailer.js");
       const name = e.record.getString("name").trim();
       const greeting = name ? "Hello " + name + "," : "Hello,";
       const siteUrl = "https://takedetour.app";
-      const response = $http.send({
-        url:
-          "https://api.agentmail.to/v0/inboxes/" +
-          encodeURIComponent(inboxId) +
-          "/messages/send",
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + apiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          to: recipient,
-          subject: "We received your Detour request",
-          text:
-            greeting +
-            "\n\nThanks for your interest in Detour. The team will reply personally.\n\n" +
-            siteUrl,
-          html:
-            "<p>" +
-            escapeHtml(greeting) +
-            "</p><p>Thanks for your interest in Detour. The team will reply personally.</p>" +
-            '<p><a href="' +
-            siteUrl +
-            '">Visit Detour</a></p>',
-          labels: ["app"],
-        }),
-        timeout: 10,
+
+      mailer.sendMail(e.app, {
+        to: recipient,
+        subject: "We received your Detour request",
+        text:
+          greeting +
+          "\n\nThanks for your interest in Detour. The team will reply personally.\n\n" +
+          siteUrl,
+        html:
+          "<p>" +
+          mailer.escapeHtml(greeting) +
+          "</p><p>Thanks for your interest in Detour. The team will reply personally.</p>" +
+          '<p><a href="' +
+          siteUrl +
+          '">Visit Detour</a></p>',
       });
-      if (!response || response.statusCode < 200 || response.statusCode >= 300) {
-        throw new Error(
-          "AgentMail returned HTTP " +
-            (response && response.statusCode ? response.statusCode : "unknown") +
-            "."
-        );
-      }
     } catch (error) {
       logFailure("Detour invite-request confirmation email failed.", error);
     }

@@ -180,29 +180,10 @@ function emitLaunchNumbers(app) {
       return { sent: false, reason: "no_period_activity", metrics: metrics };
     }
 
-    const eventsUrl = $os.getenv("SUPERNAUT_EVENTS_URL");
-    if (!eventsUrl) {
-      throw new Error("SUPERNAUT_EVENTS_URL is not configured.");
-    }
-
-    const response = $http.send({
-      url: eventsUrl,
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event: "detour.launch.numbers",
-        subject: "Detour launch numbers — last 24h",
-        text: formatLaunchNumbers(metrics),
-      }),
-      timeout: 5,
+    require(__hooks + "/mailer.js").notifyOps(app, {
+      subject: "Detour launch numbers — last 24h",
+      text: formatLaunchNumbers(metrics),
     });
-    if (!response || response.statusCode < 200 || response.statusCode >= 300) {
-      throw new Error(
-        "Dashboard events endpoint returned HTTP " +
-          (response && response.statusCode ? response.statusCode : "unknown") +
-          "."
-      );
-    }
 
     return { sent: true, metrics: metrics };
   } catch (error) {

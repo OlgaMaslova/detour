@@ -28,10 +28,8 @@
 //   visit_evidence               private proof a member actually went
 //   founding_feedback_responses  the founding-member survey
 //
-// Platform-managed collections (`supernaut_payments_settings`,
-// `supernaut_products`, `supernaut_customers`, `supernaut_subscriptions`,
-// `supernaut_payments`) are deliberately absent: the Supernaut platform
-// provisions and maintains those, and app migrations must never touch them.
+// This list is the whole inventory. Detour has no payments and no
+// externally-provisioned collections; verified against production 2026-07-31.
 //
 // Idempotent by construction. `importCollections(…, false)` creates what is
 // missing and updates what exists without deleting anything unlisted, so this is
@@ -2801,8 +2799,10 @@ migrate((app) => {
     }
   ];
 
-  // deleteMissing: false — never drop a collection this file does not list. The
-  // platform-managed supernaut_* collections live in the same database.
+  // deleteMissing: false — never drop a collection this file does not list.
+  // Nothing unlisted is expected in production, but a destructive import is the
+  // wrong way to find that out: it would take PocketBase's own system tables and
+  // anything created by hand in the admin UI with it.
   app.importCollections(collections, false);
 
   // PocketBase provisions its own default `users` auth collection on every clean
