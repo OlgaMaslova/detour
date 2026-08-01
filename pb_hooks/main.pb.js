@@ -1599,29 +1599,7 @@ onRecordAfterCreateSuccess((e) => {
   // read with no derived set to rebuild and no cache to invalidate.
 
   try {
-    const mailer = require(__hooks + "/mailer.js");
-    const displayName = e.record.getString("display_name").trim() || "there";
-    const firstPlaceUrl = "https://takedetour.app";
-
-    mailer.sendMail(e.app, {
-      to: e.record.getString("email"),
-      subject: "Welcome to Detour",
-      text:
-        "Hello " +
-        displayName +
-        ",\n\nWelcome to Detour — a private circle sharing exceptional food-and-drink places.\n\nAdd your first place: " +
-        firstPlaceUrl +
-        "\n\nYou received this email because you joined Detour.",
-      html:
-        "<p>Hello " +
-        mailer.escapeHtml(displayName) +
-        ",</p>" +
-        "<p>Welcome to Detour — a private circle sharing exceptional food-and-drink places.</p>" +
-        '<p><a href="' +
-        firstPlaceUrl +
-        '">Add your first place</a></p>' +
-        "<p>You received this email because you joined Detour.</p>",
-    });
+    require(__hooks + "/member_welcome.js").sendWelcomeEmail(e.app, e.record);
   } catch (error) {
     try {
       e.app.logger().error(
@@ -3129,6 +3107,38 @@ onRecordCreateRequest((e) => {
   e.record.set("curator_note", "");
   e.next();
 }, "detour_submissions");
+
+// Re-send the welcome email a member never received. Signup attempts it exactly
+// once and swallows the failure, so a relay that was down or misconfigured at
+// that moment loses the message for good; this is how it is recovered.
+//
+// Unlike the signup path this reports the delivery error instead of logging it,
+// because a curator running it needs to know whether it actually went out. The
+// route sends unconditionally rather than tracking a "welcomed" flag: it is
+// operated by hand for a known member, and a duplicate welcome is a far smaller
+// problem than a refusal to re-send after an ambiguous first attempt.
+routerAdd(
+  "POST",
+  "/api/detour/curation/members/{id}/welcome-email",
+  (e) => {
+    const member = e.app.findRecordById("members", e.request.pathValue("id"));
+    const recipient = member.getString("email").trim();
+    if (!recipient) {
+      throw new BadRequestError("This member has no email address.");
+    }
+
+    try {
+      require(__hooks + "/member_welcome.js").sendWelcomeEmail(e.app, member);
+    } catch (error) {
+      throw new BadRequestError(
+        "The welcome email could not be sent: " + String(error)
+      );
+    }
+
+    return e.json(200, { member_id: member.id, sent_to: recipient });
+  },
+  $apis.requireSuperuserAuth()
+);
 
 // Olga and other authorized curators can retain the historic founding-cohort
 // marker. Invitation redemption remains the membership requirement, so this
