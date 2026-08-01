@@ -10,6 +10,7 @@ import {
   bindCommunity,
   communityControl,
   communityPanel,
+  ensureMemberFlags,
   openEditRecommendation,
   openMemberArea,
   openRecommendPlace,
@@ -1485,8 +1486,8 @@ function syncDocumentMeta(destinationName: string | null, account = false, place
           ? `${place.name} in ${place.city}${place.category ? ` — ${place.category}` : ''}: why Detour members recommend it, what they wrote about it, where it is, and how to get there.`
           : destinationName
             ? destinationHasOccasions()
-              ? `Browse member-recommended Detourist List places in ${destinationName} by occasion, from celebrations to quick local stops.`
-              : `Explore member-recommended Detourist List places in ${destinationName}, with practical details and a map for planning your next detour.`
+              ? `Browse member-recommended places in ${destinationName} by occasion, from celebrations to quick local stops.`
+              : `Explore member-recommended places in ${destinationName}, with practical details and a map for planning your next detour.`
             : GLOBAL_META_DESCRIPTION
     );
   }
@@ -2329,7 +2330,7 @@ function renderHowItWorks(root: HTMLElement): void {
 
         <details class="how-faq-item">
           <summary>Can I send one place to one person?</summary>
-          <p>Yes. Find the member by their handle and <a href="${esc(accountHref())}" data-community-route="share-place">share it privately</a> with a note only they see. A share is not a recommendation: it changes no figure, and it does not put the place on their list.</p>
+          <p>Yes. Find the member by their pseudo and <a href="${esc(accountHref())}" data-community-route="share-place">share it privately</a> with a note only they see. A share is not a recommendation: it changes no figure, and it does not put the place on their list.</p>
         </details>
 
         <details class="how-faq-item">
@@ -2406,6 +2407,10 @@ function renderHome(root: HTMLElement): void {
 }
 
 function render(root: HTMLElement) {
+  // Every view carries the member menu, and Curation only belongs in it for a
+  // founding member — so the standing behind that decision is read once for the
+  // session here, rather than only when the member area happens to be opened.
+  void ensureMemberFlags(() => render(root));
   // Mixtape design scope: every view tags itself so styles.css can target
   // views individually; the theme attribute rides along app-wide.
   applyTapeTheme();

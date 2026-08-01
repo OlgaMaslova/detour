@@ -330,6 +330,11 @@ routerAdd(
     // remaining founding circle is not a fact the rest of the membership reads
     // off their own invitations tab.
     const canGrantFounding = founding.canGrantFounding(e.app, e.auth);
+    // Attendance is recorded on the way past: this is the one authenticated call
+    // every surface already makes once per document load, so it is where a visit
+    // becomes a fact without new client plumbing.
+    const sessions = require(__hooks + "/member_sessions.js");
+    const session = sessions.touchMemberSession(e.app, e.auth);
     const imageCurationCount = foundingMember
       ? e.app.findRecordsByFilter(
           "community_place_images",
@@ -352,6 +357,10 @@ routerAdd(
           ? founding.foundingSeatsRemaining(e.app)
           : null,
         image_curation_count: imageCurationCount,
+        // Attendance, computed: the stored timestamps stay server-side.
+        visit_count: session.visit_count,
+        days_away: session.days_away,
+        new_session: session.new_session,
       },
     });
   },

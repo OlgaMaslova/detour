@@ -1,8 +1,14 @@
 # Frontend design conventions
 
 Current visual and route decisions for the Detour frontend (`src/main.ts`,
-`src/community.ts`, and `src/styles.css`). Last revised 2026-07-19. When a
+`src/community.ts`, and `src/styles.css`). Last revised 2026-08-01. When a
 decision here changes, update this file in the same change.
+
+**There is no "Detourist List".** The name was dropped from all user-facing copy
+on 2026-08-01; no UI string, meta description, or API error message may
+reintroduce it. Say "member recommendations", "the list", or just describe a
+place as live. "Detourist" survives only as the member noun ("Recommended by 3
+Detourists") and in internal identifiers (`detouristCount`, `detouristList`).
 
 ## Layout and surfaces
 
@@ -158,7 +164,7 @@ buttons.
   need two active endorsements from verified members. Verified members also see
   their active outgoing allowance out of three.
 - A meaningful recommendation from a verified member creates or updates a
-  matching entry and publishes the place immediately on the Detourist List. The
+  matching entry and publishes the place immediately. The
   UI refreshes both the member history and public catalogue, highlights the
   recommendation card, and lets the member open that specific published place
   in discovery. Additional distinct member recommendations are social proof

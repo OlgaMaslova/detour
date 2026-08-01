@@ -236,7 +236,7 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
     <article class="place-page">
       <header class="place-hero">
         <div class="place-hero-copy">
-          <p class="place-overline">${h.esc(`${chrome.destinationName} · The Detourist List`)}</p>
+          <p class="place-overline">${h.esc(`${chrome.destinationName}`)}</p>
           <h1 id="place-title" tabindex="-1">${h.esc(v.name)}</h1>
           <div class="place-hero-details">
             ${meta ? `<p class="place-meta">${h.esc(meta)}</p>` : ''}

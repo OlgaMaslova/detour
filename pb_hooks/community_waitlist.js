@@ -441,7 +441,7 @@ function createOrResolveEntry(app, input) {
     if (intent === "ask") {
       // Message only. The facts come from GET /api/detour/place-identity,
       // because an ApiError's data is rewritten into a validation-error map.
-      throw new ApiError(409, "That place is already on the Detourist List.");
+      throw new ApiError(409, "That place is already on the list.");
     }
     if (intent === "distinct") {
       // The qualifier the member gave is taken too, so it does not distinguish
@@ -449,7 +449,7 @@ function createOrResolveEntry(app, input) {
       // theirs was not.
       throw new ApiError(
         409,
-        "A place with that name and street is already on the Detourist List."
+        "A place with that name and street is already on the list."
       );
     }
     return { entry: fillEntryGaps(app, existing, place), created: false };
@@ -488,7 +488,7 @@ function createOrResolveEntry(app, input) {
     if (intent === "ask" || intent === "distinct") {
       throw new ApiError(
         409,
-        "That place reached the Detourist List a moment before yours."
+        "That place reached the list a moment before yours."
       );
     }
     return { entry: fillEntryGaps(app, concurrent, place), created: false };

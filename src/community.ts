@@ -260,6 +260,21 @@ let visibilityPending: boolean | null = null;
 let memberRefreshed = false;
 let refreshingMember = false;
 let foundingMember = false;
+// The member's own standing belongs to the session, not to the member area: the
+// masthead menu on every surface asks whether this member curates, so the answer
+// is fetched once as soon as a session is present and held until sign-out.
+// Without it, a place page loaded cold built its menu from the initial `false`
+// and dropped Curation from it.
+let memberFlagsLoaded = false;
+let memberFlagsRequest: Promise<void> | null = null;
+// This member's attendance, as the server counts it: sessions since Detour
+// started counting, whole days since the previous visit, and whether this
+// document load is what opened the current session. Read once with the flags
+// above, so it stays fixed for the session rather than shifting under a surface
+// mid-visit — anything keyed to the count wants exactly that.
+let memberVisitCount = 0;
+let memberDaysAway: number | null = null;
+let memberNewSession = false;
 // Whether this member may offer one of the fifty founding seats with an
 // invitation. The Founder alone, as the server decides it — every other member's
 // invitations are ordinary, and they are never shown the choice.
@@ -850,7 +865,7 @@ function waitlistRow(entry: WaitlistEntry): string {
       ? ''
       : '<p class="community-queue-context">Not available to open in discovery yet.</p>'
     : rec
-      ? '<p class="community-queue-context">Your recommendation is saved, but this place is not live on the Detourist List yet.</p>'
+      ? '<p class="community-queue-context">Your recommendation is saved, but this place is not live yet.</p>'
       : '<p class="community-queue-context">This entry has no recommendation note, so it is not publishable yet.</p>';
   return `<li class="community-queue-row${highlighted ? ' is-highlighted' : ''}" id="waitlist-${esc(entry.id)}" tabindex="-1">
     <details class="community-queue-entry">
@@ -925,8 +940,8 @@ function collisionMarkup(pending: PendingCollision): string {
     </div>
     <p class="community-collision-copy">${
       collision.published
-        ? 'This place is already on the Detourist List. If it is the one you mean, your note joins the others on its page.'
-        : 'This place is already on the Detourist List. If it is the one you mean, your note joins it.'
+        ? 'This place is already on the list. If it is the one you mean, your note joins the others on its page.'
+        : 'This place is already on the list. If it is the one you mean, your note joins it.'
     }</p>
     ${answer}
   </div>`;
@@ -1031,7 +1046,7 @@ function recommendationPanel(): string {
               <p>${
                 draft
                   ? 'You are recommending this exact place. Add your own note; its existing details stay attached.'
-                  : `As a verified member, you can recommend a restaurant, café, bar, or other food-and-drink destination anywhere in the world. It joins the Detourist List for ${
+                  : `As a verified member, you can recommend a restaurant, café, bar, or other food-and-drink destination anywhere in the world. It becomes visible to ${
                       foundingMember ? 'every member of Detour' : 'the members whose circles you appear in'
                     }.`
               }</p>
@@ -1261,7 +1276,7 @@ function coverlessMarkup(): string {
       <h4 id="community-coverless-title">Places with no photo</h4>
       ${coverlessLoaded && !loadingCoverless && count ? `<p class="community-queue-count">${count} ${count === 1 ? 'place' : 'places'}</p>` : ''}
     </div>
-    <p class="community-form-note">Live on the Detourist List with neither a found cover nor a member's photo. They show a monogram until one arrives.</p>
+    <p class="community-form-note">Live with neither a found cover nor a member's photo. They show a monogram until one arrives.</p>
     ${
       loadingCoverless || !coverlessLoaded
         ? '<p class="community-loading" role="status">Loading…</p>'
@@ -1583,6 +1598,14 @@ function resetCommunityState(): void {
   memberRefreshed = false;
   refreshingMember = false;
   foundingMember = false;
+  // A new session reads its own standing; the in-flight request for the previous
+  // one is abandoned rather than allowed to answer for this member.
+  memberFlagsLoaded = false;
+  memberFlagsRequest = null;
+  // Attendance belongs to the member who was signed in, never to the next one.
+  memberVisitCount = 0;
+  memberDaysAway = null;
+  memberNewSession = false;
   canGrantFounding = false;
   foundingSeatsRemaining = null;
   inviteGrantsFounding = false;
@@ -1633,45 +1656,107 @@ async function loadCommunity(render: () => void): Promise<void> {
   render();
 }
 
+/**
+ * Read this member's standing once per session: founding status, the invitation
+ * allowance, and the depth of the curation queue. Every masthead calls this, so
+ * it is safe to call on any render — the answer is fetched at most once, and a
+ * failed read leaves the flags untouched so a later surface can try again.
+ */
+export function ensureMemberFlags(render: () => void): Promise<void> {
+  const signedInAs = member()?.id;
+  if (!signedInAs || memberFlagsLoaded) return Promise.resolve();
+  if (!memberFlagsRequest) {
+    const request = loadMemberFlags(signedInAs, render).finally(() => {
+      // A sign-out mid-flight has already cleared the handle on behalf of the
+      // next session, so only the current request retires itself.
+      if (memberFlagsRequest === request) memberFlagsRequest = null;
+    });
+    memberFlagsRequest = request;
+  }
+  return memberFlagsRequest;
+}
+
+/**
+ * This member's attendance for the current session: how many visits the server
+ * has counted, how many whole days they were away beforehand (null when that is
+ * unknown — a first visit, or a ping that failed), and whether this document load
+ * opened the session.
+ *
+ * `visits` is the stable one, fixed for as long as the session lasts, so a
+ * surface that rotates something per return should key on it. `isNewSession` is
+ * true only on the load that opened the visit, which makes it the signal for a
+ * moment that should happen once rather than on every page.
+ *
+ * Zeroes until `ensureMemberFlags` has answered, so a caller reading it on the
+ * first frame sees "no visits counted yet", not a wrong number.
+ */
+export function memberSession(): { visits: number; daysAway: number | null; isNewSession: boolean } {
+  return { visits: memberVisitCount, daysAway: memberDaysAway, isNewSession: memberNewSession };
+}
+
+async function loadMemberFlags(signedInAs: string, render: () => void): Promise<void> {
+  const me = await pb
+    .send<{
+      member?: {
+        invitation_limit?: unknown;
+        founding_member?: unknown;
+        can_grant_founding?: unknown;
+        founding_seats_remaining?: unknown;
+        image_curation_count?: unknown;
+        visit_count?: unknown;
+        days_away?: unknown;
+        new_session?: unknown;
+      };
+    }>('/api/detour/community/me', { requestKey: null })
+    .catch(() => null);
+  // A read that failed states nothing: the flags keep their current values and
+  // stay open to a retry. A session that changed hands while the read was in
+  // flight is answered for by its own request, never by this one.
+  if (!me || member()?.id !== signedInAs) return;
+  const wasFounding = foundingMember;
+  const reported = Number(me.member?.invitation_limit);
+  // A backend without the field, or a nonsense value, leaves the baseline in
+  // place rather than granting or removing an allowance the server did not state.
+  invitationLimit =
+    Number.isFinite(reported) && reported >= BASELINE_INVITATION_LIMIT
+      ? Math.floor(reported)
+      : BASELINE_INVITATION_LIMIT;
+  foundingMember = me.member?.founding_member === true;
+  canGrantFounding = me.member?.can_grant_founding === true;
+  // A backend that does not report the figure leaves it unknown rather than
+  // zero: the toggle stays offerable, and the server is the one that decides
+  // whether a redeemed invitation actually finds a seat.
+  const seats = Number(me.member?.founding_seats_remaining);
+  foundingSeatsRemaining = canGrantFounding && Number.isFinite(seats) ? Math.max(0, Math.floor(seats)) : null;
+  if (!canGrantFounding) inviteGrantsFounding = false;
+  imageCurationCount = foundingMember ? cleanCount(me.member?.image_curation_count) : 0;
+  if (!foundingMember && memberTab === 'curation') memberTab = 'settings';
+  memberVisitCount = cleanCount(me.member?.visit_count);
+  // A gap the server could not measure — a first visit, or a failed ping — stays
+  // unknown rather than becoming a confident zero days.
+  const away = Number(me.member?.days_away);
+  memberDaysAway = Number.isFinite(away) && away >= 0 ? Math.floor(away) : null;
+  memberNewSession = me.member?.new_session === true;
+  memberFlagsLoaded = true;
+  // Outside the member area, the founding markers change exactly one thing —
+  // whether Curation sits in the masthead menu — so only a member who curates
+  // costs a redraw. The member area renders on its own loaders regardless, and
+  // an ordinary member's home map is left alone.
+  if (foundingMember !== wasFounding) render();
+}
+
 async function loadInvites(render: () => void): Promise<void> {
   if (!member() || loadingInvites) return;
   loadingInvites = true;
   render();
   try {
     // The allowance travels with the invitations it governs, so the count and
-    // the limit it is measured against are always read in the same pass.
-    const [list, me] = await Promise.all([
+    // the limit it is measured against are still read in the same pass.
+    const [list] = await Promise.all([
       pb.collection('invites').getFullList<InviteRecord>({ sort: '-created', requestKey: null }),
-      pb
-        .send<{
-          member?: {
-            invitation_limit?: unknown;
-            founding_member?: unknown;
-            can_grant_founding?: unknown;
-            founding_seats_remaining?: unknown;
-            image_curation_count?: unknown;
-          };
-        }>('/api/detour/community/me', { requestKey: null })
-        .catch(() => null),
+      ensureMemberFlags(render),
     ]);
     invites = list;
-    const reported = Number(me?.member?.invitation_limit);
-    // A backend without the field, or a nonsense value, leaves the baseline in
-    // place rather than granting or removing an allowance the server did not state.
-    invitationLimit =
-      Number.isFinite(reported) && reported >= BASELINE_INVITATION_LIMIT
-        ? Math.floor(reported)
-        : BASELINE_INVITATION_LIMIT;
-    foundingMember = me?.member?.founding_member === true;
-    canGrantFounding = me?.member?.can_grant_founding === true;
-    // A backend that does not report the figure leaves it unknown rather than
-    // zero: the toggle stays offerable, and the server is the one that decides
-    // whether a redeemed invitation actually finds a seat.
-    const seats = Number(me?.member?.founding_seats_remaining);
-    foundingSeatsRemaining = canGrantFounding && Number.isFinite(seats) ? Math.max(0, Math.floor(seats)) : null;
-    if (!canGrantFounding) inviteGrantsFounding = false;
-    imageCurationCount = foundingMember ? cleanCount(me?.member?.image_curation_count) : 0;
-    if (!foundingMember && memberTab === 'curation') memberTab = 'settings';
     invitesLoaded = true;
   } catch (error) {
     notice = { kind: 'error', text: readableError(error, 'Your invitations could not be loaded. Please try again.') };
@@ -2573,7 +2658,7 @@ export function bindCommunity(
       await Promise.all([loadCommunity(render), catalogueRefresh]);
       const createdEntry = waitlistEntries.find((entry) => entry.id === highlightedWaitlistId);
       notice = createdEntry?.status === 'published'
-        ? { kind: 'success', text: 'Your recommendation is live on the Detourist List.' }
+        ? { kind: 'success', text: 'Your recommendation is live.' }
         : createdEntry
           ? { kind: 'info', text: 'Your recommendation is saved. Its line shows whether the place is live.' }
           : notice;
