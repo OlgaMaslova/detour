@@ -6,15 +6,16 @@
  * with any of it. This route is the alternative — one thing per screen, in the
  * order a new member actually does them:
  *
- *   1. who you are          pseudo and city, two fields
- *   2. one question         the place you keep going back to
- *   3. got another?         up to three, easy to stop after one
- *   4. the feed             where their own card is now waiting
+ *   1. one question         the place you keep going back to
+ *   2. got another?         up to three, easy to stop after one
+ *   3. the feed             where their own card is now waiting
  *
- * Step 1 creates the account, because the account cannot exist without it: the
- * server requires a pseudo and a home city on every public signup. The email and
- * password were taken on the invitation card before this route opened and are
- * held in `pendingJoin` until this screen has the other two halves.
+ * The account is not one of those screens. Every value the server requires on a
+ * public signup — email, password, invitation code, pseudo, home city — is asked
+ * for together on the invitation card, which creates the account and signs the
+ * member in before this route opens. Splitting them over two screens only meant
+ * one form could not be submitted without the other's answers; see the join
+ * handler in src/community.ts.
  *
  * The place step is the ordinary recommendation path, not a private copy of it:
  * the same `community_recommendations` create, the same place-identity question
@@ -29,14 +30,7 @@ import { meaningfulRecommendation, placeCollisionFor } from './community';
 import type { PlaceCollision } from './community';
 import type { Venue } from './data';
 
-/** Held from the invitation card until the pseudo-and-city screen can spend it. */
-interface PendingJoin {
-  email: string;
-  password: string;
-  inviteCode: string;
-}
-
-type Step = 'identity' | 'place' | 'same-place' | 'saved';
+type Step = 'place' | 'same-place' | 'saved';
 
 interface Notice {
   kind: 'error' | 'info';
@@ -57,14 +51,13 @@ interface Callbacks {
   render: () => void;
   /** Leaves onboarding for the signed-in feed. */
   onFinished: () => void;
-  /** Back to the account route — the invitation card, when a join could not complete. */
-  onAccount: () => void;
   onPlaceContributed: () => void;
   refreshCatalogue: () => Promise<Venue[]>;
 }
 
-let pendingJoin: PendingJoin | null = null;
-let step: Step = 'identity';
+let step: Step = 'place';
+/** Set by the first `openOnboarding` of an arrival, so later ones leave it alone. */
+let opened = false;
 let submitting = false;
 let notice: Notice | null = null;
 let placesAdded = 0;
@@ -77,7 +70,7 @@ let lastPlaceName = '';
  * re-renders the whole app. Values that live only in the DOM would be wiped
  * mid-sentence.
  */
-const draft = { pseudo: '', city: '', name: '', note: '' };
+const draft = { city: '', name: '', note: '' };
 /** The place already on the list that the typed name and city turned out to be. */
 let collision: PlaceCollision | null = null;
 /** Set once the member says theirs is a different place and is asked which. */
@@ -93,21 +86,6 @@ function esc(value: string | undefined | null): string {
     .replace(/"/g, '&quot;');
 }
 
-/**
- * The same normalization the server applies in pb_hooks/member_profile.js:
- * decompose accents away, drop the leading @, lowercase. Applying it here means
- * "Café-Anna" is accepted rather than refused for characters the server would
- * have folded anyway.
- */
-function normalizePseudo(raw: string): string {
-  return raw
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-    .replace(/^@+/, '')
-    .toLowerCase();
-}
-
 function readableError(error: unknown, fallback: string): string {
   if (error && typeof error === 'object') {
     const response = (error as { response?: { message?: string; data?: Record<string, { message?: string }> } }).response;
@@ -120,52 +98,33 @@ function readableError(error: unknown, fallback: string): string {
   return fallback;
 }
 
-/** True while this route has something to show: a held invitation, or a session. */
+/** True while this route has something to show, which now means: a session. */
 export function onboardingOpen(): boolean {
-  return Boolean(pendingJoin) || pb.authStore.isValid;
+  return pb.authStore.isValid;
 }
 
 /**
- * Takes the invitation card's answers and opens the flow at the pseudo-and-city
- * screen. Nothing is sent yet — the account is created when that screen is
- * answered, since the server requires all four values at once.
- */
-export function beginOnboarding(join: PendingJoin): void {
-  pendingJoin = join;
-  step = 'identity';
-  submitting = false;
-  notice = null;
-  placesAdded = 0;
-  lastPlaceName = '';
-  draft.pseudo = '';
-  draft.city = '';
-  draft.name = '';
-  draft.note = '';
-  collision = null;
-  distinguishing = false;
-  focusedStep = '';
-}
-
-/**
- * Opens the flow for a member who already has an account — someone who left
- * before adding a place, or who followed the route in directly. The identity step
- * is behind them by definition, so it is skipped.
+ * Opens the flow at its first place, for anyone with an account: someone who has
+ * just joined on the invitation card, someone who left before adding a place, or
+ * someone who followed the route in directly. There is no account step to skip —
+ * the card behind this one created it.
  *
  * Idempotent, because the route is applied more than once for one arrival: the
  * boot sequence re-applies it when the catalogue lands. Only a flow that has not
- * started yet is moved, so a member already part-way through is left where they
+ * opened yet is moved, so a member already part-way through is left where they
  * are.
  */
-export function resumeOnboarding(): void {
-  if (pendingJoin || step !== 'identity') return;
+export function openOnboarding(): void {
+  if (opened) return;
+  opened = true;
   step = 'place';
   submitting = false;
   notice = null;
   collision = null;
   distinguishing = false;
   // The city they live in is the likeliest city of the place they keep going back
-  // to, so it starts there — for a returning member it comes off their record,
-  // and for someone who just joined it is still what they typed two screens ago.
+  // to, so it starts there — off their own record, which for someone who has just
+  // joined holds the city they typed on the card.
   if (!draft.city) {
     const home = pb.authStore.record?.home_city;
     draft.city = typeof home === 'string' ? home : '';
@@ -173,13 +132,12 @@ export function resumeOnboarding(): void {
 }
 
 export function resetOnboarding(): void {
-  pendingJoin = null;
-  step = 'identity';
+  step = 'place';
+  opened = false;
   submitting = false;
   notice = null;
   placesAdded = 0;
   lastPlaceName = '';
-  draft.pseudo = '';
   draft.city = '';
   draft.name = '';
   draft.note = '';
@@ -225,36 +183,11 @@ function matchCatalogue(typed: string, venues: Venue[]): Venue | null {
   return byName.length === 1 ? byName[0] : null;
 }
 
-function identityMarkup(): string {
-  return `<section class="welcome-question" aria-labelledby="welcome-title">
-    <p class="welcome-kicker">Your invitation</p>
-    <h1 id="welcome-title" tabindex="-1">Two things, and you're in.</h1>
-    <p class="welcome-lead">Your pseudo is your name on Detour. Your city is where the circle sees you recommending from.</p>
-    ${noticeMarkup()}
-    <form class="welcome-form" data-welcome-identity novalidate>
-      <label>Your pseudo
-        <input name="pseudo" value="${esc(draft.pseudo)}" autocomplete="off" spellcheck="false" minlength="3" maxlength="30"
-          pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens"
-          required placeholder="detour-anna" ${submitting ? 'disabled' : ''}>
-      </label>
-      <label>Where you live
-        <input name="home_city" value="${esc(draft.city)}" autocomplete="address-level2" minlength="2" maxlength="120"
-          required placeholder="San Francisco" ${submitting ? 'disabled' : ''}>
-      </label>
-      <div class="welcome-actions">
-        <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${
-          submitting ? 'Joining…' : 'Join Detour'
-        }</button>
-      </div>
-    </form>
-  </section>`;
-}
-
 function placeMarkup(venues: Venue[]): string {
   const first = placesAdded === 0;
   const listId = 'welcome-catalogue';
   return `<section class="welcome-question" aria-labelledby="welcome-title">
-    <p class="welcome-kicker">${first ? 'Your first place' : `Place ${placesAdded + 1} of ${MAX_PLACES}`}</p>
+    <p class="welcome-kicker">${first ? 'Last step' : `Place ${placesAdded + 1} of ${MAX_PLACES}`}</p>
     <h1 id="welcome-title" tabindex="-1">Where do you keep going back to?</h1>
     <p class="welcome-lead">The place where you already know what to order.</p>
     ${noticeMarkup()}
@@ -274,7 +207,7 @@ function placeMarkup(venues: Venue[]): string {
             submitting ? 'disabled' : ''
           }>${esc(draft.note)}</textarea>
       </label>
-      <p class="welcome-note">Nobody reviews this. Your note and your name go on the place's page as soon as you send it.</p>
+      <p class="welcome-note">Nobody reviews this. Your circle reads it in their feed, and it sits on the place's own page for whoever opens it. Your note and your name go up as soon as you send it.</p>
       <div class="welcome-actions">
         <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${
           submitting ? 'Adding…' : 'Add this place'
@@ -367,18 +300,12 @@ function savedMarkup(): string {
 
 export function onboardingMarkup(venues: Venue[]): string {
   const body =
-    step === 'identity'
-      ? identityMarkup()
-      : step === 'place'
-        ? placeMarkup(venues)
-        : step === 'same-place'
-          ? samePlaceMarkup()
-          : savedMarkup();
+    step === 'place' ? placeMarkup(venues) : step === 'same-place' ? samePlaceMarkup() : savedMarkup();
   return `<main class="welcome-layout" data-welcome-step="${step}">${body}</main>`;
 }
 
 export function bindOnboarding(root: HTMLElement, venues: Venue[], callbacks: Callbacks): void {
-  const { render, onFinished, onAccount, onPlaceContributed, refreshCatalogue } = callbacks;
+  const { render, onFinished, onPlaceContributed, refreshCatalogue } = callbacks;
 
   // Focus lands on the step's own heading, once per step: `autofocus` does not
   // fire on markup that was injected rather than parsed, and re-focusing on every
@@ -392,11 +319,10 @@ export function bindOnboarding(root: HTMLElement, venues: Venue[], callbacks: Ca
 
   // Typed values survive a render this route did not ask for — see `draft`.
   root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
-    '[data-welcome-identity] input, [data-welcome-place] input, [data-welcome-place] textarea'
+    '[data-welcome-place] input, [data-welcome-place] textarea'
   ).forEach((field) => {
     field.addEventListener('input', () => {
-      if (field.name === 'pseudo') draft.pseudo = field.value;
-      else if (field.name === 'home_city' || field.name === 'city') draft.city = field.value;
+      if (field.name === 'city') draft.city = field.value;
       else if (field.name === 'venue_name') draft.name = field.value;
       else if (field.name === 'note') draft.note = field.value;
     });
@@ -456,86 +382,6 @@ export function bindOnboarding(root: HTMLElement, venues: Venue[], callbacks: Ca
       render();
     }
   };
-
-  root.querySelector<HTMLFormElement>('[data-welcome-identity]')?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const join = pendingJoin;
-    if (!join || submitting) return;
-    const values = new FormData(event.currentTarget as HTMLFormElement);
-    const pseudo = normalizePseudo(String(values.get('pseudo') || ''));
-    const city = String(values.get('home_city') || '').trim();
-    draft.pseudo = pseudo;
-    draft.city = city;
-    if (pseudo.length < 3) {
-      notice = { kind: 'error', text: 'Pick a pseudo of at least three characters.' };
-      render();
-      return;
-    }
-    // The form is `novalidate`, so the input's `pattern` never runs and only the
-    // length was ever checked here. A pseudo with a space, dot or underscore
-    // therefore reached the server and came back a 400 — inside a catch that
-    // also handles a spent invitation, so the refusal read as an invitation
-    // problem. Applying the server's own rule states the real one instead.
-    if (!/^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/.test(pseudo)) {
-      notice = {
-        kind: 'error',
-        text: 'A pseudo is letters, digits and hyphens only — no spaces — starting and ending with a letter or digit.',
-      };
-      render();
-      return;
-    }
-    // `required` lets a space through, and the city is asked for real.
-    if (city.length < 2) {
-      notice = { kind: 'error', text: 'Tell us the city you live in.' };
-      render();
-      return;
-    }
-    submitting = true;
-    notice = null;
-    render();
-    try {
-      await pb.collection('members').create({
-        pseudo,
-        email: join.email,
-        password: join.password,
-        passwordConfirm: join.password,
-        home_city: city,
-        invite_code: join.inviteCode,
-      });
-    } catch (error) {
-      // The invitation is only spent here, so this is also where an invalid or
-      // already-claimed code surfaces — after the pseudo rather than before it.
-      // Saying which of the four values the server refused is the whole of the
-      // recovery: everything else on this screen can be corrected in place.
-      submitting = false;
-      notice = {
-        kind: 'error',
-        text: readableError(
-          error,
-          'That invitation could not be accepted. Check the code on your invitation and try again.'
-        ),
-      };
-      render();
-      return;
-    }
-    try {
-      await pb.collection('members').authWithPassword(join.email, join.password);
-      pendingJoin = null;
-      submitting = false;
-      step = 'place';
-      // The city they live in is the likeliest city of the place they keep going
-      // back to, so it carries into the next screen as a starting point.
-      draft.name = '';
-      draft.note = '';
-      render();
-    } catch {
-      // The account exists; only the session does not. Sending them to the
-      // invitation card's sign-in tab is the shortest way to one.
-      pendingJoin = null;
-      submitting = false;
-      onAccount();
-    }
-  });
 
   root.querySelector<HTMLFormElement>('[data-welcome-place]')?.addEventListener('submit', async (event) => {
     event.preventDefault();

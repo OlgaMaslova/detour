@@ -94,6 +94,61 @@
           { "key": "discoveryFriction", "summaryLabel": "Friction" }
         ]
       }
+    },
+    "friends": {
+      "3": {
+        "questions": [
+          { "key": "explainBack", "summaryLabel": "What they think it is" },
+          {
+            "key": "wouldOpenIt",
+            "summaryLabel": "Would open it",
+            "options": [
+              { "value": "yes", "label": "Yes, genuinely" },
+              { "value": "shrug", "label": "Shrug — maybe" },
+              { "value": "no", "label": "No" }
+            ]
+          },
+          {
+            "key": "easierAlternative",
+            "summaryLabel": "Easier than Detour",
+            "options": [
+              { "value": "easier-to-search", "label": "Yes — I’d just search or Google it" },
+              { "value": "easier-group-chat", "label": "Yes — I’d ask a group chat" },
+              { "value": "detour-easier", "label": "Not sure yet, Detour might be actually easier" }
+            ]
+          },
+          {
+            "key": "usageFrequency",
+            "summaryLabel": "How often",
+            "options": [
+              { "value": "weekly", "label": "Weekly" },
+              { "value": "few-times-year", "label": "A few times a year" },
+              { "value": "only-travelling", "label": "Only when travelling" },
+              { "value": "never", "label": "Never" }
+            ]
+          },
+          {
+            "key": "addedPlace",
+            "summaryLabel": "Added a place",
+            "options": [
+              { "value": "yes", "label": "Yes" },
+              { "value": "no", "label": "Not yet" }
+            ]
+          },
+          {
+            "key": "notAddedReason",
+            "summaryLabel": "Why not",
+            "options": [
+              { "value": "forgot", "label": "Forgot" },
+              { "value": "unsure-what-counts", "label": "Wasn’t sure what counts" },
+              { "value": "nobody-would-see", "label": "Didn’t think anyone would see it" },
+              { "value": "just-life", "label": "Just life" }
+            ]
+          },
+          { "key": "confusingOrPointless", "summaryLabel": "Confusing or pointless" },
+          { "key": "placeWorthTheTrip", "summaryLabel": "Keeps going back to" }
+        ]
+      }
     }
   },
   "questionSets": {
@@ -235,14 +290,14 @@
       }
     },
     "friends": {
-      "version": 3,
+      "version": 4,
       "audience": "member",
       "source": "friends_survey",
       "pageTitle": "A few questions for friends — Detour",
-      "pageDescription": "A few blunt questions for the handful of people already in Detour, about whether it actually works.",
+      "pageDescription": "A few blunt questions for the first people already in Detour, about whether it actually works.",
       "kicker": "For friends",
       "title": "Be blunt with me.",
-      "intro": "Hey — you’re one of about five people in Detour right now, which makes you the only person who can tell me whether it actually works. A few things, and be properly blunt. I’d rather find out what’s wrong now than after I’ve built more of it.",
+      "intro": "Hey — besides me there are two of you in Detour right now, which makes you one of the only people who can tell me whether it actually works. A few things, and be properly blunt. I’d rather find out what’s wrong now than after I’ve built more of it.",
       "privacyNote": "You’re signed in, so I’ll know it’s you.",
       "submitNote": "Reply honestly — that’s the whole ask.",
       "submitLabel": "Send it over",
@@ -306,32 +361,33 @@
             },
             {
               "value": "detour-easier",
-              "label": "Not sure yet, Detour might be actually easier"
+              "label": "No — I’d rather open Detour"
             }
           ]
         },
         {
-          "key": "usageFrequency",
+          "key": "newPlacesLastMonth",
           "kind": "single",
-          "summaryLabel": "How often",
-          "prompt": "How often could you imagine actually using it?",
+          "summaryLabel": "New places last month",
+          "prompt": "In the last month, how many times did you go somewhere new to eat or drink?",
+          "note": "Not how often you’d use Detour — how often the occasion actually came up.",
           "error": "Pick whichever is closest.",
           "options": [
             {
-              "value": "weekly",
-              "label": "Weekly"
+              "value": "several-week",
+              "label": "Most weeks, more than once"
             },
             {
-              "value": "few-times-year",
-              "label": "A few times a year"
+              "value": "about-weekly",
+              "label": "About once a week"
             },
             {
-              "value": "only-travelling",
-              "label": "Only when travelling"
+              "value": "once-or-twice",
+              "label": "Once or twice all month"
             },
             {
-              "value": "never",
-              "label": "Never"
+              "value": "not-at-all",
+              "label": "Not at all"
             }
           ]
         },
@@ -373,6 +429,10 @@
             {
               "value": "unsure-what-counts",
               "label": "Wasn’t sure what counts"
+            },
+            {
+              "value": "form-too-much",
+              "label": "Started, but it asked for too much"
             },
             {
               "value": "nobody-would-see",

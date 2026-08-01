@@ -255,11 +255,6 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
                 },
                 'plate'
               )}
-              ${
-                v.foundingRecommended
-                  ? '<span class="place-founding-star" title="Recommended by a founding member"><span aria-hidden="true">★</span> Founder’s choice</span>'
-                  : ''
-              }
             </div>
           </div>
         </div>

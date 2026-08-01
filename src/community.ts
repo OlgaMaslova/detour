@@ -207,6 +207,20 @@ const CATEGORY_OPTIONS = [
 
 let mode: CommunityMode = 'sign-in';
 let invitationCodePrefill = '';
+/**
+ * What has been typed into the invitation card.
+ *
+ * The card asks for everything the server needs to write the account — the join
+ * happens here now rather than over two screens — and any one of the five values
+ * can come back refused: a code already claimed, a pseudo already taken. Every
+ * refusal renders a notice, and a render rebuilds the panel's markup, so values
+ * held only in the DOM would be wiped by the very message asking the member to
+ * correct one of them.
+ *
+ * The password rides along for the same reason, but is refilled by bindCommunity
+ * rather than written into the markup, so it never becomes a value attribute.
+ */
+const joinDraft = { email: '', password: '', pseudo: '', city: '' };
 let routedInvitationCode: string | null = null;
 let memberTab: MemberTab = 'detours';
 let detourTab: DetourTab = 'recommendations';
@@ -300,6 +314,28 @@ function syncMemberRecord(original: MemberRecord, updated: MemberRecord): boolea
 function memberName(record: MemberRecord): string {
   const pseudo = record.pseudo?.trim().replace(/^@+/, '');
   return pseudo || record.display_name?.trim() || record.email?.split('@')[0] || 'Member';
+}
+
+/**
+ * The same normalization the server applies in pb_hooks/member_profile.js:
+ * decompose accents away, drop the leading @, lowercase. Applying it here means
+ * "Café-Anna" is accepted rather than refused for characters the server would
+ * have folded anyway.
+ */
+function normalizePseudo(raw: string): string {
+  return raw
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .replace(/^@+/, '')
+    .toLowerCase();
+}
+
+function resetJoinDraft(): void {
+  joinDraft.email = '';
+  joinDraft.password = '';
+  joinDraft.pseudo = '';
+  joinDraft.city = '';
 }
 
 function readableError(error: unknown, fallback: string): string {
@@ -620,7 +656,7 @@ function signedOutPanel(): string {
     <div class="community-panel-intro">
       <p class="community-kicker">The detourist circle</p>
       <h2>${isJoin ? 'Join with your personal invitation.' : 'Return to your Detour.'}</h2>
-      <p>${isJoin ? 'Your code, and how to sign in from now on. Your name and city come next.' : 'Sign in to your member account.'}</p>
+      <p>${isJoin ? 'Everything your account needs, on one card. Then the first place you would send someone to.' : 'Sign in to your member account.'}</p>
     </div>
     <div class="community-form-wrap">
       <div class="community-tabs" role="tablist" aria-label="Membership options">
@@ -631,12 +667,18 @@ function signedOutPanel(): string {
       ${
         isJoin
           ? `<form class="community-form" data-community-join>
-              <label>Email address<input name="email" type="email" autocomplete="email" required></label>
-              <label>Password<input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+              <label>Email address<input name="email" type="email" value="${esc(joinDraft.email)}" autocomplete="email" required ${submitting ? 'disabled' : ''}></label>
+              <label>Password<input name="password" type="password" autocomplete="new-password" minlength="8" required ${submitting ? 'disabled' : ''}></label>
               <p class="community-form-note">Eight characters or more. This is how you sign in from now on.</p>
-              <label>Invitation code<input name="invite_code" value="${esc(invitationCodePrefill)}" autocomplete="off" spellcheck="false" maxlength="80" placeholder="DTR-…" required></label>
-              <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Continuing…' : 'Continue'}</button>
-              <p class="community-form-note">Next: your pseudo and your city, then the first place you would send someone to.</p>
+              <label>Your pseudo<input name="pseudo" value="${esc(joinDraft.pseudo)}" autocomplete="off" spellcheck="false" minlength="3" maxlength="30"
+                pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens"
+                required placeholder="detour-anna" ${submitting ? 'disabled' : ''}></label>
+              <label>Where you live<input name="home_city" value="${esc(joinDraft.city)}" autocomplete="address-level2" minlength="2" maxlength="120"
+                required placeholder="San Francisco" ${submitting ? 'disabled' : ''}></label>
+              <p class="community-form-note">Your pseudo is your name on Detour. Your city is where the circle sees you recommending from.</p>
+              <label>Invitation code<input name="invite_code" value="${esc(invitationCodePrefill)}" autocomplete="off" spellcheck="false" maxlength="80" placeholder="DTR-…" required ${submitting ? 'disabled' : ''}></label>
+              <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Joining…' : 'Join Detour'}</button>
+              <p class="community-form-note">Next: the first place you would send someone to.</p>
             </form>`
           : `<form class="community-form" data-community-sign-in>
               <label>Email address<input name="email" type="email" autocomplete="email" required></label>
@@ -1870,8 +1912,8 @@ export function bindCommunity(
   onAuthed: () => void,
   onPlaceContributed: () => void,
   refreshCatalogue: () => Promise<Venue[]>,
-  /** Carries the invitation card's answers into the new-member flow. */
-  onJoined: (credentials: { email: string; password: string; inviteCode: string }) => void
+  /** A joined-and-signed-in member: opens the new-member flow at its first place. */
+  onJoined: () => void
 ): void {
   knownVenues = venues;
   if (memberTab === 'settings') void refreshMemberRecord(render);
@@ -1892,6 +1934,24 @@ export function bindCommunity(
       render();
     });
   });
+
+  // The invitation card's five answers survive the render that a refusal causes —
+  // see `joinDraft`. The password is put back by hand rather than through the
+  // markup, so it is never written into a value attribute.
+  const joinForm = root.querySelector<HTMLFormElement>('[data-community-join]');
+  if (joinForm) {
+    const passwordField = joinForm.querySelector<HTMLInputElement>('input[name="password"]');
+    if (passwordField && joinDraft.password) passwordField.value = joinDraft.password;
+    joinForm.querySelectorAll<HTMLInputElement>('input').forEach((field) => {
+      field.addEventListener('input', () => {
+        if (field.name === 'email') joinDraft.email = field.value;
+        else if (field.name === 'password') joinDraft.password = field.value;
+        else if (field.name === 'pseudo') joinDraft.pseudo = field.value;
+        else if (field.name === 'home_city') joinDraft.city = field.value;
+        else if (field.name === 'invite_code') invitationCodePrefill = field.value;
+      });
+    });
+  }
 
   root.querySelector<HTMLButtonElement>('[data-view-all-recommendations]')?.addEventListener('click', () => {
     recommendationDraft = null;
@@ -2181,29 +2241,109 @@ export function bindCommunity(
     });
   });
 
-  // The invitation card is the first of two screens, and it creates nothing: the
-  // server requires a pseudo and a home city on every public signup, so the
-  // account cannot be written until the screen that asks for them is answered.
-  // What this handler does is hand those answers on — see src/onboarding.ts.
-  root.querySelector<HTMLFormElement>('[data-community-join]')?.addEventListener('submit', (event) => {
+  // The invitation card is the whole account: the server requires a pseudo and a
+  // home city on every public signup, and asking for them here rather than on a
+  // second screen means one form holds everything one create call needs. What
+  // src/onboarding.ts is left with is the part that is not the account — the first
+  // place — which is why this hands over a session rather than a set of answers.
+  root.querySelector<HTMLFormElement>('[data-community-join]')?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (submitting) return;
     const values = new FormData(event.currentTarget as HTMLFormElement);
     const email = String(values.get('email') || '').trim();
     const password = String(values.get('password') || '');
     const inviteCode = String(values.get('invite_code') || '').trim().toUpperCase();
-    if (password.length < 8) {
-      notice = { kind: 'error', text: 'Use a password of at least eight characters.' };
-      render();
-      return;
-    }
+    const pseudo = normalizePseudo(String(values.get('pseudo') || ''));
+    const city = String(values.get('home_city') || '').trim();
+    joinDraft.email = email;
+    joinDraft.password = password;
+    joinDraft.pseudo = pseudo;
+    joinDraft.city = city;
+    invitationCodePrefill = inviteCode;
     if (!email || !inviteCode) {
       notice = { kind: 'error', text: 'Your email address and your invitation code are both needed.' };
       render();
       return;
     }
+    if (password.length < 8) {
+      notice = { kind: 'error', text: 'Use a password of at least eight characters.' };
+      render();
+      return;
+    }
+    if (pseudo.length < 3) {
+      notice = { kind: 'error', text: 'Pick a pseudo of at least three characters.' };
+      render();
+      return;
+    }
+    // The input's `pattern` is advisory only — a browser that runs it refuses
+    // before this handler, and one that does not would otherwise send a pseudo
+    // with a space or a dot to the server and get back a 400 from the same catch
+    // that reports a spent invitation, so the refusal would read as an
+    // invitation problem. Applying the server's own rule states the real one.
+    if (!/^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/.test(pseudo)) {
+      notice = {
+        kind: 'error',
+        text: 'A pseudo is letters, digits and hyphens only — no spaces — starting and ending with a letter or digit.',
+      };
+      render();
+      return;
+    }
+    // `required` lets a space through, and the city is asked for real.
+    if (city.length < 2) {
+      notice = { kind: 'error', text: 'Tell us the city you live in.' };
+      render();
+      return;
+    }
+    submitting = true;
+    notice = null;
+    render();
+    try {
+      await pb.collection('members').create({
+        pseudo,
+        email,
+        password,
+        passwordConfirm: password,
+        home_city: city,
+        invite_code: inviteCode,
+      });
+    } catch (error) {
+      // The invitation is spent here, so an invalid or already-claimed code
+      // surfaces here too. Saying which of the five values the server refused is
+      // the whole of the recovery: every one of them can be corrected in place.
+      submitting = false;
+      notice = {
+        kind: 'error',
+        text: readableError(
+          error,
+          'That invitation could not be accepted. Check the code on your invitation and try again.'
+        ),
+      };
+      render();
+      return;
+    }
+    try {
+      await pb.collection('members').authWithPassword(email, password);
+    } catch {
+      // The account exists; only the session does not. The sign-in tab is the
+      // shortest way to one, and the invitation has been spent, so there is
+      // nothing left on this card to come back to.
+      submitting = false;
+      mode = 'sign-in';
+      resetJoinDraft();
+      clearInvitationRoute();
+      notice = {
+        kind: 'error',
+        text: 'Your account was created, but signing in did not go through. Sign in with the email and password you just chose.',
+      };
+      render();
+      return;
+    }
+    submitting = false;
+    resetJoinDraft();
+    clearInvitationRoute();
     notice = null;
     resetCommunityState();
-    onJoined({ email, password, inviteCode });
+    onJoined();
   });
 
   root.querySelector<HTMLFormElement>('[data-community-sign-in]')?.addEventListener('submit', async (event) => {

@@ -2020,8 +2020,8 @@ legend { color: var(--tape-text); }
 /* ---- INVARIANT: the card title's hover state ----
    Hovering a recommendation card anywhere recolours its title, on every surface
    that renders one: the landing deck, the feed grid, the destination list, the
-   circle panel. Two things about this rule are load-bearing, and both have been
-   lost once already — do not narrow either.
+   circle panel. Three things about this rule are load-bearing, and each has been
+   lost once already — do not narrow any of them.
 
    Keyed to `h3`, not to `.network-entry-place`. The title is a link only when
    the card can resolve a published place, which needs a loaded catalogue; the
@@ -2035,7 +2035,8 @@ legend { color: var(--tape-text); }
    is what brings a card to the front.
 
    One token pair for every surface, so a title can never hover gold in one list
-   and orange in another. */
+   and orange in another — and see the `a:hover` opt-out below, which is what
+   keeps the cursor crossing the text from overriding this with link gold. */
 .network-recommendation:hover h3,
 .network-recommendation:focus-within h3 {
   color: var(--tape-stack-title-hover);
@@ -2062,8 +2063,13 @@ legend { color: var(--tape-text); }
   cursor: pointer;
   transition: color 180ms cubic-bezier(0.25, 1, 0.5, 1);
 }
-/* No hover of its own: the invariant above owns the title's hover colour, and a
-   link-scoped rule here would fight it and win on the surfaces that have links. */
+/* Opts out of the global `a:hover` gold, which outranks the `color: inherit`
+   above and turned the title gold the moment the cursor crossed the text — a
+   second, contradicting hover colour on top of the card's orange one. Inheriting
+   instead hands the link whatever the invariant put on the h3, so the title
+   hovers orange whether the cursor is on the text or anywhere else on the card.
+   The same opt-out `.card-main:hover` makes for the catalogue card. */
+.network-entry-place:hover { color: inherit; }
 .network-entry-place span { font-size: 0.8em; }
 .network-place-meta {
   margin: 0.28rem 0 0;
@@ -2080,7 +2086,6 @@ legend { color: var(--tape-text); }
    the app, and the words it used to spell are carried by the badge's tooltip and
    accessible name. */
 .network-place-signal { margin-top: 0.45rem; }
-.network-place-signal .place-founding-star { min-height: 0; }
 /* The feed toolbar counts places added in the last 24 hours; this sticker is
    how that count is visible in the list itself. Both come from one predicate,
    so the header can never name a number the cards do not show. */
@@ -2986,23 +2991,6 @@ legend { color: var(--tape-text); }
 .place-hero-details .place-meta { grid-area: category; }
 .place-hero-details .place-signal-row { grid-area: counter; }
 .place-signal-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem; }
-.place-founding-star {
-  display: inline-flex;
-  min-height: 2rem;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.25rem 0.55rem;
-  color: var(--tape-accent);
-  background: var(--tape-surface);
-  border: 2px solid var(--tape-accent);
-  box-shadow: 2px 2px 0 var(--tape-rust);
-  font-family: var(--tape-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  line-height: 1.15;
-  text-transform: uppercase;
-}
 .place-meta {
   margin: 0;
   color: var(--tape-accent);
@@ -5542,6 +5530,29 @@ legend { color: var(--tape-text); }
   gap: 0.75rem;
   align-items: center;
   margin-top: 0.5rem;
+}
+/* "Later" is not the other half of the decision — adding the place is the ask,
+   and leaving is the way out of it. So it drops out of the sticker vocabulary
+   entirely: own line under the button, plain underlined text at the size of the
+   surrounding notes. The 100% basis is what puts it there; the rest is undoing
+   .secondary-button. */
+.welcome-actions > [data-welcome-skip] {
+  flex: 0 0 100%;
+  justify-content: flex-start;
+  min-height: 0;
+  margin-top: 0.15rem;
+  padding: 0;
+  color: var(--tape-muted);
+  background: none;
+  border: 0;
+  box-shadow: none;
+  font-size: 0.8rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  transform: none;
 }
 .welcome-notice {
   margin: 1rem 0 0;

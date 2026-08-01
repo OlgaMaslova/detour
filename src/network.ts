@@ -727,7 +727,6 @@ function recommendationCardMarkup(
     bylineHtml: string;
     /** The signal badge, already rendered by the caller from its own counts. */
     signalHtml?: string;
-    foundingChoice?: boolean;
     recent?: boolean;
     trustedEntry?: boolean;
     selected?: boolean;
@@ -773,16 +772,11 @@ function recommendationCardMarkup(
           <h3>${title}</h3>
           ${whereabouts ? `<p class="network-place-meta">${esc(whereabouts)}</p>` : ''}
           ${
-            // The same signal row the place page carries, in the same order: the
-            // stamped badge states the count, and the founder chip rides beside
-            // it rather than replacing it. A card and the page it opens must not
-            // state the count two different ways — the badge is the one form.
-            view.signalHtml || view.foundingChoice
-              ? `<div class="place-signal-row network-place-signal">${view.signalHtml || ''}${
-                  view.foundingChoice
-                    ? '<span class="place-founding-star" title="Recommended by a founding member"><span aria-hidden="true">★</span> Founder’s choice</span>'
-                    : ''
-                }</div>`
+            // The stamped badge states the count and nothing else. The founder
+            // chip belongs to the place page, not the card — a card and the page
+            // it opens must not state the count two different ways.
+            view.signalHtml
+              ? `<div class="place-signal-row network-place-signal">${view.signalHtml}</div>`
               : ''
           }
         </div>
@@ -906,7 +900,6 @@ export function groupedRecommendationCardMarkup(
       created: fronting.created,
       bylineHtml,
       signalHtml,
-      foundingChoice: items.some((item) => item.founding_member),
       // Only the home feed states a 24-hour count, so only it asks for badges.
       recent: options.markRecent ? isRecent(fronting) : false,
       trustedEntry: options.trustedEntry,
@@ -927,7 +920,6 @@ function recommendationMarkup(item: DiscoveryRecommendation, resolvePlace?: Netw
       note: item.note,
       created: item.created,
       bylineHtml: item.is_own ? '<strong class="network-pseudo">You</strong>' : pseudo(item.recommender_pseudo),
-      foundingChoice: item.founding_member,
       // A single-recommendation card fronts the only recommendation it has.
       photoHref: recommendationPhotoHref(item.photo_url, CARD_PHOTO_THUMB),
     },

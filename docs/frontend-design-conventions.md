@@ -195,10 +195,15 @@ buttons.
   letterspaced kicker and labels, and the existing ink/white sticker buttons for
   the actions. Both answers to a step sit on one wrapping row rather than
   stacking the secondary one below the fold.
-- **Steps:** invitation card (on the account route) → pseudo and city → the
-  place → "got another?" → the feed. Copy names the member's own words as the
-  point ("Where do you keep going back to?"), and the saved screen says the card
-  is in the feed rather than promising review.
+- **Steps:** invitation card (on the account route) → the place → "got another?"
+  → the feed. Copy names the member's own words as the point ("Where do you keep
+  going back to?"), and the saved screen says the card is in the feed rather than
+  promising review.
+- **The account is not one of the steps.** Email, password, invitation code,
+  pseudo and home city are one card, because one `members` create needs all five
+  — asking for them over two screens only meant neither form could be submitted
+  without the other's answers. The card creates the account and signs the member
+  in; this route starts at the first place.
 - **Typed values live in module state, not the DOM.** Signing in swaps the
   catalogue and re-renders the whole app, so a value read only at submit time
   would be wiped mid-sentence.

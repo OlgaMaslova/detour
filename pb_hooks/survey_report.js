@@ -92,12 +92,14 @@ function reportAnalysis(formId, answers, labels) {
 
   if (formId === "friends" || formId === "founding-members") {
     const wouldOpen = answer("wouldOpenIt");
-    const usage = answer("usageFrequency");
+    // friends v4 replaced the imagined-frequency question with a behavioural one.
+    // Older responses still carry usageFrequency, so fall back to it.
+    const usage = answer("newPlacesLastMonth") || answer("usageFrequency");
     const alternative = answer("easierAlternative");
     const blocker = answer("notAddedReason");
 
     if (wouldOpen && usage) {
-      analysis.push("Usage signal: " + wouldOpen + "; expected use: " + usage + ".");
+      analysis.push("Usage signal: " + wouldOpen + "; occasions to use it: " + usage + ".");
     } else if (wouldOpen) {
       analysis.push("Usage signal: " + wouldOpen + ".");
     }

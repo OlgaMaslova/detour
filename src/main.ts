@@ -17,12 +17,11 @@ import {
   signOutMember,
 } from './community';
 import {
-  beginOnboarding,
   bindOnboarding,
   onboardingMarkup,
   onboardingOpen,
+  openOnboarding,
   resetOnboarding,
-  resumeOnboarding,
 } from './onboarding';
 import { pb } from './pocketbase';
 import { bindCircle, circleMarkup, resetCircle } from './circle';
@@ -613,8 +612,8 @@ function showAccount(root: HTMLElement): void {
  * Opens the new-member flow.
  *
  * `replace` rather than `push` on purpose: the screen behind this one is the
- * invitation card whose answers the flow is already holding, so Back would offer
- * to fill it in a second time.
+ * invitation card, which has already been spent by the time this opens, so Back
+ * would offer to fill in a form that can no longer be submitted.
  */
 function showWelcome(root: HTMLElement): void {
   if (state.destination !== null) resetDestinationState();
@@ -702,10 +701,9 @@ function applyRouteFromUrl(root: HTMLElement): void {
             ? 'place'
             : 'destination'
           : nextView;
-  // A member who followed this route in, or came back to it after leaving, starts
-  // at the first place: the account they would otherwise be asked to create
-  // already exists.
-  if (state.view === 'welcome' && pb.authStore.isValid) resumeOnboarding();
+  // Everyone starts at the first place: the account is created on the invitation
+  // card, so anybody on this route already has one.
+  if (state.view === 'welcome' && pb.authStore.isValid) openOnboarding();
 
   if (!isSurveyRoute && url.searchParams.has('city')) updateRoute(state.view, requested, 'replace', requestedPlace);
   render(root);
@@ -1739,8 +1737,8 @@ function renderAccount(root: HTMLElement): void {
     () => showHome(root),
     markFirstPlaceContributed,
     refreshCatalogue,
-    (credentials) => {
-      beginOnboarding(credentials);
+    () => {
+      openOnboarding();
       showWelcome(root);
     }
   );
@@ -1757,9 +1755,9 @@ function renderAccount(root: HTMLElement): void {
  *
  * Deliberately without the member nav. Explore, My Circle and the account are all
  * places to go instead of answering, and the whole point of this route is that
- * there is one thing to do. The wordmark stays a link home, because leaving has to
- * be possible from the one step that has no "later" of its own — the invitation
- * has not been spent yet there, so it survives being abandoned.
+ * there is one thing to do. The wordmark stays a link home, because a member who
+ * would rather not answer has to be able to leave — every step here is optional,
+ * and the account behind them is already theirs.
  */
 function renderWelcome(root: HTMLElement): void {
   destroyMap();
@@ -1774,7 +1772,6 @@ function renderWelcome(root: HTMLElement): void {
   bindOnboarding(root, state.venues, {
     render: () => render(root),
     onFinished: () => showHome(root),
-    onAccount: () => showAccount(root),
     onPlaceContributed: markFirstPlaceContributed,
     refreshCatalogue,
   });
@@ -2451,8 +2448,8 @@ function render(root: HTMLElement) {
     return;
   }
 
-  // Nothing to welcome: no held invitation and no session. The invitation card is
-  // where both come from, so that is where a bare link to this route lands.
+  // Nothing to welcome: no session. The invitation card is where one comes from,
+  // so that is where a bare link to this route lands.
   if (state.view === 'welcome' && !onboardingOpen()) {
     state.view = 'account';
     updateRoute('account', null, 'replace');
@@ -2844,8 +2841,8 @@ if (root instanceof HTMLElement) {
     const nextIdentity = pb.authStore.isValid ? record?.id || '' : '';
     if (nextIdentity === authIdentity) return;
     authIdentity = nextIdentity;
-    // Signing in is how the new-member flow's own first step ends, so its state
-    // survives that; signing out is the end of anybody's onboarding.
+    // Signing in is what opens the new-member flow — the invitation card does it
+    // on the way in — so its state survives that; signing out ends onboarding.
     if (!nextIdentity) resetOnboarding();
     resetNetworkDiscovery();
     resetCircle();
