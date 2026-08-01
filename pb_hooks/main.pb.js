@@ -335,6 +335,10 @@ routerAdd(
     // becomes a fact without new client plumbing.
     const sessions = require(__hooks + "/member_sessions.js");
     const session = sessions.touchMemberSession(e.app, e.auth);
+    // After the ping, never before: the ladder reads the previous-visit stamp the
+    // ping just moved to decide whether this visit has been asked already.
+    const prompts = require(__hooks + "/place_prompts.js");
+    const placePrompt = prompts.resolvePlacePrompt(e.app, e.auth, session);
     const imageCurationCount = foundingMember
       ? e.app.findRecordsByFilter(
           "community_place_images",
@@ -361,6 +365,10 @@ routerAdd(
         visit_count: session.visit_count,
         days_away: session.days_away,
         new_session: session.new_session,
+        // Which rung of the first-place ask this member is due, and the facts it
+        // may need. Null when there is nothing to ask. The wording is the
+        // client's; see place_prompts.js.
+        place_prompt: placePrompt,
       },
     });
   },

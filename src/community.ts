@@ -1,5 +1,6 @@
 import { pb } from './pocketbase';
 import { bindMemberShares, markNetworkSharesSeen, memberSharesMarkup, resetNetworkDiscovery } from './network';
+import type { PlacePrompt } from './place-prompt';
 import { venueCitySlug, venuePlaceSlug } from './data';
 import type { Venue } from './data';
 import { OCCASION_OPTIONS } from './occasions';
@@ -275,6 +276,10 @@ let memberFlagsRequest: Promise<void> | null = null;
 let memberVisitCount = 0;
 let memberDaysAway: number | null = null;
 let memberNewSession = false;
+// Which rung of the first-place ask this member is due, and the facts it needs,
+// as the server settled them. Null when there is nothing to ask — which is the
+// normal case: it wants a member who came back and has never added a place.
+let memberPlacePromptState: PlacePrompt | null = null;
 // Whether this member may offer one of the fifty founding seats with an
 // invitation. The Founder alone, as the server decides it — every other member's
 // invitations are ordinary, and they are never shown the choice.
@@ -1738,6 +1743,7 @@ function resetCommunityState(): void {
   memberVisitCount = 0;
   memberDaysAway = null;
   memberNewSession = false;
+  memberPlacePromptState = null;
   canGrantFounding = false;
   foundingSeatsRemaining = null;
   inviteGrantsFounding = false;
@@ -1826,6 +1832,39 @@ export function memberSession(): { visits: number; daysAway: number | null; isNe
   return { visits: memberVisitCount, daysAway: memberDaysAway, isNewSession: memberNewSession };
 }
 
+/**
+ * The first-place ask for this member, or null when there is nothing to ask —
+ * which is most members most of the time. Fixed for the session, because the
+ * server settles the rung once per visit.
+ */
+export function memberPlacePrompt(): PlacePrompt | null {
+  return memberPlacePromptState;
+}
+
+/**
+ * A prompt is only worth rendering if it names a rung and a city. Anything else
+ * the copy layer can do without, so a backend that reports a partial prompt costs
+ * a word rather than an empty sentence.
+ */
+function readPlacePrompt(value: unknown): PlacePrompt | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  const rung = Number(raw.rung);
+  const city = typeof raw.city === 'string' ? raw.city.trim() : '';
+  if (!Number.isFinite(rung) || rung < 1 || !city) return null;
+  const text = (key: string): string => (typeof raw[key] === 'string' ? (raw[key] as string) : '');
+  return {
+    rung: Math.floor(rung),
+    city,
+    city_place_count: cleanCount(raw.city_place_count),
+    recommender: text('recommender'),
+    place_name: text('place_name'),
+    place_occasion: text('place_occasion'),
+    occasion: text('occasion'),
+    other_occasion: text('other_occasion'),
+  };
+}
+
 async function loadMemberFlags(signedInAs: string, render: () => void): Promise<void> {
   const me = await pb
     .send<{
@@ -1838,6 +1877,7 @@ async function loadMemberFlags(signedInAs: string, render: () => void): Promise<
         visit_count?: unknown;
         days_away?: unknown;
         new_session?: unknown;
+        place_prompt?: unknown;
       };
     }>('/api/detour/community/me', { requestKey: null })
     .catch(() => null);
@@ -1869,12 +1909,13 @@ async function loadMemberFlags(signedInAs: string, render: () => void): Promise<
   const away = Number(me.member?.days_away);
   memberDaysAway = Number.isFinite(away) && away >= 0 ? Math.floor(away) : null;
   memberNewSession = me.member?.new_session === true;
+  memberPlacePromptState = readPlacePrompt(me.member?.place_prompt);
   memberFlagsLoaded = true;
-  // Outside the member area, the founding markers change exactly one thing —
-  // whether Curation sits in the masthead menu — so only a member who curates
-  // costs a redraw. The member area renders on its own loaders regardless, and
-  // an ordinary member's home map is left alone.
-  if (foundingMember !== wasFounding) render();
+  // Two things here change what a page outside the member area shows: whether
+  // Curation sits in the masthead menu, and whether there is a place to ask for.
+  // Neither is the common case, so most members' sessions still cost no redraw —
+  // and an ordinary member's home map is left alone.
+  if (foundingMember !== wasFounding || memberPlacePromptState) render();
 }
 
 async function loadInvites(render: () => void): Promise<void> {

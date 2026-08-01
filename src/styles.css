@@ -2251,6 +2251,31 @@ legend { color: var(--tape-text); }
 .network-first-place p { margin: 0.4rem 0 0; color: var(--tape-muted); font-size: 0.9rem; line-height: 1.55; text-wrap: pretty; }
 .network-first-place .network-primary-link { flex: none; }
 
+/* The first-place ask is a question put to one person, not a headline announcing
+   something. Anton in caps with the misregistered ghost is the poster voice this
+   page uses to name sections, and on a sentence ending in a question mark it
+   reads as a title — so the ask keeps the body face and drops the print ghost,
+   carrying its weight through size alone. It also takes the width it needs:
+   58ch broke "You've had breakfast in Madrid a hundred times." across two lines
+   with half the card empty beside it. */
+.network-place-prompt > div {
+  max-width: 82ch;
+  flex: 1 1 auto;
+}
+.network-place-prompt h2 {
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  line-height: 1.32;
+  text-shadow: none;
+  font-size: clamp(1.05rem, 1.9vw, 1.4rem);
+  /* A question is read in one pass, so keep its clauses intact rather than
+     balancing the lines into an even block. */
+  text-wrap: pretty;
+}
+.network-place-prompt p { margin-top: 0.55rem; }
+
 .network-empty { padding: clamp(1.2rem, 3vw, 1.75rem); }
 .network-empty h3 { margin: 0; font-size: 1.25rem; }
 .network-empty p { max-width: 58ch; margin: 0.45rem 0 0; color: var(--tape-muted); }

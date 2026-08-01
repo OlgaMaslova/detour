@@ -11,6 +11,7 @@ import {
   communityControl,
   communityPanel,
   ensureMemberFlags,
+  memberPlacePrompt,
   openEditRecommendation,
   openMemberArea,
   openRecommendPlace,
@@ -2361,7 +2362,7 @@ function renderHome(root: HTMLElement): void {
   root.innerHTML = `
     <a class="skip-link" href="#network-home-title">Skip to circle discovery</a>
     ${mastheadMarkup('home')}
-    ${networkDiscoveryMarkup(accountHref(), resolveNetworkPlace)}
+    ${networkDiscoveryMarkup(accountHref(), resolveNetworkPlace, memberPlacePrompt())}
     <footer class="footer network-footer">
       <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
       ${tapeThemeToggleMarkup()}

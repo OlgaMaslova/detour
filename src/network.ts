@@ -1,5 +1,6 @@
 import { apiBaseUrl, pb } from './pocketbase';
 import { coverTint } from './data';
+import { placePromptMarkup, type PlacePrompt } from './place-prompt';
 import { detouristSignalBadge, type SignalCounts } from './signal';
 
 type DiscoveryStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -1175,7 +1176,13 @@ function publicRecommendationSampleMarkup(resolvePlace?: NetworkPlaceResolver): 
 
 export function networkDiscoveryMarkup(
   accountHref: string,
-  resolvePlace?: NetworkPlaceResolver
+  resolvePlace?: NetworkPlaceResolver,
+  /**
+   * The first-place ask for this member, when the server settled on one. Passed in
+   * rather than read from here: the session flags live in community.ts, which
+   * already imports this module.
+   */
+  placePrompt?: PlacePrompt | null
 ): string {
   const record = memberRecord();
   if (!record) {
@@ -1201,7 +1208,11 @@ export function networkDiscoveryMarkup(
       <h1 id="network-home-title">Places the circle recommends.</h1>
       <p>Welcome back, ${esc(memberLabel)}. Each place appears once, with the members who recommend it and why. Your private shares stay in My detours.</p>
     </div>
-    ${firstPlaceInvitationMarkup(accountHref)}
+    ${
+      // The ask is the specific version of the first-place nudge — same member,
+      // better question — so it replaces it rather than stacking under it.
+      placePrompt ? placePromptMarkup(placePrompt, accountHref) : firstPlaceInvitationMarkup(accountHref)
+    }
     ${memberFeedMarkup(accountHref, resolvePlace)}
   </section>`;
 }
