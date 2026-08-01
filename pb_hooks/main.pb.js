@@ -2236,6 +2236,51 @@ routerAdd(
   $apis.requireAuth("members")
 );
 
+/**
+ * Reads a pasted map link so the member does not retype what their phone already
+ * knows. Answers 200 with `resolved: false` for anything it cannot read — an
+ * unreadable link is not an error, it is a paste that turned out not to be a
+ * link, and the form it came from must carry on unchanged. See
+ * `pb_hooks/map_links.js` for what is and is not looked up.
+ */
+routerAdd(
+  "POST",
+  "/api/detour/place-link",
+  (e) => {
+    const community = require(__hooks + "/community_waitlist.js");
+    const links = require(__hooks + "/map_links.js");
+    community.requireVerifiedMember(e.auth, "reading a map link");
+    const body = e.requestInfo().body || {};
+    const url = typeof body.url === "string" ? body.url : "";
+    if (!links.normalizeLink(url)) return e.json(200, { resolved: false });
+    let resolved;
+    try {
+      resolved = links.resolvePlaceLink(url, { withCity: body.city !== false });
+    } catch (err) {
+      // Reading a link is a convenience; failing at it must never be the reason
+      // a recommendation does not get written. It is still worth knowing about,
+      // because a link shape that stops resolving is invisible from the outside
+      // — the member simply types the name and never mentions it.
+      e.app.logger().warn("place link read failed", "url", url, "error", String(err));
+      return e.json(200, { resolved: false });
+    }
+    if (!resolved || !resolved.resolved) {
+      e.app.logger().info("place link not understood", "url", url);
+      return e.json(200, { resolved: false });
+    }
+    return e.json(200, {
+      resolved: true,
+      name: community.cleanText(resolved.name || "", 200),
+      city: community.cleanText(resolved.city || "", 120),
+      country: community.cleanText(resolved.country || "", 120),
+      address: community.cleanText(resolved.address || "", 300),
+      lat: resolved.lat,
+      lng: resolved.lng,
+    });
+  },
+  $apis.requireAuth("members")
+);
+
 routerAdd(
   "POST",
   "/api/detour/curation/images",

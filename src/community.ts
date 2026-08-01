@@ -479,6 +479,137 @@ function photoField(options?: { replacing?: boolean }): string {
     <p class="community-form-note">Your photo appears with your note${replacing ? ' and replaces the one you added before' : ''}. It never becomes the place's own image, and it goes when your recommendation does.</p>`;
 }
 
+export interface PlaceLinkReading {
+  resolved?: boolean;
+  name?: string;
+  city?: string;
+  country?: string;
+  address?: string;
+  lat?: number | null;
+  lng?: number | null;
+}
+
+/**
+ * What the server could read out of a pasted map link.
+ *
+ * Shared by both places a recommendation gets written — the onboarding question
+ * and the recommend form — so there is one description of what a link means. An
+ * unreadable link is not an error here either: the route answers 200 with
+ * `resolved: false` and this returns null, which every caller treats as "leave
+ * what they typed alone".
+ */
+export async function readPlaceLink(url: string): Promise<PlaceLinkReading | null> {
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  try {
+    const result = (await pb.send('/api/detour/place-link', {
+      method: 'POST',
+      body: { url: trimmed },
+      requestKey: null,
+    })) as PlaceLinkReading;
+    if (!result?.resolved) return null;
+    if (!result.name && !result.city) return null;
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The optional link field, above the two fields it fills.
+ *
+ * It sits first because it is the shortcut past them, and it is labelled
+ * optional in the same voice as the photo picker because ignoring it costs
+ * nothing — the fields below work exactly as they always have.
+ */
+function mapLinkField(): string {
+  // The street and country ride along hidden, because they are facts about the
+  // place rather than answers the member owes: the create hook already accepts
+  // both and hands them to the geocoder that validates them. Asking for them
+  // would be asking someone to type what their phone just told us.
+  return `<label class="community-link-field">Paste a map link <span class="community-optional">Optional — fills in the name and city</span>
+      <input name="map_link" type="url" inputmode="url" autocomplete="off" spellcheck="false" maxlength="2048" placeholder="Share from Maps and paste it here">
+    </label>
+    <input type="hidden" name="address" value="">
+    <input type="hidden" name="country" value="">
+    <p class="community-form-note" data-map-link-status role="status"></p>`;
+}
+
+/**
+ * Wires the link field to the name and city inputs beside it.
+ *
+ * Writes to the DOM rather than through a render, because this form holds its
+ * values in the DOM and is not re-rendered while it is being filled in — going
+ * through state would wipe the note mid-sentence. Nothing here can block the
+ * form: the failure path writes a sentence into the status line and stops.
+ */
+function bindMapLinkField(form: HTMLElement): void {
+  const field = form.querySelector<HTMLInputElement>('input[name="map_link"]');
+  if (!field) return;
+  const status = form.querySelector<HTMLElement>('[data-map-link-status]');
+  const nameInput = form.querySelector<HTMLInputElement>('input[name="venue_name"]');
+  const cityInput = form.querySelector<HTMLInputElement>('input[name="city"]');
+  let reading = false;
+  let lastRead = '';
+
+  const say = (text: string): void => {
+    if (status) status.textContent = text;
+  };
+
+  const read = async (): Promise<void> => {
+    const url = field.value.trim();
+    if (!url || reading || url === lastRead) return;
+    reading = true;
+    lastRead = url;
+    field.disabled = true;
+    say('Reading the link…');
+    const result = await readPlaceLink(url);
+    field.disabled = false;
+    reading = false;
+    if (!result) {
+      say('That link did not name a place. Type the name instead — it works just as well.');
+      field.focus();
+      return;
+    }
+    const previousName = nameInput?.value.trim() || '';
+    if (result.name && nameInput) nameInput.value = result.name;
+    if (result.city && cityInput) cityInput.value = result.city;
+    // Hidden facts are replaced wholesale, including being cleared: a second
+    // link must never leave the first place's street attached to this one.
+    const hidden = (name: string): HTMLInputElement | null =>
+      form.querySelector<HTMLInputElement>(`input[type="hidden"][name="${name}"]`);
+    const addressInput = hidden('address');
+    const countryInput = hidden('country');
+    if (addressInput) addressInput.value = result.address || '';
+    if (countryInput) countryInput.value = result.country || '';
+    const filled = [nameInput?.value || '', cityInput?.value || ''].filter(Boolean).join(', ');
+    say(
+      previousName && result.name && previousName !== result.name
+        ? `From the link: ${filled}. It replaced "${previousName}" — change it back if that was the right one.`
+        : `From the link: ${filled}. Change either if it is not what you call it.`
+    );
+    field.value = '';
+    // The note is the only thing left that nobody else can write.
+    form.querySelector<HTMLTextAreaElement>('textarea[name="note"]')?.focus();
+  };
+
+  field.addEventListener('paste', (event) => {
+    const pasted = event.clipboardData?.getData('text') || '';
+    if (!pasted.trim()) return;
+    field.value = pasted.trim();
+    event.preventDefault();
+    void read();
+  });
+  field.addEventListener('change', () => void read());
+  field.addEventListener('blur', () => void read());
+  // Enter reads the link rather than submitting a form whose note is still empty.
+  field.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    void read();
+  });
+}
+
 /** The chosen file from a form's photo picker, or null when none was chosen. */
 function chosenPhoto(form: HTMLFormElement): File | null {
   const input = form.querySelector<HTMLInputElement>('input[name="photo"]');
@@ -641,7 +772,7 @@ function directoryResultsMarkup(key: string): string {
     return `<p class="member-directory-selected"><span>Selected</span><strong>${esc(pseudoLabel(state.selected.pseudo))}</strong></p>`;
   }
   if (state.query.trim().length < 2) {
-    return '<p class="member-directory-hint">Type a pseudo, such as detour-anna — at least two characters.</p>';
+    return '<p class="member-directory-hint">Type a pseudo, such as anna-lisboa — at least two characters.</p>';
   }
   if (state.loading) return '<p class="member-directory-hint" role="status">Searching members…</p>';
   if (state.error) return `<p class="member-directory-error" role="alert">${esc(state.error)}</p>`;
@@ -659,7 +790,7 @@ function directoryMarkup(key: string, label: string): string {
   const listId = directoryListId(key);
   return `<div class="member-directory" data-member-directory="${esc(key)}">
     <label>${esc(label)}
-      <input type="search" value="${esc(state.query)}" autocomplete="off" spellcheck="false" placeholder="detour-anna" role="combobox" aria-autocomplete="list" aria-expanded="${state.items.length > 0}" aria-controls="${listId}" ${state.activeIndex >= 0 ? `aria-activedescendant="${listId}-option-${state.activeIndex}"` : ''} data-member-search>
+      <input type="search" value="${esc(state.query)}" autocomplete="off" spellcheck="false" placeholder="anna-lisboa" role="combobox" aria-autocomplete="list" aria-expanded="${state.items.length > 0}" aria-controls="${listId}" ${state.activeIndex >= 0 ? `aria-activedescendant="${listId}-option-${state.activeIndex}"` : ''} data-member-search>
     </label>
     <div id="${listId}" class="member-directory-output" data-member-results>${directoryResultsMarkup(key)}</div>
   </div>`;
@@ -687,7 +818,7 @@ function signedOutPanel(): string {
               <p class="community-form-note">Eight characters or more. This is how you sign in from now on.</p>
               <label>Your pseudo<input name="pseudo" value="${esc(joinDraft.pseudo)}" autocomplete="off" spellcheck="false" minlength="3" maxlength="30"
                 pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens"
-                required placeholder="detour-anna" ${submitting ? 'disabled' : ''}></label>
+                required placeholder="anna-lisboa" ${submitting ? 'disabled' : ''}></label>
               <label>Where you live<input name="home_city" value="${esc(joinDraft.city)}" autocomplete="address-level2" minlength="2" maxlength="120"
                 required placeholder="San Francisco" ${submitting ? 'disabled' : ''}></label>
               <p class="community-form-note">Your pseudo is your name on Detour. Your city is where the circle sees you recommending from.</p>
@@ -1009,6 +1140,7 @@ function recommendationPanel(): string {
         // stay available on the entry's own line, where correcting them is one
         // click and does not stand between having something to say and saying it.
         `<form class="community-form" data-community-recommendation>
+        ${mapLinkField()}
         <label>Food-and-drink destination name<input name="venue_name" maxlength="200" required placeholder="A restaurant, café, bar, or other food-and-drink destination"></label>
         <label>City or locality<input name="city" maxlength="120" required placeholder="City or locality"></label>
         <label>My recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?"></textarea></label>
@@ -2704,7 +2836,10 @@ export function bindCommunity(
     }
   };
 
-  root.querySelector<HTMLFormElement>('[data-community-recommendation]')?.addEventListener('submit', async (event) => {
+  const recommendationForm = root.querySelector<HTMLFormElement>('[data-community-recommendation]');
+  if (recommendationForm) bindMapLinkField(recommendationForm);
+
+  recommendationForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const values = new FormData(form);

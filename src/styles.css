@@ -4279,6 +4279,9 @@ legend { color: var(--tape-text); }
 .community-danger-note { color: var(--tape-muted); }
 .community-form-note { margin: -0.15rem 0 0; font-size: 0.84rem; font-style: italic; }
 .community-optional { font-size: 0.75rem; font-weight: 500; }
+/* Holds its line whether or not a link has been read, so the name and city
+   fields below do not jump the moment one is. */
+.community-form-note[data-map-link-status] { min-height: 1.3rem; }
 .community-loading,
 .community-empty { margin: 0; font-size: 0.9rem; font-style: italic; }
 /* The dashed frame is a box, so it needs the inset every other card has —
@@ -5521,6 +5524,20 @@ legend { color: var(--tape-text); }
   color: var(--tape-muted);
   font-size: 0.8rem;
   line-height: 1.55;
+}
+/* The map link is a shortcut past the two fields under it, not a fourth thing to
+   fill in, so it is labelled as optional and sits quieter than the answers it
+   fills. Someone who ignores it entirely loses nothing. */
+.welcome-link-field span {
+  margin-left: 0.5em;
+  color: var(--tape-muted);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+/* Reserves its own line so the fields below do not jump when a link is read. */
+.welcome-link-note {
+  margin-top: -0.5rem;
+  min-height: 1.24rem;
 }
 /* Two answers to one decision, so they share a row and wrap together rather
    than stacking the secondary one out of sight below the fold. */

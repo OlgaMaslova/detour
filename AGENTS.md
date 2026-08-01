@@ -219,7 +219,18 @@ going back to → "got another?" up to three → the feed.
   private submission path for onboarding.
 - **Autocomplete is the catalogue and nothing else.** Suggestions come from the
   places Detour already has, client-side; a place nobody has added is typed and
-  enriched after publication like any other. This screen makes no external lookup.
+  enriched after publication like any other. Nothing on this screen queries an
+  external place database for suggestions.
+- **A pasted map link is read, not looked up.** The optional link field posts to
+  `/api/detour/place-link`, which parses the name and coordinates out of the URL
+  itself (`pb_hooks/map_links.js`) and reverse-geocodes the city from those
+  coordinates. The only outbound request in the common path is following a short
+  link — `maps.app.goo.gl/…` is what the mobile share sheet produces and it
+  carries nothing to parse. No Places API is called, so no result arrives with
+  storage or attribution terms attached; keep it that way. The field fills the
+  form in and nothing more: every value stays editable, an unreadable link
+  returns `resolved: false` and changes nothing, and no part of writing a
+  recommendation may ever be made to depend on a link having been read.
 - **Three places, and stopping after one is the expected outcome.** The offer to
   add another is an invitation, not a quota; do not gate the feed on a count.
 - **The inviter is told once.** `pb_hooks/first_place_notice.pb.js` emails the

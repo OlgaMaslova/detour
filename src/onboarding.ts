@@ -26,7 +26,7 @@
  * recommendation's own line afterwards.
  */
 import { pb } from './pocketbase';
-import { meaningfulRecommendation, placeCollisionFor } from './community';
+import { meaningfulRecommendation, placeCollisionFor, readPlaceLink } from './community';
 import type { PlaceCollision } from './community';
 import type { Venue } from './data';
 
@@ -71,6 +71,29 @@ let lastPlaceName = '';
  * mid-sentence.
  */
 const draft = { city: '', name: '', note: '' };
+/**
+ * A pasted map link is read, not required.
+ *
+ * The link only ever fills fields in — the member can overwrite anything it put
+ * there, and a link that cannot be read leaves their own typing exactly where it
+ * was. Nothing about submitting a recommendation waits on this, which is why the
+ * state here is two strings and not a step: at worst the note is written by hand,
+ * which is the path that existed before.
+ */
+let linkReading = false;
+let linkStatus = '';
+/** Held like the other typed values, because this route re-renders unbidden. */
+let linkValue = '';
+/**
+ * The facts a link supplied that the member is never asked for.
+ *
+ * They travel with the recommendation so the geocoder starts from the street the
+ * pin was on rather than re-deriving one from a name and a city. Cleared
+ * whenever the place changes, so one place's address can never follow another.
+ */
+let linkFacts: { address: string; country: string } = { address: '', country: '' };
+/** The last link read, so a re-render or a stray blur does not read it twice. */
+let lastLinkRead = '';
 /** The place already on the list that the typed name and city turned out to be. */
 let collision: PlaceCollision | null = null;
 /** Set once the member says theirs is a different place and is asked which. */
@@ -144,6 +167,11 @@ export function resetOnboarding(): void {
   collision = null;
   distinguishing = false;
   focusedStep = '';
+  linkReading = false;
+  linkStatus = '';
+  linkValue = '';
+  lastLinkRead = '';
+  linkFacts = { address: '', country: '' };
 }
 
 function noticeMarkup(): string {
@@ -192,6 +220,15 @@ function placeMarkup(venues: Venue[]): string {
     <p class="welcome-lead">The place where you already know what to order.</p>
     ${noticeMarkup()}
     <form class="welcome-form" data-welcome-place novalidate>
+      <label class="welcome-link-field">Paste a map link <span>optional</span>
+        <input name="map_link" type="url" inputmode="url" autocomplete="off" spellcheck="false"
+          value="${esc(linkValue)}" maxlength="2048" placeholder="Share from Maps and paste it here" ${
+            submitting || linkReading ? 'disabled' : ''
+          }>
+      </label>
+      <p class="welcome-note welcome-link-note" data-welcome-link-status role="status">${
+        linkReading ? 'Reading the link…' : esc(linkStatus)
+      }</p>
       <label>The place
         <input name="venue_name" value="${esc(draft.name)}" list="${listId}" autocomplete="off" spellcheck="false"
           maxlength="200" required placeholder="Start typing its name" ${submitting ? 'disabled' : ''}>
@@ -325,8 +362,67 @@ export function bindOnboarding(root: HTMLElement, venues: Venue[], callbacks: Ca
       if (field.name === 'city') draft.city = field.value;
       else if (field.name === 'venue_name') draft.name = field.value;
       else if (field.name === 'note') draft.note = field.value;
+      else if (field.name === 'map_link') linkValue = field.value;
     });
   });
+
+  /**
+   * Reads a pasted map link and fills in what it named.
+   *
+   * The whole feature is a typing shortcut, so it is written to be ignorable:
+   * every field it touches stays editable, a link it cannot read says so and
+   * changes nothing, and the submit path neither waits for it nor knows it
+   * happened. The one thing it must not do is silently overwrite a name the
+   * member has already typed with a worse one, so the previous value is named
+   * back to them in the status line rather than disappearing.
+   */
+  const readLink = async (raw: string): Promise<void> => {
+    const url = raw.trim();
+    if (!url || url === lastLinkRead || linkReading || submitting) return;
+    lastLinkRead = url;
+    linkReading = true;
+    linkStatus = '';
+    render();
+    const result = await readPlaceLink(url);
+    if (!result) {
+      linkStatus = 'That link did not name a place. Type the name instead — it works just as well.';
+    } else {
+      const previousName = draft.name.trim();
+      if (result.name) draft.name = result.name;
+      if (result.city) draft.city = result.city;
+      linkFacts = { address: result.address || '', country: result.country || '' };
+      const filled = [draft.name, draft.city].filter(Boolean).join(', ');
+      linkStatus =
+        previousName && result.name && previousName !== result.name
+          ? `From the link: ${filled}. It replaced "${previousName}" — change it back if that was the right one.`
+          : `From the link: ${filled}. Change either if it is not what you call it.`;
+      linkValue = '';
+    }
+    linkReading = false;
+    render();
+  };
+
+  const linkField = root.querySelector<HTMLInputElement>('[data-welcome-place] input[name="map_link"]');
+  if (linkField) {
+    // Paste is the gesture this exists for, so it fires on its own rather than
+    // waiting for a blur the member has no reason to perform.
+    linkField.addEventListener('paste', (event) => {
+      const pasted = event.clipboardData?.getData('text') || '';
+      if (pasted.trim()) {
+        linkValue = pasted.trim();
+        void readLink(pasted);
+      }
+    });
+    linkField.addEventListener('change', () => void readLink(linkField.value));
+    linkField.addEventListener('blur', () => void readLink(linkField.value));
+    // Enter in the link field reads it rather than submitting a form the member
+    // has not finished — the note below it is still empty at this point.
+    linkField.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      void readLink(linkField.value);
+    });
+  }
 
   /**
    * Sends one recommendation and reacts to the two ways it can not land: a place
@@ -416,15 +512,19 @@ export function bindOnboarding(root: HTMLElement, venues: Venue[], callbacks: Ca
       render();
       return;
     }
-    await sendPlace(
-      {
-        venue_name: venueName,
-        city,
-        note,
-        place_intent: matched ? 'second' : 'ask',
-      },
-      { venueName, city, note }
-    );
+    const payload: Record<string, string> = {
+      venue_name: venueName,
+      city,
+      note,
+      place_intent: matched ? 'second' : 'ask',
+    };
+    // Only for a place the link named: a catalogue match is an existing place
+    // whose facts are already settled, and must not be overwritten from here.
+    if (!matched) {
+      if (linkFacts.address) payload.address = linkFacts.address;
+      if (linkFacts.country) payload.country = linkFacts.country;
+    }
+    await sendPlace(payload, { venueName, city, note });
   });
 
   root.querySelector<HTMLButtonElement>('[data-welcome-second]')?.addEventListener('click', async () => {
@@ -496,6 +596,11 @@ export function bindOnboarding(root: HTMLElement, venues: Venue[], callbacks: Ca
     notice = null;
     collision = null;
     distinguishing = false;
+    // The previous place's link, and what it filled in, belong to that place.
+    linkValue = '';
+    linkStatus = '';
+    lastLinkRead = '';
+    linkFacts = { address: '', country: '' };
     render();
   });
 
