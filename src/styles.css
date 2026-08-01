@@ -4374,6 +4374,29 @@ legend { color: var(--tape-text); }
 .community-invite-claimed .community-invite-codes code,
 .community-invite-claimed .community-invite-codes span { color: var(--tape-muted); font-weight: 600; }
 
+/* ---- offering a founding seat ----
+   The Founder's toggle, and the mark it leaves on the invitations it made. Only
+   she ever sees either: for every other member both are meaningless, since their
+   invitations are all ordinary. The tag keeps its accent on the claimed list too,
+   where the rest of the row greys out — which of the fifty went where is the one
+   thing worth reading back off a spent code. */
+.community-invite-founding { align-self: start; }
+.community-invite-founding-tag,
+.community-invite-claimed .community-invite-codes .community-invite-founding-tag {
+  flex: none;
+  margin-right: auto;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--tape-accent);
+  border-radius: 999px;
+  color: var(--tape-accent);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 /* ---- sending an invitation onward ----
    Shared by My Circle and the Invitations tab. Quieter than the copy button
    beside it: copying is the neutral act, and these are the two apps most

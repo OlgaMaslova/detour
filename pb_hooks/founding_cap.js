@@ -4,19 +4,28 @@
 // FIFTY SEATS, THE FOUNDER'S INCLUDED. The landing page promises "one of fifty —
 // fifty founding seats, and no more", and this is where that promise is kept:
 // founding membership is the Founder's own account plus the first
-// FOUNDING_SEATS - 1 real accounts the Founder personally invited, in the order
-// they joined. Fifty founding members in total, of whom forty-nine were invited.
+// FOUNDING_SEATS - 1 real accounts who joined on an invitation the Founder marked
+// as founding, in the order they joined. Fifty in total, of whom forty-nine were
+// invited.
 //
 // It used to be every account the Founder invited, uncapped, which quietly turned
 // each of the Founder's personal invitations into a permanent broadcast right and
 // made the fifty on the landing page unenforceable. Seats now run out. The
-// fifty-first person the Founder invites is an ordinary member — exactly what the
-// landing page already tells applicants ("if the fifty are gone by the time we
+// fifty-first person offered a founding seat is an ordinary member — exactly what
+// the landing page already tells applicants ("if the fifty are gone by the time we
 // reach your request, it's considered for regular membership instead").
 //
-// Still derived, still nothing stored: no marker is written at signup and nothing
-// is granted, so the answer stays a fact about the invitation graph and cannot
-// drift from who actually invited whom. The `direct_founder_invited` and
+// A SEAT IS OFFERED, NOT CAUGHT BY ARRIVING EARLY. Between the cap and this, every
+// invitation the Founder sent claimed a seat by arrival order, so she could not
+// invite a friend as an ordinary member without spending one of fifty. The
+// `grants_founding` flag on the invite is the Founder's answer to that, chosen
+// when the invitation is issued (see the invites create hook, which lets nobody
+// else set it). An unmarked invitation from the Founder is an ordinary membership.
+//
+// Still derived, still nothing stored on the member: no marker is written at
+// signup and nothing is granted, so the answer stays a fact about the invitation
+// graph — now the invitation as well as the edge — and cannot drift from who
+// actually invited whom on what terms. The `direct_founder_invited` and
 // `founder_invitation_issuer` columns survive in the schema but no longer decide
 // anything; members still cannot set them (see the members update guard).
 //
@@ -25,6 +34,10 @@
 //     their seat to someone who arrives later.
 //   - A seat freed by a departing member is taken by the next member in order.
 //     Fifty is a live count of who holds a seat, not a ledger of who ever did.
+//
+// A marked invitation is an offer, not a reservation: it holds nothing while it
+// sits unclaimed, and if fifty seats are taken before it is redeemed, the person
+// who redeems it joins as an ordinary member.
 //
 // Internal accounts and reserved `.invalid` fixtures never occupy a seat.
 //
@@ -66,9 +79,15 @@ function rootFounderSql(alias) {
 }
 
 /**
- * SQL: the real accounts holding an invited founding seat — the Founder's first
- * FOUNDING_SEATS - 1 invitees, in join order. One short of fifty, because the
- * Founder holds the remaining seat.
+ * SQL: the real accounts holding an invited founding seat — the first
+ * FOUNDING_SEATS - 1 members who redeemed an invitation the Founder marked as
+ * founding, in join order. One short of fifty, because the Founder holds the
+ * remaining seat.
+ *
+ * Both halves of the condition are required: the invitation must carry
+ * `grants_founding`, AND it must have come from the Founder. The issuer is read
+ * off the member's own `invited_by` edge rather than the invite's `issued_by`, so
+ * the seat agrees with the graph every other surface draws.
  *
  * `joined_at` is the only time column on `members` — the collection has no
  * `created`/`updated` — and it is blank on accounts that predate the field. Those
@@ -76,16 +95,22 @@ function rootFounderSql(alias) {
  * default ASC put NULLs first seats them ahead of every dated account, which is
  * the right order. `id` breaks ties only for determinism; PocketBase ids are
  * random, not chronological.
+ *
+ * Aliased `seat` rather than `m`: this fragment is embedded in queries that
+ * already have an `m`, and reusing the name would read as a correlated subquery
+ * when it is deliberately not one.
  */
 function foundingSeatIdsSql() {
   return (
-    "SELECT id FROM members " +
-    "WHERE invited_by = (SELECT id FROM members WHERE LOWER(TRIM(email)) = " +
+    "SELECT seat.id AS id FROM members seat " +
+    "JOIN invites seat_invite ON seat_invite.id = seat.redeemed_invite " +
+    "WHERE seat.invited_by = (SELECT id FROM members WHERE LOWER(TRIM(email)) = " +
     founderEmailSql() +
     ") " +
-    "AND COALESCE(internal_member, FALSE) = FALSE " +
-    "AND LOWER(TRIM(email)) NOT LIKE '%.invalid' " +
-    "ORDER BY NULLIF(TRIM(joined_at), '') ASC, id ASC " +
+    "AND COALESCE(seat_invite.grants_founding, FALSE) = TRUE " +
+    "AND COALESCE(seat.internal_member, FALSE) = FALSE " +
+    "AND LOWER(TRIM(seat.email)) NOT LIKE '%.invalid' " +
+    "ORDER BY NULLIF(TRIM(seat.joined_at), '') ASC, seat.id ASC " +
     "LIMIT " + (FOUNDING_SEATS - 1)
   );
 }
@@ -184,11 +209,31 @@ function countFoundingMembers(app) {
   return Number(summary.total || 0);
 }
 
+/**
+ * Seats nobody holds yet — what the Founder needs to know before offering one.
+ *
+ * Unclaimed founding invitations are not counted against it. They reserve nothing:
+ * a seat is taken by joining, and a marked invitation that goes unredeemed while
+ * the fifty fill up simply admits an ordinary member.
+ */
+function foundingSeatsRemaining(app) {
+  return Math.max(0, FOUNDING_SEATS - countFoundingMembers(app));
+}
+
+/** Whether this member may mark an invitation as founding. The Founder alone. */
+function canGrantFounding(app, member) {
+  if (!app || !member) return false;
+  const root = rootFounderId(app);
+  return !!root && member.id === root;
+}
+
 module.exports = {
   FOUNDING_INVITATION_LIMIT,
   FOUNDING_SEATS,
   MEMBER_INVITATION_LIMIT,
+  canGrantFounding,
   countFoundingMembers,
+  foundingSeatsRemaining,
   founderEmail,
   foundingMemberSql,
   foundingSeatIdsSql,
