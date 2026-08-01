@@ -325,6 +325,11 @@ routerAdd(
     // founding markers it derives from are hidden fields and stay server-side.
     const founding = require(__hooks + "/founding_cap.js");
     const foundingMember = founding.isFoundingMember(e.app, e.auth);
+    // Only the Founder is offered the founding toggle when issuing an invitation,
+    // and only she is told how many of the fifty are left — the size of the
+    // remaining founding circle is not a fact the rest of the membership reads
+    // off their own invitations tab.
+    const canGrantFounding = founding.canGrantFounding(e.app, e.auth);
     const imageCurationCount = foundingMember
       ? e.app.findRecordsByFilter(
           "community_place_images",
@@ -342,6 +347,10 @@ routerAdd(
         community_status: e.auth.getString("community_status"),
         invitation_limit: founding.invitationLimitFor(e.app, e.auth),
         founding_member: foundingMember,
+        can_grant_founding: canGrantFounding,
+        founding_seats_remaining: canGrantFounding
+          ? founding.foundingSeatsRemaining(e.app)
+          : null,
         image_curation_count: imageCurationCount,
       },
     });
@@ -1558,8 +1567,10 @@ onRecordCreateRequest((e) => {
   e.record.set("redeemed_invite", invite.id);
   e.record.set("community_status", "verified");
   // Founding membership is not granted here and is not stored: it is derived
-  // from invited_by — the Founder's own account and everyone the Founder
-  // invited (see founding_cap.js). Setting invited_by above is the whole of it.
+  // from invited_by and the redeemed invitation's grants_founding — the Founder's
+  // own account, and whoever joined on an invitation she marked founding (see
+  // founding_cap.js). Setting invited_by and redeemed_invite above is the whole
+  // of it; the flag was decided when the invitation was issued.
   e.next();
 }, "members");
 
@@ -1737,6 +1748,13 @@ onRecordUpdateRequest((e) => {
 // authenticated member who created the invite. The allowance is the number of
 // invitations a member may keep *open* at once — founding members get a larger
 // one (see founding_cap.js) — and redeeming one frees a slot.
+//
+// `grants_founding` is the one field a client may state, and only the Founder may
+// state it: it is what turns an invitation into an offer of one of the fifty
+// founding seats. Everyone else's invitations are forced ordinary, silently — a
+// member who never sees the toggle has no way to know they sent the field, and
+// refusing their invitation over a value they did not choose would be a worse
+// answer than ignoring it.
 onRecordCreateRequest((e) => {
   if (!e.auth || e.hasSuperuserAuth()) {
     if (e.hasSuperuserAuth()) {
@@ -1758,6 +1776,10 @@ onRecordCreateRequest((e) => {
     );
   }
 
+  e.record.set(
+    "grants_founding",
+    e.record.getBool("grants_founding") && founding.canGrantFounding(e.app, e.auth)
+  );
   e.record.set("issued_by", e.auth.id);
   e.record.set("code", "DTR-" + $security.randomString(20).toUpperCase());
   e.record.set("claimed_by", "");
@@ -2031,29 +2053,10 @@ onRecordAfterCreateSuccess((e) => {
   e.next();
 }, "community_recommendations");
 
-// The work-list every enrichment sweep runs over: published, un-suppressed
-// places, newest first.
-//
-// This used to be derived from `venue_awards` rows and each sweep swallowed a
-// failed lookup with `catch { return }` — so anything that broke the award query
-// silently stopped all enrichment, with no error and no signal that newly
-// published places were never getting coordinates, cover images, or discovered
-// links. Keying on the venue's own marker removes both the indirection and the
-// silent-failure mode; a genuine failure here still returns an empty list, but
-// there is no longer a second collection that can independently disappear.
-function publishedVenuesForSweep(limit) {
-  try {
-    return $app.findRecordsByFilter(
-      "venues",
-      "published = true && suppressed != true",
-      "-published_at",
-      limit || 50,
-      0
-    );
-  } catch {
-    return [];
-  }
-}
+// The work-list every enrichment sweep runs over lives in community_waitlist.js
+// (publishedVenuesForSweep). It cannot live here: cronAdd callbacks run in an
+// isolated VM, so a module-scope helper in this file is out of scope by the time
+// a job fires.
 
 // Daily launch-number rollup at 05:15 UTC, emailed to DETOUR_REPORTS_EMAIL. The
 // shared helper owns fixture exclusion, zero-activity suppression, delivery, and
@@ -2069,7 +2072,7 @@ cronAdd("detour_daily_launch_numbers", "15 5 * * *", () => {
 // geocodeVenue exits early for venues that already have coordinates.
 cronAdd("community_geocode_sweep", "0 4 * * *", () => {
   const community = require(__hooks + "/community_waitlist.js");
-  for (const venue of publishedVenuesForSweep()) {
+  for (const venue of community.publishedVenuesForSweep($app)) {
     community.geocodeVenue($app, venue.id);
   }
 });
@@ -2080,7 +2083,7 @@ cronAdd("community_geocode_sweep", "0 4 * * *", () => {
 // already have everything.
 cronAdd("community_cover_sweep", "30 4 * * *", () => {
   const community = require(__hooks + "/community_waitlist.js");
-  for (const venue of publishedVenuesForSweep()) {
+  for (const venue of community.publishedVenuesForSweep($app)) {
     community.enrichVenueFromOsm($app, venue.id);
     community.resolveCoverImage($app, venue.id);
   }
@@ -2098,7 +2101,7 @@ cronAdd("community_cover_sweep", "30 4 * * *", () => {
 cronAdd("community_web_discovery_sweep", "0 * * * *", () => {
   const community = require(__hooks + "/community_waitlist.js");
   let attempts = 0;
-  for (const venue of publishedVenuesForSweep()) {
+  for (const venue of community.publishedVenuesForSweep($app)) {
     if (attempts >= 2) break;
     if (community.enrichVenueFromWebSearch($app, venue.id)) {
       attempts += 1;

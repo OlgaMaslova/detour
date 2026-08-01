@@ -1666,6 +1666,37 @@ function resolveCoverImage(app, venueId) {
   }
 }
 
+// The work-list every enrichment sweep runs over: published, un-suppressed
+// places, newest first.
+//
+// This used to be derived from `venue_awards` rows and each sweep swallowed a
+// failed lookup with `catch { return }` — so anything that broke the award query
+// silently stopped all enrichment, with no error and no signal that newly
+// published places were never getting coordinates, cover images, or discovered
+// links. Keying on the venue's own marker removes both the indirection and the
+// silent-failure mode; a genuine failure here still returns an empty list, but
+// there is no longer a second collection that can independently disappear.
+//
+// This lives here rather than beside the cron definitions in main.pb.js because
+// cronAdd callbacks run in an isolated VM: a module-scope helper in the same
+// file is not in scope by the time the job fires, which threw
+// "publishedVenuesForSweep is not defined" on every sweep. Reaching it through
+// require -- as the callbacks already do for everything else -- is what makes it
+// callable.
+function publishedVenuesForSweep(app, limit) {
+  try {
+    return app.findRecordsByFilter(
+      "venues",
+      "published = true && suppressed != true",
+      "-published_at",
+      limit || 50,
+      0
+    );
+  } catch {
+    return [];
+  }
+}
+
 module.exports = {
   addParticipants,
   claimPublicationNotification,
@@ -1677,6 +1708,7 @@ module.exports = {
   findMemberRecommendation,
   geocodeVenue,
   placeCollisionData,
+  publishedVenuesForSweep,
   hasConfirmedCoordinates,
   isParticipant,
   mergeEntryLinksIntoVenue,

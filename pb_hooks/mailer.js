@@ -38,6 +38,17 @@ function sendMail(app, options) {
     );
   }
 
+  // With SMTP disabled, newMailClient() returns a sendmail client that shells
+  // out to a local binary the Alpine image does not ship, so the send fails
+  // with an opaque exec error and nothing ever reaches the relay -- the relay
+  // dashboard shows zero attempts rather than failures. Fail with the actual
+  // reason instead.
+  if (!settings.smtp.enabled) {
+    throw new Error(
+      "SMTP is disabled (Settings -> Mail settings): mail is not being relayed."
+    );
+  }
+
   // Optional, and normally unset: mail is sent as takedetour.app, which
   // Cloudflare Email Routing already receives, so replies arrive without help.
   // Set DETOUR_REPLY_TO only to point replies somewhere other than the From

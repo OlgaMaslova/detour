@@ -93,6 +93,21 @@ function esc(value: string | undefined | null): string {
     .replace(/"/g, '&quot;');
 }
 
+/**
+ * The same normalization the server applies in pb_hooks/member_profile.js:
+ * decompose accents away, drop the leading @, lowercase. Applying it here means
+ * "Café-Anna" is accepted rather than refused for characters the server would
+ * have folded anyway.
+ */
+function normalizePseudo(raw: string): string {
+  return raw
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .replace(/^@+/, '')
+    .toLowerCase();
+}
+
 function readableError(error: unknown, fallback: string): string {
   if (error && typeof error === 'object') {
     const response = (error as { response?: { message?: string; data?: Record<string, { message?: string }> } }).response;
@@ -447,12 +462,25 @@ export function bindOnboarding(root: HTMLElement, venues: Venue[], callbacks: Ca
     const join = pendingJoin;
     if (!join || submitting) return;
     const values = new FormData(event.currentTarget as HTMLFormElement);
-    const pseudo = String(values.get('pseudo') || '').trim().replace(/^@+/, '').toLowerCase();
+    const pseudo = normalizePseudo(String(values.get('pseudo') || ''));
     const city = String(values.get('home_city') || '').trim();
     draft.pseudo = pseudo;
     draft.city = city;
     if (pseudo.length < 3) {
       notice = { kind: 'error', text: 'Pick a pseudo of at least three characters.' };
+      render();
+      return;
+    }
+    // The form is `novalidate`, so the input's `pattern` never runs and only the
+    // length was ever checked here. A pseudo with a space, dot or underscore
+    // therefore reached the server and came back a 400 — inside a catch that
+    // also handles a spent invitation, so the refusal read as an invitation
+    // problem. Applying the server's own rule states the real one instead.
+    if (!/^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/.test(pseudo)) {
+      notice = {
+        kind: 'error',
+        text: 'A pseudo is letters, digits and hyphens only — no spaces — starting and ending with a letter or digit.',
+      };
       render();
       return;
     }
