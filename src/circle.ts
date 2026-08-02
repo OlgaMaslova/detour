@@ -676,7 +676,7 @@ function panelMarkup(): string {
           ? `<p class="circle-panel-status">${esc(person.name)} keeps their recommendations private.</p>`
           : data.items.length
             ? `<div class="circle-panel-cards">${data.items
-                .map((item) => groupedRecommendationCardMarkup([item], resolvePlaceFn, { signalCounts: null }))
+                .map((item) => groupedRecommendationCardMarkup([item], resolvePlaceFn))
                 .join('')}</div>`
             : `<p class="circle-panel-status">${esc(person.name)} has no published places yet.</p>`;
   return `<div class="circle-panel-overlay" data-circle-panel-dismiss></div>

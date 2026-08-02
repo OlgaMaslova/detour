@@ -12,7 +12,8 @@
  */
 
 import type { Venue } from './data';
-import { detouristSignalBadge } from './signal';
+import { ENDORSE_LABEL, detouristSignalBadge } from './signal';
+import type { EndorsementSignal } from './signal';
 
 /** One member's note about this place, as the circle feed reports it. */
 export interface PlaceNote {
@@ -41,6 +42,13 @@ export interface PlaceChrome {
   countryHref: string;
   exploreHref: string;
   canExplore: boolean;
+  /**
+   * Whether this reader may mark this place as been & loved: a verified member,
+   * looking at a place that is not their own. A member who has written about it
+   * cannot — their note already is the endorsement, and one person must never
+   * stand on a place twice.
+   */
+  canEndorse: boolean;
   /**
    * The member-only primary nav, rendered by main.ts so this page cannot drift
    * from the masthead every other surface shows. It used to hardcode an Explore
@@ -151,6 +159,63 @@ function notesSection(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
   </section>`;
 }
 
+/**
+ * Been & loved — the rung below writing a note, and the only one that costs the
+ * member nothing.
+ *
+ * Under the notes on purpose: it is corroboration of what is written above it,
+ * never a replacement for writing. The button appears only where a member could
+ * honestly press it — not on their own place, where their note already is the
+ * endorsement — and the names appear whenever there are any the reader may see,
+ * because there are no anonymous signals in Detour.
+ *
+ * A reader who can see the place but none of its endorsers gets the figure and
+ * no names. That is the designed outcome, not a degraded one: the count is a
+ * global fact about the place, and naming somebody outside the reader's reach
+ * would tell them that member exists.
+ */
+/** The place's marks, as the one stamp in the hero reports them. */
+function endorsementSignal(v: Venue): EndorsementSignal {
+  const endorsers = v.endorsements ?? [];
+  return {
+    total: v.endorsementTotal,
+    circle: endorsers.filter((person) => person.inGraph).length,
+    founders: endorsers.filter((person) => !person.inGraph).length,
+    own: v.endorsedByCaller === true,
+    // Everybody but the reader. The sentence already says "you" whenever they
+    // are one of the endorsers, so naming them again turns "You have been and
+    // loved it" into "You have been and loved it — You".
+    names: endorsers.filter((person) => !person.isOwn).map((person) => person.name),
+  };
+}
+
+/**
+ * The button, in the hero beside the count it changes.
+ *
+ * It sits with the stamp rather than in a section of its own, and that is the
+ * whole point: a member decides they would send you here in the same glance that
+ * tells them who else already has. Under the notes it was a footnote nobody
+ * scrolled to, and a heading, an empty-state sentence and a line of instructions
+ * were three pieces of furniture holding up one tap.
+ *
+ * Once pressed there is no control at all. The stamp above already says the mark
+ * stands — the reader is counted in it and named in its tooltip — so anything
+ * here would be stating a settled fact twice and offering it as though it were
+ * still a decision.
+ *
+ * Shown only where a member could honestly press it — never on their own place,
+ * where their note already is the endorsement.
+ */
+function endorsementControl(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
+  if (!chrome.canEndorse || v.endorsedByCaller === true) return '';
+  return `<div class="place-endorse-row">
+    <button type="button" class="primary-button place-endorse-button" data-endorse-place="${h.esc(
+      v.id
+    )}" aria-label="${h.esc(`${ENDORSE_LABEL} — ${v.name}`)}">${h.esc(ENDORSE_LABEL)}</button>
+    <p class="place-endorsement-status" role="status" data-endorse-status></p>
+  </div>`;
+}
+
 /** Position, address and the handoff to a maps app. */
 function whereSection(v: Venue, h: PlaceHelpers): string {
   const located = v.lat !== null && v.lng !== null;
@@ -253,9 +318,11 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
                   founders: v.founderCount,
                   own: alreadyRecommended,
                 },
-                'plate'
+                'plate',
+                endorsementSignal(v)
               )}
             </div>
+            ${endorsementControl(v, chrome, h)}
           </div>
         </div>
         ${h.cover(v)}

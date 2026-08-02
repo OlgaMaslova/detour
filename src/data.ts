@@ -110,6 +110,40 @@ export interface Venue {
    * place page.
    */
   foundingRecommended?: boolean;
+  /**
+   * Been & loved: every member who went here on somebody's recommendation and
+   * would send you too, in any circle.
+   *
+   * The same carve-out as `detouristTotal`, for the same reason and with the same
+   * guard — a global fact about the place, served only for places the caller can
+   * already see. It is corroboration, never authorship: it does not publish a
+   * place, does not feed `detouristCount`, and never decides what is visible.
+   */
+  endorsementTotal?: number;
+  /**
+   * The endorsers this caller may see, each carrying the clause that put them in
+   * reach. Fewer than `endorsementTotal`, often none — a caller who can see the
+   * place but none of the members who marked it gets the count and no names, and
+   * that is the correct outcome rather than a degraded one.
+   */
+  endorsements?: PlaceEndorser[];
+  /** Whether the caller is one of them. Drives the button's pressed state. */
+  endorsedByCaller?: boolean;
+}
+
+/** One member who has been and loved a place, as the caller may see them. */
+export interface PlaceEndorser {
+  /** The pseudo — members have one name on Detour. */
+  name: string;
+  /**
+   * True when the invitation graph put them in reach. False means they are
+   * visible only as a founding member, which is in nobody's circle in
+   * particular; the copy has to say so, and must never reach for "your circle"
+   * to describe them.
+   */
+  inGraph: boolean;
+  /** The caller themself. */
+  isOwn: boolean;
 }
 
 export interface LiveCity extends CityMapSource {
@@ -286,6 +320,27 @@ function positiveInteger(value: unknown): number | null {
   return number !== null && Number.isInteger(number) && number > 0 ? number : null;
 }
 
+/**
+ * The endorsers the server named for one place.
+ *
+ * Tolerant by construction: a row without a name is dropped rather than rendered
+ * blank, and the clause defaults to *not* in the graph. That default matters —
+ * guessing "in your circle" from a missing flag is the exact bug the two-clause
+ * split exists to prevent, and the safe guess is the one that claims less.
+ */
+function readEndorsers(value: unknown): PlaceEndorser[] {
+  if (!Array.isArray(value)) return [];
+  const endorsers: PlaceEndorser[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as Record<string, unknown>;
+    const name = cleanString(row.name).replace(/^@+/, '');
+    if (!name) continue;
+    endorsers.push({ name, inGraph: row.in_graph === true, isOwn: row.is_own === true });
+  }
+  return endorsers;
+}
+
 export function citySlug(name: string): string {
   return name
     .normalize('NFKD')
@@ -388,6 +443,11 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
       founders?: Record<string, unknown>;
       totals?: Record<string, unknown>;
       founding?: Record<string, unknown>;
+      endorsements?: {
+        totals?: Record<string, unknown>;
+        names?: Record<string, unknown>;
+        own?: Record<string, unknown>;
+      };
     }>('/api/detour/place-detourists', { requestKey: null }),
   ]);
 
@@ -402,6 +462,11 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
   const signalFounders = detouristSignals.founders ?? {};
   const signalTotals = detouristSignals.totals ?? {};
   const signalFounding = detouristSignals.founding ?? {};
+  // Absent on a backend that predates Been & loved. No marks is the honest
+  // reading of that, and the surfaces render nothing rather than a zero.
+  const endorsementTotals = detouristSignals.endorsements?.totals ?? {};
+  const endorsementNames = detouristSignals.endorsements?.names ?? {};
+  const endorsementOwn = detouristSignals.endorsements?.own ?? {};
 
   const citiesByName = new Map<string, LiveCity>();
 
@@ -575,6 +640,18 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     const total = positiveInteger(signalTotals[venue.id]);
     if (total !== null) venue.detouristTotal = Math.max(total, venue.detouristCount ?? 0);
     if (signalFounding[venue.id] === true) venue.foundingRecommended = true;
+
+    // Been & loved, on the same terms: a global count, and only the names this
+    // caller may see. Clamped to at least the number of names, so the line can
+    // never name more people than the figure beside it admits to.
+    const endorsers = readEndorsers(endorsementNames[venue.id]);
+    const endorsed = positiveInteger(endorsementTotals[venue.id]) ?? 0;
+    if (endorsers.length) venue.endorsements = endorsers;
+    // Never fewer than the names beside it: a line that names three people under
+    // the figure 2 is visibly wrong, and silently wrong is worse than absent.
+    const endorsedTotal = Math.max(endorsed, endorsers.length);
+    if (endorsedTotal > 0) venue.endorsementTotal = endorsedTotal;
+    if (endorsementOwn[venue.id] === true) venue.endorsedByCaller = true;
   }
 
   // Visibility, derived — per caller, at read time, never stored.

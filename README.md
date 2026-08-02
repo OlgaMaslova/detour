@@ -76,6 +76,9 @@ curl -fsS https://api.takedetour.app/api/detour/ready
     once-only marker behind the email a member's inviter gets when their first
     place lands. Backfills every member who already has recommendations, so no
     existing member's next place reads as their first.
+  - `1786406400_place_endorsements.js` — `community_place_endorsements`, the
+    been-and-loved mark: one row per member per place, readable only by its own
+    member, projected to everybody else by the server.
 - `pb_hooks/` — backend behavior: custom routes and record hooks (see below).
 - `pb_public/` — optional static fallback assets served by PocketBase.
 - `src/`, `index.html`, `vite.config.ts`, `wrangler.toml` — the frontend and
@@ -92,7 +95,7 @@ curl -fsS https://api.takedetour.app/api/detour/ready
 
 ## Collections
 
-Fourteen collections, all created or updated idempotently by the migrations
+Fifteen collections, all created or updated idempotently by the migrations
 above, and nothing else — verified against production. There are no
 platform-provisioned or otherwise unmanaged collections in the database.
 
@@ -106,6 +109,7 @@ platform-provisioned or otherwise unmanaged collections in the database.
 | `community_waitlist_entries` | the shared, normalized place identity a recommendation attaches to |
 | `community_recommendations` | the recommendation itself — the only reason anything is public on Detour |
 | `community_place_images` | member-supplied photos, screened, hanging off the recommendation that authored them |
+| `community_place_endorsements` | been & loved: one member went somewhere on another's note and would send you too. Corroboration, never authorship — it publishes nothing and gates nothing |
 | `community_shares` / `community_share_replies` | private member-to-member sends |
 | `member_place_contributions` | the legacy curator-reviewed contribution lane |
 | `detour_submissions` | the curator publication lane |
@@ -133,6 +137,7 @@ GET  /api/detour/member-directory
 GET  /api/detour/network-discovery
 GET  /api/detour/place-detourists
 GET  /api/detour/member-place-contributions
+POST /api/detour/places/{place}/endorsement
 POST /api/detour/invite-request/{form}
 POST /api/detour/survey/{form}
 GET  /api/detour/curation/images
@@ -144,16 +149,20 @@ POST /api/detour/curation/submissions/{id}/unpublish
 ```
 
 Hooks live in `pb_hooks/`, but only files named `*.pb.js` are loaded and can
-register anything — `main.pb.js`, `invite_requests.pb.js`, and
+register anything — `main.pb.js`, `invite_requests.pb.js`,
 `first_place_notice.pb.js` (one email to a new member's inviter when their first
-place lands, claimed once via `members.inviter_introduced_at`). Every other `.js`
-file there is a module the loaded hooks `require()`.
+place lands, claimed once via `members.inviter_introduced_at`), and
+`place_endorsements.pb.js` (the been-and-loved toggle, and the sweep that tells
+the recommender whose note was acted on). Every other `.js` file there is a
+module the loaded hooks `require()`.
 
-**There are no scheduled jobs.** The five sweeps that used to run (daily launch
+**Scheduled jobs.** Five are registered in `pb_hooks/main.pb.js` — daily launch
 numbers, nightly geocode, nightly cover, hourly LLM web discovery, and the
-fifteen-minute image-screening retry) were removed deliberately; the reasoning
-and what each did is recorded where they were registered, in
-`pb_hooks/main.pb.js`.
+fifteen-minute image-screening retry — each with its reasoning recorded where it
+is registered. A sixth, `detour_endorsement_notices`, lives in
+`pb_hooks/place_endorsements.pb.js`: every quarter hour it mails the members
+whose notes were acted on, one email per recipient however many places it
+covers, claiming each row before sending so a notice can never go twice.
 
 Place enrichment still happens **at publication**: the publish path calls the
 geocode, OSM-facts, and cover-image helpers directly, so a newly published place

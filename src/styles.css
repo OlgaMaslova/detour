@@ -1312,6 +1312,21 @@ legend { color: var(--tape-text); }
 }
 .signal-badge-bare .signal-mark { color: var(--tape-muted); }
 
+/* BEEN & LOVED — the stamp's second cell, not a stamp of its own. Two bordered
+   boxes side by side read as two competing scores; one box with two figures
+   reads as one place's standing, which is what it is. The rule between them is
+   what keeps authorship and corroboration legible as separate claims. */
+.signal-divider {
+  align-self: stretch;
+  width: 2px;
+  margin-inline: 0.1rem;
+  background: currentColor;
+  opacity: 0.3;
+}
+/* Slightly smaller than the bubble: the tick is a plain glyph and matches its
+   optical weight at a smaller size. */
+.signal-mark-been { transform: scale(0.86); }
+
 .signal-tooltip {
   position: absolute;
   right: -0.1rem;
@@ -2080,12 +2095,12 @@ legend { color: var(--tape-text); }
   text-transform: uppercase;
   overflow-wrap: anywhere;
 }
-/* The card's signal row: the stamped badge from signal.ts, not a worded sticker.
-   It reuses .place-signal-row so the row a card shows and the row on the page it
-   opens are the same object at the same scale — the count is one shape across
-   the app, and the words it used to spell are carried by the badge's tooltip and
-   accessible name. */
-.network-place-signal { margin-top: 0.45rem; }
+/* Cards carry no signal row at all any more — no recommendation count, no
+   been-and-loved count. A stamped figure beside a note turns reading into
+   scoring: the eye takes the number first, and a place showing 1 next to a
+   neighbour showing 3 reads as the lesser of the two before a word of either
+   note has been read. Both figures live on the place page, where there is room
+   to say what they count. */
 /* The feed toolbar counts places added in the last 24 hours; this sticker is
    how that count is visible in the list itself. Both come from one predicate,
    so the header can never name a number the cards do not show. */
@@ -3010,7 +3025,8 @@ legend { color: var(--tape-text); }
   grid-template-areas:
     'category'
     'good-for'
-    'counter';
+    'counter'
+    'endorse';
   justify-items: start;
 }
 .place-hero-details .place-meta { grid-area: category; }
@@ -3045,6 +3061,26 @@ legend { color: var(--tape-text); }
 .place-section { display: grid; gap: 0.7rem; padding-top: 1.4rem; border-top: 2.5px solid var(--tape-chrome); }
 .place-section .detail-description { margin: 0; }
 .place-page .detail-description { color: var(--tape-text); font-family: var(--tape-mono); }
+/* Been & loved lives in the hero, on the line under the stamps it changes — one
+   button, no heading and no instructions. It had a section of its own below the
+   notes and nobody scrolled to it. */
+.place-endorse-row {
+  grid-area: endorse;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0;
+}
+.place-endorsement-status:empty { display: none; }
+.place-endorsement-status { margin: 0; color: var(--tape-rust); font-family: var(--tape-mono); font-size: 0.85rem; }
+
+/* My detours → Been & loved: a record of marks, one line per place. */
+.community-endorsement-list { display: grid; gap: 0.7rem; }
+.community-endorsement-items { display: grid; gap: 0.45rem; margin: 0; padding: 0; list-style: none; }
+.community-endorsement-items li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; }
+.community-endorsement-where { color: var(--tape-muted); font-family: var(--tape-mono); font-size: 0.85rem; }
+
 .place-notes-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .place-note-controls { display: flex; gap: 0.45rem; }
 .place-note-control {

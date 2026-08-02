@@ -1045,6 +1045,24 @@ routerAdd(
       if (!counts[venueId]) delete totals[venueId];
     }
 
+    // Been & loved rides along in the same payload rather than in a route of its
+    // own: it is derived from the same visibility computation as the notes, so
+    // it costs a join rather than a second pass, and a card that stamps both
+    // figures gets them from one request.
+    //
+    // Same shape, same rule: a global count, names only for the members this
+    // caller may see, each carrying the clause that matched. And the same
+    // containment step — a place the caller cannot see contributes nothing, not
+    // even a number.
+    const endorsements = require(__hooks + "/place_endorsements.js")
+      .endorsementSignals(e.app, callerId);
+    for (const venueId in endorsements.totals) {
+      if (counts[venueId]) continue;
+      delete endorsements.totals[venueId];
+      delete endorsements.names[venueId];
+      delete endorsements.own[venueId];
+    }
+
     // `scope` tells the client the payload is caller-scoped, so it can refuse to
     // fall back to a global publication marker when this route is unavailable.
     // Degrading to "show everything a server ever published" would turn one
@@ -1056,6 +1074,7 @@ routerAdd(
       founders: founders,
       totals: totals,
       founding: founding,
+      endorsements: endorsements,
     });
   },
   $apis.requireAuth("members")
@@ -1852,6 +1871,21 @@ onRecordCreateRequest((e) => {
   community.mergePlaceFacts(e.app, resolved.entry, category, occasions);
   community.mergePlaceLinks(e.app, resolved.entry, links);
   community.addParticipants(e.app, resolved.entry, [e.auth.id]);
+  // Writing about a place you had marked replaces the mark: the note says more,
+  // and says it in your own words. It also enforces "never on your own place" —
+  // the two states cannot be held at once.
+  //
+  // Done here, alongside the entry's own writes and before the record is saved,
+  // so the place can never show one member twice — once under BEEN & LOVED and
+  // once under RECOMMEND. That inflation is exactly what a catalogue this size
+  // cannot survive, and it is the failure the ordering guards against: if the
+  // save below fails, a member has lost a mark they can press again, which is
+  // the harmless direction.
+  require(__hooks + "/place_endorsements.js").clearEndorsement(
+    e.app,
+    e.auth.id,
+    resolved.entry.id
+  );
   e.record.set("member", e.auth.id);
   e.record.set("waitlist", resolved.entry.id);
   e.record.set("note", note);

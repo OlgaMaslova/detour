@@ -43,7 +43,7 @@ import {
   NOTE_PHOTO_THUMB,
   PLACE_PHOTO_THUMB,
 } from './network';
-import type { DiscoveryRecommendation } from './network';
+import type { DiscoveryRecommendation, NetworkPlaceResolver } from './network';
 import { defaultSurveyForm, renderSurvey, surveyFormFromPath, surveyMeta, surveyPath } from './survey';
 import { PLACE_MAP_ID, placeIsLocated, placePageMarkup } from './place';
 import { detouristSignalBadge, detouristSignalText } from './signal';
@@ -1273,10 +1273,6 @@ function trustedVenueCard(v: Venue): string {
   return `<li>${groupedRecommendationCardMarkup(recommendations, resolveNetworkPlace, {
     trustedEntry: true,
     selected,
-    // The venue's own signal, so this card, the map preview and the place page
-    // it opens all stamp the same figure — the notes gathered above are only
-    // the ones this member may read, which can be fewer.
-    signalCounts: venueSignalCounts(v),
   })}</li>`;
 }
 
@@ -1381,6 +1377,68 @@ function bindPlaceNoteCarousel(root: HTMLElement): void {
 }
 
 /**
+ * Been & loved, pressed.
+ *
+ * The route toggles: pressed once it marks, pressed again it withdraws, and it
+ * answers with the caller's new state and the place's global count. Both are
+ * written straight onto the venue, which is the same object the catalogue holds,
+ * so the card that links here and the badge in the hero settle on the same
+ * figures without reloading a catalogue for one number.
+ *
+ * The reader's own name is added to and removed from the scoped list by hand for
+ * the same reason. Nobody else's is touched: the server decides who this caller
+ * may see, and the client is in no position to guess a name it was not sent.
+ */
+function bindPlaceEndorsement(root: HTMLElement, v: Venue): void {
+  const button = root.querySelector<HTMLButtonElement>('[data-endorse-place]');
+  if (!button) return;
+  const status = root.querySelector<HTMLElement>('[data-endorse-status]');
+  button.addEventListener('click', () => {
+    if (button.disabled) return;
+    button.disabled = true;
+    if (status) status.textContent = '';
+    pb.send<{ endorsed?: boolean; total?: number }>(
+      `/api/detour/places/${encodeURIComponent(v.id)}/endorsement`,
+      { method: 'POST', requestKey: null }
+    )
+      .then((result) => {
+        const endorsed = result.endorsed === true;
+        v.endorsedByCaller = endorsed;
+        v.endorsementTotal =
+          typeof result.total === 'number' && Number.isFinite(result.total)
+            ? Math.max(0, Math.floor(result.total))
+            : Math.max(0, (v.endorsementTotal ?? 0) + (endorsed ? 1 : -1));
+        const others = (v.endorsements ?? []).filter((person) => !person.isOwn);
+        v.endorsements = endorsed
+          ? [{ name: 'You', inGraph: true, isOwn: true }, ...others]
+          : others;
+        // The button is inside the markup this re-renders, so focus is restored
+        // on the far side rather than here.
+        pendingFocus = '[data-endorse-place]';
+        render(root);
+      })
+      .catch((error) => {
+        button.disabled = false;
+        if (status) {
+          status.textContent = readablePlaceError(
+            error,
+            'That could not be recorded just now. Try again in a moment.'
+          );
+        }
+      });
+  });
+}
+
+/** The server's own sentence when it sent one — every refusal here is readable. */
+function readablePlaceError(error: unknown, fallback: string): string {
+  if (error && typeof error === 'object') {
+    const response = error as { response?: { message?: string }; message?: string };
+    return response.response?.message || response.message || fallback;
+  }
+  return fallback;
+}
+
+/**
  * One place, one page. The markup lives in place.ts; this wires it to the
  * app's routing, chrome and shared venue formatting, then mounts the locator.
  */
@@ -1400,6 +1458,12 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
     countryHref: country ? countryHref(country.slug) : exploreHref(),
     exploreHref: exploreHref(),
     canExplore: memberCanExplore(),
+    // Never on your own place: a member who has written a note here has already
+    // said more than a mark can. `alreadyRecommended` inside place.ts asks the
+    // same question of the same notes, so the button and the "Recommend this
+    // place" call to action can never both claim this reader has not spoken.
+    canEndorse:
+      memberCanExplore() && !placeNotesForVenue(v).some((item) => item.is_own),
     // The same nav the shared masthead renders, so Explore and My Circle travel
     // together here too.
     memberNav: memberCanExplore() ? memberNavLinks('other') : '',
@@ -1429,6 +1493,7 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
 
   bindRouteLinks(root);
   bindPlaceNoteCarousel(root);
+  bindPlaceEndorsement(root, v);
   // Member notes render here, so a direct place link has to load the circle
   // feed itself rather than relying on the destination view having done it.
   ensureNetworkDiscovery(() => render(root), destination.name);
@@ -2185,7 +2250,7 @@ function normalizePlacePart(value: string): string {
 function resolveNetworkPlace(
   venueName: string,
   city: string
-): { venueId: string; destinationSlug: string; destinationHref: string; placeHref: string; imageUrl?: string } | null {
+): ReturnType<NetworkPlaceResolver> {
   if (state.mode !== 'live') return null;
   const name = normalizePlacePart(venueName);
   if (!name) return null;

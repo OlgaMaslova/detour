@@ -9,7 +9,7 @@ import type { RecordModel } from 'pocketbase';
 
 type CommunityMode = 'sign-in' | 'join';
 type MemberTab = 'invitations' | 'detours' | 'settings' | 'curation';
-type DetourTab = 'recommendations' | 'shares';
+type DetourTab = 'recommendations' | 'endorsements' | 'shares';
 type NoticeKind = 'success' | 'error' | 'info';
 
 interface MemberRecord extends RecordModel {
@@ -1456,10 +1456,49 @@ function coverlessMarkup(): string {
   </div>`;
 }
 
+/**
+ * Been & loved — the member's own marks, read off the catalogue they already
+ * hold.
+ *
+ * No request of its own: the scoped payload behind every card already says which
+ * places this caller has marked, and asking the server a second time for a list
+ * it just sent would be a route that exists only to repeat itself.
+ *
+ * A record, not a control. There is no withdrawal in the interface at all: the
+ * mark is one tap, taken at the moment a member knows the answer, and offering
+ * to take it back turns a settled fact back into a decision. The route still
+ * toggles, so a mark pressed by accident is not permanent in the data — only in
+ * what the app currently offers.
+ */
+function endorsementsPanel(): string {
+  const marked = knownVenues
+    .filter((venue) => venue.endorsedByCaller)
+    .sort((a, b) => a.city.localeCompare(b.city) || a.name.localeCompare(b.name));
+  if (!marked.length) {
+    return `<div class="community-endorsement-list">
+      <p class="community-empty">Nothing here yet. When a member’s note sends you somewhere and they were right, say so on the place’s own page — one tap, and the person who wrote it hears about it.</p>
+    </div>`;
+  }
+  return `<div class="community-endorsement-list">
+    <p class="community-form-note">Places you have been to on a member’s recommendation, and would send someone else to.</p>
+    <ul class="community-endorsement-items">
+      ${marked
+        .map(
+          (venue) => `<li>
+            <a class="community-queue-open" href="${esc(discoveryHref(venue))}" data-place="${esc(venue.id)}">${esc(venue.name)}</a>
+            <span class="community-endorsement-where">${esc([venue.city, venue.country].filter(Boolean).join(', '))}</span>
+          </li>`
+        )
+        .join('')}
+    </ul>
+  </div>`;
+}
+
 function detoursPanel(): string {
   const unseen = unseenShareCount();
   const tabs: { id: DetourTab; label: string }[] = [
     { id: 'recommendations', label: 'Recommendations' },
+    { id: 'endorsements', label: 'Been &amp; loved' },
     { id: 'shares', label: 'Private shares' },
   ];
   return `<div class="community-tab-panel community-detours-panel" id="member-panel-detours" role="tabpanel" aria-labelledby="member-tab-detours" tabindex="0">
@@ -1474,7 +1513,9 @@ function detoursPanel(): string {
     ${
       detourTab === 'recommendations'
         ? `<div class="community-detour-body" id="detour-panel-recommendations" role="tabpanel" aria-labelledby="detour-tab-recommendations">${recommendationPanel()}</div>`
-        : `<div class="community-detour-body" id="detour-panel-shares" role="tabpanel" aria-labelledby="detour-tab-shares">${sharesPanel()}</div>`
+        : detourTab === 'endorsements'
+          ? `<div class="community-detour-body" id="detour-panel-endorsements" role="tabpanel" aria-labelledby="detour-tab-endorsements">${endorsementsPanel()}</div>`
+          : `<div class="community-detour-body" id="detour-panel-shares" role="tabpanel" aria-labelledby="detour-tab-shares">${sharesPanel()}</div>`
     }
   </div>`;
 }

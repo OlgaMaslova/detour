@@ -238,3 +238,45 @@ going back to → "got another?" up to three → the feed.
   `members.inviter_introduced_at` before sending so it can never send twice.
   Fixture and smoke-test accounts (`.invalid`) and internal members are excluded
   on both sides of the edge.
+
+## Been & loved
+
+The one-tap rung below writing a note: a member who went somewhere on another
+member's recommendation and would send you there too. Specified in
+`docs/been-and-loved-spec.md`; the collection and route are called
+**endorsement** so a copy revision never has to move the schema.
+
+- **Both words are load bearing.** *Been* alone states a fact and takes no
+  position, and silence is Detour's only disagreement mechanism — a marker that
+  meant merely "I was here" would leave a member who went and disliked the place
+  with no honest move, and would make the absence of a mark unreadable. *Loved*
+  alone does not assert presence. Do not shorten the phrase to either half.
+- **One state per place, moving forward.** Saved → Been & loved → Recommended.
+  Writing a note supersedes the mark and removes it in the same pass as the
+  recommendation is created (see the create hook for `community_recommendations`
+  in `pb_hooks/main.pb.js`). That is also what enforces "never on your own
+  place" — the two states cannot be held at once — and it is what stops one
+  member appearing twice on the same place, once under `BEEN & LOVED` and once
+  under `RECOMMEND`. A place that inflates like that is a place this catalogue
+  cannot afford.
+- **Corroboration, never authorship.** It does not publish a place, does not
+  contribute to `signal_count` or `detouristCount`, and never decides who can
+  see anything. It is not a rating: there is no counterpart, no score, and
+  nothing may be ordered by it.
+- **Global count, scoped names, and the clause that matched.** The count is
+  every mark from every circle; the names are only the members the caller may
+  see, each carrying `in_graph` so the copy says "in your circle" when the graph
+  matched and never when the founding tier did. A caller who can see the place
+  but none of its endorsers gets the count and no names — that is correct, not
+  degraded. `community_place_endorsements` is readable only by the member each
+  row belongs to; everybody else's view comes from the server projection in
+  `pb_hooks/place_endorsements.js`, folded into `/api/detour/place-detourists`.
+  A client-side list over that collection would let a member enumerate who has
+  been where, which is the invitation graph by another route.
+- **The notification is the point.** One tap turns a contributor's silence into
+  a named member saying *I went, and you were right*, and it goes to the
+  recommender whose note was acted on — not to the place's other participants.
+  Batched per recipient by `detour_endorsement_notices`, with `notified_at`
+  claimed before the send.
+- **Not in the feed.** "Anna has been somewhere" is not news, and a feed at this
+  supply cannot afford filler that looks like activity.
