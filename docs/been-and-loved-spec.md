@@ -66,7 +66,17 @@ accurate, and will survive a copy revision.
 
 ## Rules
 
-- **One per member per place.** Toggleable: pressed again, it is withdrawn.
+- **One per member per place.**
+- **No taking it back from the place page.** That page offers no undo: once
+  pressed, the hero shows the mark and no control. A pressed button that reads
+  *You have been and loved it* offers a settled fact as though it were still a
+  decision, and the stamp already says the mark stands. **Removal lives on the
+  member's own list** — My detours → Been & loved, where each place is a card
+  with a Remove on it. That is the surface this paragraph used to call "My
+  places", and it arrived with the signed-in landing
+  (`docs/landing-spec.md`): taking a mark back is an ordinary operation on your
+  own row, not a control loitering on a public page. The route always toggled, so
+  this was a surface rather than a mechanism.
 - **Never on your own place.** A member who has written a recommendation for a
   place cannot mark it; their note already is the endorsement.
 - **Positive only.** There is no counterpart. Nothing to press to disagree.
@@ -192,6 +202,10 @@ As built. The `community_` prefix follows the collections already in use.
 the map preview and the place page do not all hold the same one. Verified members only. Refuses the caller's own place and an
 unpublished entry. Returns the caller's new state and the place's global count.
 
+The withdrawal half has no caller today — nothing in the interface presses it —
+and it is kept deliberately, because it is what My places will use. It is also
+what lets a mis-tap be undone by hand until then.
+
 **Reading** needs no new route. The place-page and card projections gain two
 values: the global count, and the scoped names with the clause that matched.
 Both derive from the visibility computation already performed for notes, so the
@@ -212,7 +226,9 @@ cost is a join rather than a second pass.
   *"Marc and Anna have been, and loved it"* is the product, and only the place
   page has room for the second. Revisit when a place routinely has several, and
   then as names rather than a number.
-- **My detours → Been & loved**, the member's own list.
+- **My detours → Been & loved**, on the signed-in landing. One card per place,
+  carrying the note the member went on and naming whoever wrote it, with a
+  Remove glued underneath. This is where removal lives; see the rule above.
 - **Nowhere in the feed as an event.** "Anna has been somewhere" is not news,
   and a feed at this supply cannot afford filler that looks like activity.
 

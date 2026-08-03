@@ -98,6 +98,13 @@ routerAdd(
       if (!endorsements.findEndorsement(e.app, e.auth.id, entry.id)) throw error;
     }
 
+    // A Wanna go save on this place is deliberately NOT deleted here. One state
+    // per place is a display rule, not a storage rule: the save stops showing on
+    // the Wanna go tab because the member has reached a higher rung, and comes
+    // back if they withdraw this mark. Deleting it would make a mis-tap
+    // destructive — the intention was never anybody's to discharge but theirs.
+    // See ownSaves in pb_hooks/place_saves.js.
+
     return e.json(200, {
       place: venueId,
       endorsed: true,

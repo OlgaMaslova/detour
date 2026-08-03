@@ -204,7 +204,7 @@ live redeploys as a debug loop.
 Redeeming an invitation does not land on the account page. `?view=welcome`
 (`src/onboarding.ts`) owns the first visit and asks one thing per screen:
 invitation card (email, password, code) → pseudo and city → the place you keep
-going back to → "got another?" up to three → the feed.
+going back to → "got another?" up to three → My detours.
 
 - **The account is created on the second screen, not the first.** A public signup
   must carry a pseudo and a home city, so the card's email and password are held
@@ -213,7 +213,7 @@ going back to → "got another?" up to three → the feed.
   screen: the invitation is only spent there.
 - **The place step is the ordinary recommendation path.** Same
   `community_recommendations` create, same `place_intent` collision question, same
-  publication rule — which is what puts the member's own card in the feed they
+  publication rule — which is what puts the member's own place on the list they
   land on. Everything optional (category, occasions, links, photo) is deliberately
   absent and stays available on the recommendation's own line. Do not fork a
   private submission path for onboarding.
@@ -232,12 +232,115 @@ going back to → "got another?" up to three → the feed.
   returns `resolved: false` and changes nothing, and no part of writing a
   recommendation may ever be made to depend on a link having been read.
 - **Three places, and stopping after one is the expected outcome.** The offer to
-  add another is an invitation, not a quota; do not gate the feed on a count.
+  add another is an invitation, not a quota; do not gate anything on a count.
 - **The inviter is told once.** `pb_hooks/first_place_notice.pb.js` emails the
   member's inviter when their first place lands, claiming
   `members.inviter_introduced_at` before sending so it can never send twice.
   Fixture and smoke-test accounts (`.invalid`) and internal members are excluded
   on both sides of the edge.
+
+## The signed-in landing
+
+**My detours is what a member opens on.** Not the feed. `?` with a session
+renders `renderLanding` in `src/main.ts`; the feed lives at `?view=feed`, and the
+nav reads **My detours · Feed · Explore · My Circle**. Specified in
+`docs/landing-spec.md`.
+
+- **Why not the feed.** A feed promises something new every time it loads, and at
+  a few places a week that promise fails on most visits — each failure teaching
+  the member not to come back. The surface most likely to be empty is the worst
+  possible thing to open on. Two surfaces never fail that way and both are here:
+  the member's own record, which is never empty once they have done one thing,
+  and a question, which does not depend on supply at all.
+- **One thing to answer, or nothing.** The slot above the tabs takes the first
+  that applies — an ask, else a triage card, else a "been yet?" follow-up, else
+  the week's prompt, else nothing. **Never a stack.** The two that exist are
+  resolved server-side in `/api/detour/community/me`, in that order, and the
+  order is load-bearing: `resolvePlacePrompt` advances the ladder as a side
+  effect of returning a rung, so it must only be reached when the slot is still
+  free. Nothing is a legitimate outcome — an invented prompt is the same broken
+  promise as an empty feed, one layer up.
+- **The feed does not ask for anything any more.** The first-place card and the
+  eligibility request behind it are gone. A second ask one click from the first
+  is the stack the spec rules out.
+- **Nothing else goes on this screen.** No stats, no streaks, no comparison to
+  other members, and never an invented figure. "3 new places this week" when
+  there were none is the thing this landing exists in opposition to.
+- **Four tabs, grouped by state**, in ladder order with the inbox last:
+  Recommendations · Been & loved · Wanna go · Private shares. A member with
+  nothing still sees all four; their empty states say what would put something
+  there rather than describing the absence, and Recommendations' empty state is
+  the by-heart question with the form already open under it. Grouping by city
+  instead was considered and set aside — see the spec; it comes back when
+  Send-this is built, because "My Annecy" is the sendable artifact and a
+  state-grouped list has nowhere to put it.
+
+### The triage card
+
+A member who has added nothing opens a blank record, and "add a place" is exactly
+the demand the research says does not exist — people recommend when they are
+asked, about something. So the slot asks about something: a real place from their
+own city, somebody else's note in full, and *Know this place?*
+(`pb_hooks/landing_triage.js`, `src/triage.ts`).
+
+- **The question is about the place, never about the member who wrote it.** That
+  is what keeps it from reading as social pressure, and it matters most while the
+  other name on the card is nearly always the founder's.
+- **Selection and the endorsement route share a visibility clause.** The card is
+  the newest published place in their home city that they have no state on — no
+  recommendation, no mark, no save — **and whose fronting note they can see**.
+  That last clause is not optional: `/endorsement` refuses a mark where the
+  caller cannot see a note, so a card picked on city and recency alone would
+  sometimes offer a **Been & loved it** button that 400s on tap.
+- **No card from a city they have no connection to.** That is noise with a name
+  on it. An empty city falls through to the plain prompt instead.
+- **Three cards per session, then it stops.** This is the real risk in the
+  mechanic: Been & loved is public and it emails somebody, so a member triaging
+  twenty places in ninety seconds produces noise indistinguishable from signal on
+  the one surface where trust is the whole product.
+- **Don't know it is not a failure.** It advances the card and records nothing
+  about the member. The two one-tap answers sit together and *I'd recommend it
+  myself* is a link beneath them — three matching buttons where one ambushes the
+  member with a text field is a small betrayal they only fall for once.
+- **Every answer goes through the route that owns it.** The card is a surface
+  onto `/endorsement` and `/save`, never a shortcut around their rules.
+
+## Wanna go
+
+The private rung, below Been & loved: somewhere a member means to get to, seen by
+nobody else, ever. `community_place_saves`, `pb_hooks/place_saves.js`,
+`POST /api/detour/places/{place}/save`. Specified in `docs/wanna-go-spec.md`.
+
+- **Fully private means fully private, and it is the whole design.** No count on
+  a card or a place page, no aggregate anywhere, no projection into any response
+  computed for another member, and **no notification** — the recommender is never
+  told somebody saved their place. That last one is a real cost, accepted,
+  because the alternative turns a private bookmark into a public signal by the
+  back door. The test to apply to any change: *could a member learn anything at
+  all about another member's saves, including that they exist?*
+- **There is one read path and it returns the caller's own rows.** No server
+  projection exists for this collection and none should be added — that is the
+  difference between it and `community_place_endorsements`, which is
+  scoped-public and needs one. There is deliberately **no index on `waitlist`
+  alone**, so counting saves per place is not even cheap.
+- **One state per place is a display rule, not a storage rule.** Marking Been &
+  loved or writing a recommendation takes a place off the Wanna go tab and leaves
+  the row alone — `ownSaves` filters superseded rows out, it does not delete
+  them. Withdraw the mark or delete the note and the save comes back where the
+  member left it. Only an explicit Remove deletes, because only that is the
+  member saying so; deleting on the way up would make a mis-tap destructive. A
+  *new* save on a place they have already answered for is still refused.
+- **Quiet wherever it appears, and gone once pressed.** It competes with Been &
+  loved, which is the one worth encouraging, so it is a secondary control — and
+  once a place is on the list the control disappears rather than becoming a
+  pressed state, the same treatment the mark above it gets. Removal lives on My
+  detours → Wanna go, and takes no confirmation: a confirmation dialogue on a
+  bookmark is an insult.
+- **A private share is not a save.** A share lands in the inbox and does not join
+  the recipient's list — it is somebody else's intention for them, and filing it
+  automatically would put words in their mouth and inflate a list they did not
+  build. The inbox's one-tap Wanna go is the member choosing, and `source:
+  "share"` records that it was.
 
 ## Been & loved
 
@@ -273,6 +376,11 @@ member's recommendation and would send you there too. Specified in
   `pb_hooks/place_endorsements.js`, folded into `/api/detour/place-detourists`.
   A client-side list over that collection would let a member enumerate who has
   been where, which is the invitation graph by another route.
+- **Removal is on the member's own list, and only there.** My detours → Been &
+  loved gives each place a card with a Remove; the place page still offers no
+  undo, because a control offering to reverse a settled fact on a public page
+  invites a second thought nobody asked for. The route always toggled, so this
+  is a surface rather than a mechanism.
 - **The notification is the point.** One tap turns a contributor's silence into
   a named member saying *I went, and you were right*, and it goes to the
   recommender whose note was acted on — not to the place's other participants.

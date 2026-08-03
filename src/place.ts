@@ -50,6 +50,18 @@ export interface PlaceChrome {
    */
   canEndorse: boolean;
   /**
+   * Whether this reader may put this place on their wishlist: the same gate
+   * as `canEndorse`, and additionally not somewhere they have already been. The
+   * ladder only runs forward — saving a place you have been to is meaningless.
+   */
+  canSave: boolean;
+  /** Whether it is already on their list. Their own row; nobody else can see it. */
+  saved: boolean;
+  /** A toggle in flight, so the control can say so rather than sit inert. */
+  saving: boolean;
+  /** The server's own sentence when the last attempt was refused; '' otherwise. */
+  saveError: string;
+  /**
    * The member-only primary nav, rendered by main.ts so this page cannot drift
    * from the masthead every other surface shows. It used to hardcode an Explore
    * link here, which is how the place page ended up as the one screen with no way
@@ -190,29 +202,95 @@ function endorsementSignal(v: Venue): EndorsementSignal {
 }
 
 /**
- * The button, in the hero beside the count it changes.
+ * Everything a reader can do about this place, on one row in the hero.
  *
- * It sits with the stamp rather than in a section of its own, and that is the
- * whole point: a member decides they would send you here in the same glance that
- * tells them who else already has. Under the notes it was a footnote nobody
- * scrolled to, and a heading, an empty-state sentence and a line of instructions
- * were three pieces of furniture holding up one tap.
+ * The row sits with the stamp rather than in a section of its own, and that is
+ * the whole point: a member decides what they want to say in the same glance
+ * that tells them who else has already said it. These used to be spread across
+ * the page — the mark in the hero, a "Been here too?" panel at the very bottom
+ * with a heading and a sentence of its own — which asked the reader to scroll
+ * past the notes to find the one thing the notes might have made them want to do.
  *
- * Once pressed there is no control at all. The stamp above already says the mark
- * stands — the reader is counted in it and named in its tooltip — so anything
- * here would be stating a settled fact twice and offering it as though it were
- * still a decision.
+ * IN LADDER ORDER, STRONGEST FIRST. Recommending is the whole product and it
+ * leads; the mark is corroboration and follows it; the save is private and comes
+ * last, quietest of the three. The weights say the same thing the ladder does, so
+ * a reader who only looks at the buttons still reads it correctly — and Been &
+ * loved never reads as a substitute for writing, which is the one thing it must
+ * never become.
  *
- * Shown only where a member could honestly press it — never on their own place,
- * where their note already is the endorsement.
+ * Each control disappears once its answer is given. A pressed button restating a
+ * settled fact offers it as though it were still a decision.
  */
-function endorsementControl(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
-  if (!chrome.canEndorse || v.endorsedByCaller === true) return '';
+function placeActions(
+  v: Venue,
+  chrome: PlaceChrome,
+  h: PlaceHelpers,
+  alreadyRecommended: boolean
+): string {
+  // Never offered on a place the reader has already written about: their note is
+  // there, and the edit link inside it is how they change it.
+  const recommend =
+    chrome.canExplore && !alreadyRecommended
+      ? `<a class="primary-button place-recommend-button" href="${h.esc(
+          chrome.recommendHref(v)
+        )}" data-community-route="recommend-place" data-recommend-venue="${h.esc(
+          v.id
+        )}" aria-label="${h.esc(`Recommend ${v.name}`)}">Recommend this place</a>`
+      : '';
+  const endorse =
+    chrome.canEndorse && v.endorsedByCaller !== true
+      ? `<button type="button" class="secondary-button place-endorse-button" data-endorse-place="${h.esc(
+          v.id
+        )}" aria-label="${h.esc(`${ENDORSE_LABEL} — ${v.name}`)}">${h.esc(ENDORSE_LABEL)}</button>`
+      : '';
+  const save = saveControl(v, chrome, h);
+  if (!recommend && !endorse && !save) return '';
   return `<div class="place-endorse-row">
-    <button type="button" class="primary-button place-endorse-button" data-endorse-place="${h.esc(
-      v.id
-    )}" aria-label="${h.esc(`${ENDORSE_LABEL} — ${v.name}`)}">${h.esc(ENDORSE_LABEL)}</button>
+    ${recommend}
+    ${endorse}
+    ${save}
     <p class="place-endorsement-status" role="status" data-endorse-status></p>
+  </div>`;
+}
+
+/**
+ * Wanna go — the private rung, and deliberately the quiet one.
+ *
+ * The quietest control on the row, because it competes with the two beside it
+ * and loses to both: writing tells the next reader something, the mark tells the
+ * member who wrote the note that they were right, and this tells nobody
+ * anything. Someone who has been should press the button that says so, not the
+ * one that files the place for later.
+ *
+ * Nothing here states a count, and there is nothing to state. No other member can
+ * learn that this place is on anybody's list, including that anybody's list has
+ * it — a visible tally would be a popularity ranking, which is the thing this
+ * product exists in opposition to.
+ *
+ * Once saved there is no control here at all, which is the same treatment Been &
+ * loved gets above it and for the same reason: the decision is made, and a
+ * button reading "On your Wanna go list" states a settled fact while offering it
+ * as though it were still a question. Nothing on this page needs to report the
+ * state either — it is private, so there is no figure to keep in step.
+ *
+ * Removal lives on My detours → Wanna go, alongside the rest of the member's own
+ * wishlist, which is where tidying a list belongs rather than on a public page.
+ * Taking one off takes no confirmation when they get there: it is private and
+ * reversible, and a confirmation dialogue on a bookmark is an insult.
+ */
+function saveControl(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
+  if (!chrome.canSave || chrome.saved) return '';
+  return `<div class="place-save-cell">
+    <button type="button" class="secondary-button place-save-button" data-save-place="${h.esc(
+      v.id
+    )}" aria-label="${h.esc(`Wanna go — ${v.name}`)}"${
+      chrome.saving ? ' disabled' : ''
+    }>${chrome.saving ? 'Saving…' : 'Wanna go'}</button>
+    ${
+      chrome.saveError
+        ? `<p class="place-save-status" role="alert">${h.esc(chrome.saveError)}</p>`
+        : ''
+    }
   </div>`;
 }
 
@@ -319,10 +397,16 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
                   own: alreadyRecommended,
                 },
                 'plate',
-                endorsementSignal(v)
+                endorsementSignal(v),
+                // The one thing on this stamp that is about the reader rather
+                // than the place. The control disappears once a place is saved,
+                // so without this mark there would be nothing at all telling a
+                // member the place is already on their list — and they would
+                // press it again wondering why nothing happened.
+                chrome.saved
               )}
             </div>
-            ${endorsementControl(v, chrome, h)}
+            ${placeActions(v, chrome, h, alreadyRecommended)}
           </div>
         </div>
         ${h.cover(v)}
@@ -337,17 +421,6 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
       }
       ${notesSection(v, chrome, h)}
       ${whereSection(v, h)}
-      ${
-        chrome.canExplore && !alreadyRecommended
-          ? `<aside class="place-cta" aria-labelledby="place-cta-title">
-              <div>
-                <h2 id="place-cta-title">Been here too?</h2>
-                <p>Add your own note for ${h.esc(v.name)} so the next Detourist knows what to order.</p>
-              </div>
-              <a class="network-primary-link" href="${h.esc(chrome.recommendHref(v))}" data-community-route="recommend-place" data-recommend-venue="${h.esc(v.id)}">Recommend this place <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
-            </aside>`
-          : ''
-      }
     </article>
     <footer class="footer place-footer">
       <p>${chrome.footerTagline}</p>${chrome.footerLinks}

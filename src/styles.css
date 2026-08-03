@@ -909,11 +909,21 @@ a.welcome-brand:hover,
   border-top: 1px solid var(--tape-hairline-strong);
 }
 
-/* ================= FORMS ================= */
+/* ================= FORMS =================
+   Enumerated rather than a bare `input` selector, because buttons, checkboxes,
+   radios and file pickers are inputs too and none of them wants a text field's
+   frame. The cost of enumerating is that a type left out silently gets no
+   padding, no width and no font — which is what happened to the map-link field:
+   it is type="url", that was missing here, and the placeholder sat against the
+   border while every field around it was padded. Add the type here when a new
+   one appears. */
 input[type='text'],
 input[type='search'],
 input[type='email'],
 input[type='password'],
+input[type='url'],
+input[type='tel'],
+input[type='number'],
 input:not([type]),
 select,
 textarea {
@@ -977,9 +987,7 @@ legend { color: var(--tape-text); }
 .network-invite-success,
 .detail,
 .community-share-card,
-.community-queue-list,
 .community-empty,
-.place-cta,
 .member-directory-results {
   position: relative;
   background: var(--tape-surface);
@@ -1326,6 +1334,10 @@ legend { color: var(--tape-text); }
 /* Slightly smaller than the bubble: the tick is a plain glyph and matches its
    optical weight at a smaller size. */
 .signal-mark-been { transform: scale(0.86); }
+/* Smaller again, and the only cell with no figure in front of it. It is the
+   reader's own private state rather than a claim about the place, so it sits at
+   the end of the stamp and carries the least weight of the three. */
+.signal-mark-saved { transform: scale(0.72); }
 
 .signal-tooltip {
   position: absolute;
@@ -3061,9 +3073,11 @@ legend { color: var(--tape-text); }
 .place-section { display: grid; gap: 0.7rem; padding-top: 1.4rem; border-top: 2.5px solid var(--tape-chrome); }
 .place-section .detail-description { margin: 0; }
 .place-page .detail-description { color: var(--tape-text); font-family: var(--tape-mono); }
-/* Been & loved lives in the hero, on the line under the stamps it changes — one
-   button, no heading and no instructions. It had a section of its own below the
-   notes and nobody scrolled to it. */
+/* Everything a reader can do about this place, on the line under the stamps two
+   of the three change. Recommending used to live in a panel at the very bottom
+   of the page, behind every note — which put the act the notes might have
+   prompted furthest from the notes. No headings and no instructions: three
+   labels say what each one does. */
 .place-endorse-row {
   grid-area: endorse;
   display: flex;
@@ -3075,11 +3089,10 @@ legend { color: var(--tape-text); }
 .place-endorsement-status:empty { display: none; }
 .place-endorsement-status { margin: 0; color: var(--tape-rust); font-family: var(--tape-mono); font-size: 0.85rem; }
 
-/* My detours → Been & loved: a record of marks, one line per place. */
-.community-endorsement-list { display: grid; gap: 0.7rem; }
-.community-endorsement-items { display: grid; gap: 0.45rem; margin: 0; padding: 0; list-style: none; }
-.community-endorsement-items li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; }
-.community-endorsement-where { color: var(--tape-muted); font-family: var(--tape-mono); font-size: 0.85rem; }
+/* My detours → Been & loved and Wanna go: the note above the grid of cards. The
+   cards themselves are the feed's, laid out by `.community-queue-cards`. */
+.community-endorsement-list,
+.community-saved-list { display: grid; gap: 0.7rem; }
 
 .place-notes-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .place-note-controls { display: flex; gap: 0.45rem; }
@@ -3208,26 +3221,6 @@ legend { color: var(--tape-text); }
   text-transform: uppercase;
 }
 .place-award-source a { color: var(--tape-accent); }
-.place-cta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1.1rem 1.2rem;
-}
-.place-cta h2 {
-  margin: 0;
-  font-family: var(--tape-anton);
-  font-weight: 400;
-  font-size: 26px;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--tape-text);
-  text-shadow: 2px 2px 0 var(--tape-ghost);
-}
-.place-cta p { margin: 0.2rem 0 0; max-width: 42ch; color: var(--tape-muted); font-size: 0.9rem; }
-
 /* ================= EXPLORE DIRECTORY =================
    Explore is the durable directory; home remains the chronological feed. */
 .explore-page,
@@ -4308,8 +4301,6 @@ legend { color: var(--tape-text); }
   font-weight: 750;
   cursor: pointer;
 }
-.community-direct-editor { width: min(100%, 42rem); }
-.community-direct-editor .community-form { max-width: none; }
 .community-view-all-recommendations { width: fit-content; }
 /* Recommendations opens on the ledger; Add new reveals the form below it. */
 .community-recommend-open,
@@ -4591,6 +4582,11 @@ legend { color: var(--tape-text); }
   justify-content: space-between;
   gap: 0.4rem 1rem;
 }
+/* Headingless: the tab strip names this section, so all that is left is the
+   tagline and the one control that belongs with it. The flip gets its own row
+   rather than sharing the tagline's, so the note reads as a plain sentence like
+   every other tab's. */
+.network-shares-actions { display: flex; justify-content: flex-start; }
 .community-queue-name,
 .community-share-card h4,
 .community-subheading h4 {
@@ -4629,51 +4625,93 @@ legend { color: var(--tape-text); }
 .community-queue { gap: 0.8rem; padding-top: 0.25rem; }
 /* Your recommendations is a ledger of lines: name, Edit, Open. Each line
    expands in place, so the whole entry stays where the member left it. */
-.community-queue-list {
-  display: grid;
-  gap: 0;
+/* The member's own places run to a row exactly as the feed's do — same grid
+   classes, same column count, set by the picker on the feed. The list only adds
+   what a <ul> needs. */
+.community-queue-cards {
   margin: 0;
-  padding: 4px 18px;
+  padding: 0;
   list-style: none;
-  border-top-width: 3px;
 }
+/* One place: the card, then the line of things that can be done to it, then the
+   edit form it opens. The row around the card carries no chrome of its own, or
+   the page would be a card inside a card — and it stretches so the cards in a
+   row stay the same height whatever their notes do. */
 .community-queue-row {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 0.75rem 1rem;
-  padding: 0.15rem 0;
-  border-bottom: 1px solid var(--tape-hairline);
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0;
+  padding: 0;
+  border-bottom: none;
 }
-.community-queue-row:last-child { border-bottom: none; }
+/* The card loses its own offset shadow: the strip below is part of the same
+   object, so the shadow belongs to the pair and is cast by the row. */
+.community-queue-row .network-entry {
+  height: 100%;
+  margin: 0;
+  box-shadow: none;
+}
+/* Glued. The strip shares the card's border rather than sitting under it with a
+   gap — one object with a footer, not a card and some links near it. The top
+   border is the card's own bottom edge, so it is not drawn twice. */
+/* Two halves, equal. Edit and Delete are the same kind of thing — one operation
+   each on this place — so neither gets the wider half, and the rule between them
+   lands dead centre whatever the labels say. The strip has no side padding of
+   its own: each half owns its full width and centres its own label, which is
+   what makes the halves read as halves. */
+.community-queue-bar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  column-gap: 0;
+  background: var(--tape-surface);
+  border: 3px solid var(--tape-chrome);
+  border-top: 0;
+  box-shadow: 8px 8px 0 var(--tape-rust);
+}
+/* Edit | Delete — the rule between them is drawn, not typed, so it sits on the
+   halfway line rather than wherever the first label happens to end. It is on the
+   right-hand half's leading edge, which is that line. */
+.community-queue-actions { border-left: 1px solid var(--tape-hairline); }
+/* Editing is a full-width job. Squeezed into one column of a two- or three-up
+   grid the fields are unusable, so the row takes the whole width for as long as
+   the form is up — and the form itself is the strip's only occupant, because the
+   strip's own controls are gone by then. */
+.community-queue-bar-editing { grid-template-columns: minmax(0, 1fr); }
+/* The 38rem cap on a form is for one sitting in the member area's narrow column.
+   This one owns the full width of a card that has just taken the whole row, so
+   the cap only leaves a dead strip down the right-hand side. The choice grid
+   underneath is already auto-fit, so the extra width becomes more columns rather
+   than wider boxes. */
+.community-queue-bar-editing .community-form { max-width: none; }
+/* Wanna go has one operation, so its strip is one cell wide and the label sits
+   in the middle of the card rather than in the middle of a half. */
+.community-queue-bar-single { grid-template-columns: minmax(0, 1fr); }
+.community-queue-bar-single > .community-queue-delete {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 0.55rem;
+}
+.community-queue-cards .community-queue-row.is-editing { grid-column: 1 / -1; }
 /* the highlight marker lives in the list's left gutter, not inside the row:
    an inset shadow would paint over the text and the edit form's fields */
+/* The just-saved marker sits outside the card rather than over it: an inset
+   shadow would paint across the cover and the edit form's fields. */
 .community-queue-row.is-highlighted::before {
   content: '';
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -10px;
+  left: -12px;
   width: 4px;
   background: var(--tape-accent-strong);
 }
-.community-queue-entry { min-width: 0; }
-.community-queue-line {
-  display: flex;
-  flex-wrap: wrap;
-  min-height: 44px;
-  align-items: baseline;
-  gap: 0.3rem 0.85rem;
-  padding: 0.55rem 0;
-  cursor: pointer;
-  list-style: none;
-}
-.community-queue-line::-webkit-details-marker { display: none; }
 .community-queue-where { min-width: 0; color: var(--tape-muted); font-family: var(--tape-mono); font-size: 11px; }
 .community-queue-edit,
-.community-queue-delete,
-.community-queue-open {
+.community-queue-delete {
   color: var(--tape-accent);
   font-family: var(--tape-mono);
   font-weight: 700;
@@ -4681,28 +4719,44 @@ legend { color: var(--tape-text); }
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
+/* Both halves are plain text controls in a shared strip: no button chrome of
+   their own, because the strip is the chrome. */
+.community-queue-edit,
 .community-queue-delete {
   padding: 0;
   background: none;
   border: 0;
   cursor: pointer;
 }
-.community-queue-delete:hover:not(:disabled) { color: var(--tape-orange); }
+.community-queue-edit {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 0.55rem;
+}
+.community-queue-edit:hover:not(:disabled) { color: var(--tape-accent-strong); }
+.community-queue-edit:disabled,
 .community-queue-delete:disabled { opacity: 0.56; cursor: not-allowed; }
-.community-queue-edit { margin-left: auto; }
-.community-queue-entry[open] .community-queue-edit::after { content: ' −'; }
-.community-queue-entry:not([open]) .community-queue-edit::after { content: ' +'; }
-.community-queue-body { display: grid; gap: 0.85rem; padding: 0.35rem 0 1.1rem; }
-/* the trailing Open / status shares the line's box, so the two sit on one
-   optical baseline whether the entry is collapsed or expanded */
+.community-queue-delete:hover:not(:disabled) { color: var(--tape-orange); }
+.community-queue-body {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1.1rem clamp(1rem, 2.5vw, 1.4rem);
+}
+/* The right-hand half: Delete, centred in it, with the live/not-live status —
+   when there is one to report — beneath rather than beside, so Delete stays on
+   the halfway line whether or not the place has published. */
 .community-queue-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
-  gap: 0.35rem 1.1rem;
+  justify-content: center;
+  gap: 0 1.1rem;
+  padding: 0.55rem;
+  text-align: center;
 }
-.community-queue-open,
+.community-queue-actions > .community-queue-status { flex: 1 0 100%; justify-content: center; }
 .community-queue-actions > .community-queue-delete,
 .community-queue-actions > .community-queue-status {
   display: inline-flex;
@@ -4710,9 +4764,6 @@ legend { color: var(--tape-text); }
   align-items: center;
   padding-block: 0.55rem;
 }
-.community-queue-open { text-decoration: none; white-space: nowrap; }
-.community-queue-open:visited { color: var(--tape-accent); }
-.community-queue-open:hover { color: var(--tape-accent-strong); }
 
 /* status pills: pale washes -> bordered mono tickets */
 .community-queue-status,
@@ -5361,28 +5412,10 @@ legend { color: var(--tape-text); }
   .community-share-heading { align-items: flex-start; flex-direction: column; gap: 0.55rem; }
   .community-queue-status,
   .community-share-heading > span { align-self: flex-start; }
-  /* Name, address, then all three controls on one line under it. Edit is the
-     disclosure summary and Delete / Open are its sibling element, so the three
-     cannot share a flex row; instead the entry and the pair take the same grid
-     cell and align to its bottom edge — Edit at the left of that last line,
-     the pair at the right. Equal 44px boxes put them on one optical line. */
-  .community-queue-row { grid-template-columns: minmax(0, 1fr); gap: 0; }
-  .community-queue-entry { grid-area: 1 / 1; }
-  .community-queue-actions { grid-area: 1 / 1; align-self: end; justify-self: end; gap: 0.35rem 1.4rem; }
-  .community-queue-line { display: grid; gap: 0.2rem; padding-block: 0.55rem 0; }
-  .community-queue-edit {
-    display: inline-flex;
-    min-height: 44px;
-    align-items: center;
-    justify-self: start;
-    margin-left: 0;
-  }
-  /* Open, the edit form owns the full width and the pair drops below it. */
-  .community-queue-entry[open] + .community-queue-actions {
-    grid-area: 2 / 1;
-    align-self: start;
-    justify-self: start;
-  }
+  /* The card owns the name and the address, so the strip under it is just Edit
+     and Delete. They stay side by side even here — two short words fit — and
+     only the status drops to its own line when it has something to say. */
+  .community-queue-actions { gap: 0 1.1rem; }
 }
 
 @media (max-width: 560px) {
@@ -5668,4 +5701,172 @@ legend { color: var(--tape-text); }
   .welcome-question { box-shadow: 5px 5px 0 var(--tape-rust); }
   .welcome-actions > .primary-button,
   .welcome-actions > .secondary-button { flex: 1 1 100%; }
+}
+
+/* ================= THE SIGNED-IN LANDING =================
+   My detours, with one thing to answer above it. See docs/landing-spec.md: the
+   feed used to be here and it promised something new every time it loaded, which
+   at a few places a week is a promise that fails on most visits.
+
+   Nothing on this screen is a statistic. No stats, no streaks, no comparison —
+   so there is deliberately no styling here for a figure, a badge, or a meter,
+   and none should be added. */
+/* The same 1080px column the masthead, the footer and every other content band
+   sit on. Without it the heading ran to the app's own gutter while the panel
+   below kept the column, so the screen had three different left edges: the
+   wordmark, the title, and the tabs. */
+.landing {
+  width: min(100%, 1080px);
+  margin-inline: auto;
+  padding-top: clamp(1.5rem, 4vw, 3rem);
+}
+/* The heading names the screen and nothing else. It does not greet the member by
+   name: they know who they are, and a landing that opens by saying so spends its
+   first line on the one fact the reader already has. */
+.landing-heading {
+  position: relative;
+  overflow: visible;
+  padding: 0 0 0.5rem;
+}
+.landing-heading h1 {
+  max-width: 22ch;
+  margin: 0;
+  font-size: clamp(2.35rem, 5vw, 3.5rem);
+}
+/* The answer slot and the tabs are one column: the question sits above the
+   member's own lists rather than beside them, because it is read first and then
+   left behind. */
+.landing .network-first-place { margin-top: clamp(1.25rem, 3vw, 2rem); }
+.landing .community-panel-landing { margin-top: clamp(1.5rem, 4vw, 2.75rem); }
+.community-panel-landing { display: grid; gap: 1rem; }
+/* The tab panel carries an inset because in the member area it sits inside that
+   area's chrome. On the landing there is no chrome around it, so the inset was
+   pushing the tabs and every card a couple of rem to the right of the heading
+   above them. One column, one left edge. */
+.community-panel-landing .community-tab-panel {
+  min-height: 0;
+  padding: 0;
+}
+
+/* ---- the triage card ----
+   A real place, somebody else's note, and one question about the place. The
+   answers are not three equal buttons: the two that cost one tap sit together,
+   and the one that opens a form is a link beneath them. Three matching buttons
+   where one ambushes the member with a text field is a small betrayal they only
+   fall for once. */
+.network-triage {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.9rem;
+}
+.network-triage-head { max-width: none; }
+.network-triage h2 {
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  text-shadow: none;
+  font-size: clamp(1.05rem, 1.9vw, 1.4rem);
+  text-wrap: pretty;
+}
+.network-triage-place {
+  margin: 0.35rem 0 0;
+  color: var(--tape-text);
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+.network-triage-where {
+  margin-left: 0.4rem;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 0.8rem;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+/* The note is shown whole and attributed. An excerpt would be asking the member
+   about a fragment of what somebody stood behind. */
+.network-triage-note {
+  margin: 0;
+  padding: 0.85rem 1rem;
+  background: var(--tape-inset);
+  border-left: 4px solid var(--tape-accent);
+}
+.network-triage-note p {
+  margin: 0;
+  color: var(--tape-text);
+  font-family: var(--tape-mono);
+  line-height: 1.6;
+}
+.network-triage-note footer {
+  margin-top: 0.5rem;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 0.8rem;
+}
+.network-triage-answers { display: flex; flex-wrap: wrap; gap: 0.55rem; }
+.network-triage-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem 1rem;
+  padding-top: 0.2rem;
+}
+.network-triage-write {
+  color: var(--tape-text);
+  font-family: var(--tape-mono);
+  font-size: 0.85rem;
+}
+/* Don't know it is not a failure and is not styled as a refusal: it advances the
+   card, and it is the only honest answer available to somebody who has never
+   heard of the place. Quiet, but plainly a control. */
+.network-triage-skip {
+  padding: 0;
+  color: var(--tape-muted);
+  background: none;
+  border: 0;
+  font-family: var(--tape-mono);
+  font-size: 0.85rem;
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+  cursor: pointer;
+}
+.network-triage-skip:hover:not(:disabled) { color: var(--tape-text); }
+.network-triage-skip:disabled { cursor: default; opacity: 0.55; }
+.network-triage-status:empty { display: none; }
+.network-triage-status {
+  margin: 0;
+  color: var(--tape-rust);
+  font-family: var(--tape-mono);
+  font-size: 0.85rem;
+}
+
+/* ---- Wanna go ----
+   Quiet everywhere it appears, because it competes with Been & loved and that is
+   the one worth encouraging: a mark tells a contributor their note landed, and a
+   save tells nobody anything. Once a place is on the list the control is gone
+   entirely — see place.ts — so there is no pressed state to style. */
+.place-save-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.place-save-status:empty,
+.network-share-save-status:empty { display: none; }
+.place-save-status,
+.network-share-save-status {
+  margin: 0;
+  color: var(--tape-rust);
+  font-family: var(--tape-mono);
+  font-size: 0.85rem;
+}
+.network-share-save { margin-top: 0.6rem; }
+
+/* The by-heart question standing in for an empty Recommendations tab. It asks
+   rather than describing the absence — but it is still an empty state, and it
+   wears `.community-empty` exactly as its three sibling tabs do. It briefly had
+   its own size, weight and colour here, from when it sat above an already-open
+   form and led the tab; the result was four tabs with four differently-styled
+   dashed boxes. Nothing left to override. */
+
+@media (max-width: 640px) {
+  .network-triage-answers > button { flex: 1 1 100%; }
+  .network-triage-more { flex-direction: column; align-items: flex-start; }
 }

@@ -3,6 +3,20 @@
 *Drafted 2026-08-02. The private one: somewhere a member intends to go, seen by
 nobody else, ever.*
 
+> **Shipped**, except the prompt hook. `pb_migrations/1786492800_place_saves.js`,
+> `pb_hooks/place_saves.js`, `pb_hooks/place_saves.pb.js`, `src/saved.ts`, the
+> place-page action, the **Wanna go** tab in My detours, and the one-tap action
+> on a received private share. Where this document describes schema or routes it
+> describes what exists — **do not write a second migration against
+> `community_place_saves`.**
+>
+> **The prompt hook is not built.** `prompted_at` is in the schema and nothing
+> reads it; whoever builds *been yet?* will also need a decline count, which was
+> deliberately left out rather than shipped unread. Two other departures from the
+> text below, both recorded where they happen: the control disappears once a
+> place is saved rather than showing a pressed state, and `source: "triage"` is
+> set by the landing's triage card, which now exists.
+
 ---
 
 ## The word
@@ -60,13 +74,22 @@ feature any more.
 ```
 
 - Saving a place a member has already been to or recommended is meaningless;
-  the transition only runs forward.
-- **Marking Been & loved clears the save**, in the same write. The intention has
-  been discharged and the member should not have to tidy up after themselves.
-- **Writing a recommendation clears it too**, for the same reason.
-- Removing a save is removal, not a transition backwards.
+  a *new* save only ever runs forward, and the route refuses one on a place they
+  have already answered for.
+- **One state per place is a display rule, not a storage rule.** A member who
+  saved a place and has since marked it, or written about it, keeps the save
+  row — the Wanna go tab simply stops listing it, because the tab shows the
+  highest rung they have reached.
+- **Marking Been & loved takes it off the tab**, and withdrawing the mark puts it
+  back, exactly where they left it. Writing a recommendation does the same, and
+  deleting the note restores it.
+- **Only an explicit Remove deletes.** That is the member saying so, which is the
+  one thing that should destroy a row here.
 
-Exactly one state per member per place, as with the other two.
+Deleting the row on the way up the ladder was the earlier design and it was
+wrong: it looked tidier and quietly destroyed something. A mis-tapped Been &
+loved would take a member's own bookmark with it and leave nothing to restore.
+The intention was never anybody's to discharge but theirs.
 
 ## Rules
 

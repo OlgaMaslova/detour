@@ -1,12 +1,17 @@
 import { apiBaseUrl, pb } from './pocketbase';
 import { coverTint } from './data';
-import { placePromptMarkup, type PlacePrompt } from './place-prompt';
+import {
+  ensureSavedPlaces,
+  isSavedPlace,
+  savePlaceFailure,
+  savingPlace,
+  toggleSavedPlace,
+} from './saved';
 // No signal badge on a card: see groupedRecommendationCardMarkup. The stamp is
 // the place page's, and network.ts no longer renders one.
 
 type DiscoveryStatus = 'idle' | 'loading' | 'ready' | 'error';
 type PublicRecommendationStatus = 'idle' | 'loading' | 'ready' | 'error';
-type FirstPlaceStatus = 'idle' | 'loading' | 'ready' | 'error';
 type ShareDirection = 'received' | 'sent';
 type InviteRequestStatus = 'idle' | 'submitting' | 'success';
 type InviteRequestField = 'name' | 'email' | 'city' | 'why';
@@ -61,6 +66,13 @@ interface DiscoveryReply {
 interface DiscoveryShare {
   id?: string;
   direction: ShareDirection;
+  /**
+   * The published place this share points at, when it points at one. Present so
+   * a received share can be put on the recipient's wishlist in one tap;
+   * empty for a share of a place that has not published yet, which is why the
+   * action is conditional on it.
+   */
+  venue?: string;
   venue_name?: string;
   city?: string;
   country?: string;
@@ -140,6 +152,17 @@ let sharesSide: 'a' | 'b' = 'a';
 let sharesExpanded = false;
 const archivingShareIds = new Set<string>();
 
+/**
+ * How many cards the member has chosen to run to a row.
+ *
+ * Their setting, not this module's: the picker lives on the feed and the choice
+ * is remembered, so My detours lays its own cards out the same way rather than
+ * having a second, disagreeing opinion about how wide a card should be.
+ */
+export function recommendationColumnCount(): 2 | 3 {
+  return recommendationColumns;
+}
+
 function cassetteFlipLabel(): string {
   return sharesSide === 'a' ? 'Flip to side B ▸' : '◂ Flip to side A';
 }
@@ -153,10 +176,6 @@ interface PublicRecommendationFeed {
 
 const publicRecommendationFeeds = new Map<string, PublicRecommendationFeed>();
 let publicRecommendationRequest = 0;
-let firstPlaceStatus: FirstPlaceStatus = 'idle';
-let firstPlaceLoadedFor = '';
-let firstPlaceCount = 0;
-let firstPlaceRequest = 0;
 const replyStates = new Map<string, ReplyState>();
 const inviteRequestState: InviteRequestState = {
   status: 'idle',
@@ -531,10 +550,6 @@ export function ensureNetworkDiscovery(render: () => void, city = ''): void {
     status = 'idle';
     void loadNetworkDiscovery(render);
   }
-  if (record && firstPlaceLoadedFor !== record.id && firstPlaceStatus !== 'loading') {
-    firstPlaceStatus = 'idle';
-    void loadFirstPlaceEligibility(render);
-  }
 }
 
 export function retryNetworkPlaceNotes(render: () => void, city = ''): void {
@@ -560,26 +575,12 @@ export function markNetworkSharesSeen(): void {
   });
 }
 
-/** Hides the invitation immediately after the existing add-a-place flow succeeds. */
-export function markFirstPlaceContributed(): void {
-  const record = memberRecord();
-  if (!record) return;
-  firstPlaceRequest += 1;
-  firstPlaceLoadedFor = record.id;
-  firstPlaceCount = Math.max(1, firstPlaceCount);
-  firstPlaceStatus = 'ready';
-}
-
 export function resetNetworkDiscovery(): void {
   status = 'idle';
   loadedFor = '';
   errorMessage = '';
   publicRecommendationRequest += 1;
   publicRecommendationFeeds.clear();
-  firstPlaceRequest += 1;
-  firstPlaceStatus = 'idle';
-  firstPlaceLoadedFor = '';
-  firstPlaceCount = 0;
   replyStates.clear();
   discovery = { recommendations: [], shares: [] };
 }
@@ -738,6 +739,15 @@ function recommendationCardMarkup(
     selected?: boolean;
     /** The fronting recommendation's photo, already resolved to a full URL. */
     photoHref?: string;
+    /**
+     * What stands in for the quote when there is no note.
+     *
+     * Defaults to saying one is missing, which is right in a feed of notes. My
+     * detours' other tabs are lists of places rather than of notes — a mark and
+     * a save carry no words of the member's own — so they say what the card is
+     * instead of reporting an absence that was never expected.
+     */
+    emptyNote?: string;
   },
   resolvePlace?: NetworkPlaceResolver
 ): string {
@@ -780,7 +790,13 @@ function recommendationCardMarkup(
         </div>
         ${view.recent ? '<p class="network-entry-recent">New<span class="visually-hidden"> in the last 24 hours</span></p>' : ''}
       </header>
-      ${view.note ? `<blockquote><p>${esc(view.note)}</p></blockquote>` : '<p class="network-entry-note-empty">No note was included with this recommendation.</p>'}
+      ${
+        view.note
+          ? `<blockquote><p>${esc(view.note)}</p></blockquote>`
+          : `<p class="network-entry-note-empty">${esc(
+              view.emptyNote || 'No note was included with this recommendation.'
+            )}</p>`
+      }
       ${
         view.bylineHtml || when
           ? `<p class="network-entry-byline">${view.bylineHtml}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(view.created)}">${esc(when)}</time>` : ''}</p>`
@@ -842,6 +858,7 @@ export function groupedRecommendationCardMarkup(
     trustedEntry?: boolean;
     selected?: boolean;
     markRecent?: boolean;
+    emptyNote?: string;
   } = {}
 ): string {
   const fronting = [...items].sort(frontingOrder)[0];
@@ -875,6 +892,7 @@ export function groupedRecommendationCardMarkup(
       selected: options.selected,
       // Searched across the group, not taken from `fronting`.
       photoHref: coverPhotoHref(items, CARD_PHOTO_THUMB),
+      emptyNote: options.emptyNote,
     },
     resolvePlace
   );
@@ -914,20 +932,44 @@ function shareMarkup(item: DiscoveryShare): string {
     </header>
     ${item.personal_note ? `<blockquote><p>${esc(item.personal_note)}</p></blockquote>` : '<p class="network-entry-note-empty">No personal note was included.</p>'}
     <p class="network-entry-byline">${received ? 'From' : 'To'} ${pseudo(personPseudo, received ? 'A Detour member' : 'a Detour member')}${when ? `<span aria-hidden="true"> · </span><time datetime="${esc(item.created)}">${esc(when)}</time>` : ''}</p>
+    ${shareSaveMarkup(item)}
     ${replyThreadMarkup(item)}
   </article>`;
 }
 
-function firstPlaceInvitationMarkup(accountHref: string): string {
-  const hasCurrentRecommendation = discovery.recommendations.some((item) => item.is_own);
-  if (status !== 'ready' || firstPlaceStatus !== 'ready' || firstPlaceCount !== 0 || hasCurrentRecommendation) return '';
-  return `<aside class="network-first-place" aria-labelledby="network-first-place-title">
-    <div>
-      <h2 id="network-first-place-title">Know somewhere worth a detour?</h2>
-      <p>Your first place gives the circle somewhere new to discover.</p>
-    </div>
-    <a class="network-primary-link" href="${esc(accountHref)}" data-community-route="recommend-place">Add your first place <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
-  </aside>`;
+/**
+ * Wanna go, offered on a share somebody sent you.
+ *
+ * A private share lands in an inbox and does not join the recipient's list. It is
+ * somebody else's intention for them, and quietly filing it as Wanna go would put
+ * words in their mouth and inflate a list they did not build. This button is the
+ * member choosing, and it is the only way a share ever becomes a save — which is
+ * what `source: "share"` records.
+ *
+ * Received shares only, and only where the place has published: a save is on a
+ * place, and the route refuses one that is not live yet. On a sent share there is
+ * nothing to offer — the sender already knows the place, and the whole point of
+ * sending it was that somebody else should go.
+ *
+ * Once saved the offer goes, as it does on the place page. The share itself stays
+ * in the inbox and is unchanged by the tap; the wishlist it went onto is a tab
+ * away, and that is where taking it off belongs.
+ */
+function shareSaveMarkup(item: DiscoveryShare): string {
+  if (item.direction !== 'received' || !item.venue) return '';
+  const venueId = item.venue;
+  if (isSavedPlace(venueId)) return '';
+  const busy = savingPlace(venueId);
+  const failure = savePlaceFailure(venueId);
+  const name = item.venue_name || 'this place';
+  return `<div class="network-share-save">
+    <button type="button" class="secondary-button network-share-save-button" data-share-save="${esc(
+      venueId
+    )}" aria-label="${esc(`Wanna go — ${name}`)}"${busy ? ' disabled' : ''}>${
+      busy ? 'Saving…' : 'Wanna go'
+    }</button>
+    ${failure ? `<p class="network-share-save-status" role="alert">${esc(failure)}</p>` : ''}
+  </div>`;
 }
 
 function shareColumnMarkup(items: DiscoveryShare[], emptyText: string): string {
@@ -945,46 +987,70 @@ function shareColumnMarkup(items: DiscoveryShare[], emptyText: string): string {
 }
 
 /**
- * The private-share deck. It belongs to the member area (My detours → Shares)
- * rather than the landing feed: home is a discovery surface, and a member's
- * incoming and outgoing shares are private ledger work. The cassette flip,
- * the archive controls, and the reply threads travel with it.
+ * The private-share deck, on My detours → Private shares. Not the feed: home is a
+ * discovery surface, and a member's incoming and outgoing shares are private
+ * correspondence. The cassette flip, the archive controls and the reply threads
+ * travel with it.
+ *
+ * The deck is the only tab that is not a grid of place cards, and it should stay
+ * that way: a share is a message from a named person with a reply thread on it,
+ * which is a conversation rather than a place.
  */
 export function memberSharesMarkup(): string {
   const received = discovery.shares.filter((share) => share.direction === 'received');
   const sent = discovery.shares.filter((share) => share.direction === 'sent');
   const shareCount = received.length + sent.length;
 
+  // No heading and no count, matching the three tabs beside it: the tab strip a
+  // few pixels up already says Private shares, and a landing that tallies what a
+  // member has is the beginning of a scoreboard. The flip stays — it is a
+  // control, not furniture.
+  //
+  // The tagline is a plain note, exactly as the three tabs beside it render
+  // theirs. It was briefly inside `.community-subheading`, which is in the
+  // poster-voice selector list — Anton, uppercase, letter-spaced, shadowed —
+  // because that container exists to dress an <h4>. With the heading gone it was
+  // dressing the tagline as a heading instead.
+  //
+  // It is stated on every state of this tab, loading and failed included. It
+  // says what the tab is for, and somebody staring at an empty or broken one is
+  // exactly the person who has not worked that out yet.
+  const tagline = '<p class="community-form-note">Sent to you, just for you.</p>';
+
   if (status === 'loading' || status === 'idle') {
-    return `<div class="network-state network-state-loading" role="status">
-      <span class="network-loading-mark" aria-hidden="true"></span>
-      <div><h2>Gathering your private shares</h2><p>Loading incoming and outgoing destination shares.</p></div>
-    </div>`;
+    return `<section class="network-stream network-shares" aria-label="My private shares">
+      ${tagline}
+      <div class="network-state network-state-loading" role="status">
+        <span class="network-loading-mark" aria-hidden="true"></span>
+        <div><h2>Gathering your private shares</h2><p>Loading incoming and outgoing destination shares.</p></div>
+      </div>
+    </section>`;
   }
 
   if (status === 'error') {
-    return `<div class="network-state network-state-error" role="alert">
-      <div><h2>Your private shares could not be loaded</h2><p>${esc(errorMessage || 'Please try again. Your private shares have not been shown.')}</p></div>
-      <button type="button" class="secondary-button network-retry" data-network-shares-retry>Try again</button>
-    </div>`;
+    return `<section class="network-stream network-shares" aria-label="My private shares">
+      ${tagline}
+      <div class="network-state network-state-error" role="alert">
+        <div><h2>Your private shares could not be loaded</h2><p>${esc(errorMessage || 'Please try again. Your private shares have not been shown.')}</p></div>
+        <button type="button" class="secondary-button network-retry" data-network-shares-retry>Try again</button>
+      </div>
+    </section>`;
   }
 
-  // The deck sits beside My recommendations in the member area, so it wears the
-  // member-area ledger heading — subheading row, counter chip, one mono note —
-  // rather than the landing feed's larger section heading it was born with.
-  return `<section class="network-stream network-shares" aria-labelledby="network-shares-title">
-    <div class="community-subheading">
-      <h4 id="network-shares-title">My private shares</h4>
-      <div class="network-section-actions">
-        <p class="community-queue-count">${shareCount} ${shareCount === 1 ? 'share' : 'shares'}</p>
-        ${shareCount ? `<button type="button" class="secondary-button network-retry network-cassette-flip" data-cassette-flip>${cassetteFlipLabel()}</button>` : ''}
-      </div>
-    </div>
-    <p class="community-form-note">Private incoming and outgoing destination shares, kept together.</p>
+  return `<section class="network-stream network-shares" aria-label="My private shares">
+    ${tagline}
+    ${
+      shareCount
+        ? `<div class="network-shares-actions"><button type="button" class="secondary-button network-retry network-cassette-flip" data-cassette-flip>${cassetteFlipLabel()}</button></div>`
+        : ''
+    }
     ${shareCount ? `<div class="network-share-columns${sharesSide === 'b' ? ' is-side-b' : ''}">
       <section aria-labelledby="network-received-title"><h3 id="network-received-title">Shared with me</h3>${shareColumnMarkup(received, 'Nothing received yet.')}</section>
       <section aria-labelledby="network-sent-title"><h3 id="network-sent-title">Sent by me</h3>${shareColumnMarkup(sent, 'Nothing sent yet.')}</section>
-    </div>` : `<div class="network-empty"><h3>No shares yet</h3><p>Use Share new below to send a restaurant, café, bar, or other food-and-drink destination privately to another member of the circle.</p></div>`}
+    </div>` : // The same dashed box the other three tabs use, not the feed's
+      // solid cassette with a heading in it: this is one tab of four and its
+      // empty state has to read as a sibling of theirs.
+      '<p class="community-empty">Nothing here yet. Use Share new below to send a place privately to another member.</p>'}
   </section>`;
 }
 
@@ -1142,15 +1208,18 @@ function publicRecommendationSampleMarkup(resolvePlace?: NetworkPlaceResolver): 
   </section>`;
 }
 
+/**
+ * The feed.
+ *
+ * IT NO LONGER ASKS THIS MEMBER FOR ANYTHING. The one-thing-to-answer slot moved
+ * to the signed-in landing along with the landing itself (docs/landing-spec.md),
+ * and a second ask down here would be the stack the spec rules out — the same
+ * member, asked twice, on two surfaces one click apart. Everything below is what
+ * is new in their circle, and nothing else.
+ */
 export function networkDiscoveryMarkup(
   accountHref: string,
-  resolvePlace?: NetworkPlaceResolver,
-  /**
-   * The first-place ask for this member, when the server settled on one. Passed in
-   * rather than read from here: the session flags live in community.ts, which
-   * already imports this module.
-   */
-  placePrompt?: PlacePrompt | null
+  resolvePlace?: NetworkPlaceResolver
 ): string {
   const record = memberRecord();
   if (!record) {
@@ -1176,35 +1245,8 @@ export function networkDiscoveryMarkup(
       <h1 id="network-home-title">Places the circle recommends.</h1>
       <p>Welcome back, ${esc(memberLabel)}. Each place appears once, with the members who recommend it and why. Your private shares stay in My detours.</p>
     </div>
-    ${
-      // The ask is the specific version of the first-place nudge — same member,
-      // better question — so it replaces it rather than stacking under it.
-      placePrompt ? placePromptMarkup(placePrompt, accountHref) : firstPlaceInvitationMarkup(accountHref)
-    }
     ${memberFeedMarkup(accountHref, resolvePlace)}
   </section>`;
-}
-
-async function loadFirstPlaceEligibility(render: () => void): Promise<void> {
-  const record = memberRecord();
-  if (!record || firstPlaceStatus === 'loading') return;
-  const request = ++firstPlaceRequest;
-  firstPlaceStatus = 'loading';
-  firstPlaceLoadedFor = record.id;
-  try {
-    const payload = await pb.send<unknown>('/api/detour/member-place-contributions', { requestKey: null });
-    if (memberRecord()?.id !== record.id || request !== firstPlaceRequest) return;
-    if (!payload || typeof payload !== 'object' || !Array.isArray((payload as { items?: unknown }).items)) {
-      throw new Error('The member contribution response was not valid.');
-    }
-    firstPlaceCount = (payload as { items: unknown[] }).items.length;
-    firstPlaceStatus = 'ready';
-  } catch {
-    if (memberRecord()?.id !== record.id || request !== firstPlaceRequest) return;
-    firstPlaceCount = 0;
-    firstPlaceStatus = 'error';
-  }
-  render();
 }
 
 async function loadPublicRecommendations(render: () => void, city = ''): Promise<void> {
@@ -1426,6 +1468,20 @@ export function bindNetworkDiscovery(root: HTMLElement, render: () => void): voi
  */
 export function bindMemberShares(root: HTMLElement, render: () => void, onArchived?: (shareId: string) => void): void {
   ensureNetworkDiscovery(render);
+  // The inbox cannot say whether a shared place is already on the member's Wanna
+  // go list until that list has been read. One request per session, shared with
+  // the tab beside this one and the place page.
+  void ensureSavedPlaces(render);
+
+  // A share becomes a save only here, by the recipient choosing. Nothing files a
+  // share on somebody's behalf; see shareSaveMarkup.
+  root.querySelectorAll<HTMLButtonElement>('[data-share-save]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const venueId = button.dataset.shareSave || '';
+      if (!venueId || button.disabled) return;
+      void toggleSavedPlace(venueId, 'share', render);
+    });
+  });
 
   root.querySelector<HTMLButtonElement>('[data-network-shares-retry]')?.addEventListener('click', () => {
     status = 'idle';

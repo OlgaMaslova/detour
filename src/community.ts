@@ -1,15 +1,42 @@
 import { pb } from './pocketbase';
-import { bindMemberShares, markNetworkSharesSeen, memberSharesMarkup, resetNetworkDiscovery } from './network';
+import {
+  bindMemberShares,
+  groupedRecommendationCardMarkup,
+  markNetworkSharesSeen,
+  memberSharesMarkup,
+  networkPlaceNotes,
+  recommendationColumnCount,
+  resetNetworkDiscovery,
+} from './network';
+import type { DiscoveryRecommendation, NetworkPlaceResolver } from './network';
 import type { PlacePrompt } from './place-prompt';
-import { venueCitySlug, venuePlaceSlug } from './data';
+import { adoptTriageCard, readTriageCard, resetTriage } from './triage';
 import type { Venue } from './data';
 import { OCCASION_OPTIONS } from './occasions';
+import { ENDORSE_LABEL } from './signal';
 import { bindInviteShare, inviteShareMarkup } from './share';
+import {
+  ensureSavedPlaces,
+  refreshSavedPlaces,
+  resetSavedPlaces,
+  savedPlaces,
+  savedPlacesLoaded,
+  savePlaceFailure,
+  savingPlace,
+  toggleSavedPlace,
+} from './saved';
 import type { RecordModel } from 'pocketbase';
 
 type CommunityMode = 'sign-in' | 'join';
-type MemberTab = 'invitations' | 'detours' | 'settings' | 'curation';
-type DetourTab = 'recommendations' | 'endorsements' | 'shares';
+/**
+ * The member area's own tabs. My detours is NOT among them: it is the signed-in
+ * landing now (docs/landing-spec.md), so listing it here too would give one
+ * surface two homes and a member two places to look for their own places.
+ * Everything left is account business — who they can invite, how they appear,
+ * and the founding circle's review queue.
+ */
+type MemberTab = 'invitations' | 'settings' | 'curation';
+type DetourTab = 'recommendations' | 'saved' | 'endorsements' | 'shares';
 type NoticeKind = 'success' | 'error' | 'info';
 
 interface MemberRecord extends RecordModel {
@@ -176,7 +203,6 @@ interface CoverlessPlace {
 
 // One order, used by both the member-area tab strip and the masthead menu.
 const MEMBER_TAB_LABELS: Record<MemberTab, string> = {
-  detours: 'My detours',
   invitations: 'Invitations',
   settings: 'Settings',
   curation: 'Curation',
@@ -189,7 +215,17 @@ const BASELINE_INVITATION_LIMIT = 10;
 let invitationLimit = BASELINE_INVITATION_LIMIT;
 // Your recommendations reads as a ledger of lines, so it opens on the five
 // most recently touched entries and expands from there.
-const QUEUE_PREVIEW_LIMIT = 5;
+/**
+ * How many places the ledger shows before "Show N more".
+ *
+ * Two full rows, whatever width the member picked — the same rule the feed
+ * applies to its own preview. A flat number left the grid ending on a ragged
+ * row: five cards at three-up is a row of three and a row of two with a hole in
+ * it, which reads as something failing to load.
+ */
+function queuePreviewLimit(): number {
+  return recommendationColumnCount() * 2;
+}
 const CATEGORY_OPTIONS = [
   ['restaurant', 'Restaurant'],
   ['cafe', 'Café'],
@@ -223,8 +259,33 @@ let invitationCodePrefill = '';
  */
 const joinDraft = { email: '', password: '', pseudo: '', city: '' };
 let routedInvitationCode: string | null = null;
-let memberTab: MemberTab = 'detours';
+let memberTab: MemberTab = 'invitations';
 let detourTab: DetourTab = 'recommendations';
+// Whether the landing has already picked a tab, or the member has picked one
+// themselves. Either way the landing stops choosing — see settleLandingTab.
+let detourTabChosen = false;
+/**
+ * Which place's edit form is open, if any. One at a time.
+ *
+ * Explicit state rather than a <details> holding it in the DOM. Editing takes
+ * the whole card over — the form is full width and the Edit/Delete strip goes
+ * away while it is up — and a disclosure cannot express that: its summary is the
+ * control, so hiding the control would hide the way back out. This also means an
+ * open form survives a re-render, which the disclosure never did.
+ */
+let editingEntryId = '';
+/**
+ * The place whose mark is being withdrawn, and the server's sentence if it
+ * refused. One at a time, like the recommendation deletion beside it.
+ */
+let withdrawingEndorsementId = '';
+let endorsementFailure = new Map<string, string>();
+// How a place name becomes a link to its own page. Owned by main.ts, which holds
+// the catalogue; passed in rather than rebuilt here so a card in My detours
+// resolves exactly as the same card does in the feed. Undefined until the
+// landing has rendered once, which is the only surface that sets it — in the
+// member area the ledger's cards are unlinked, as they were before.
+let landingPlaceResolver: NetworkPlaceResolver | undefined;
 let recommendationDraft: Venue | null = null;
 let recommendationIntent: 'add' | 'edit' = 'add';
 // Recommendations opens on the member's own ledger; the blank form is revealed
@@ -305,8 +366,8 @@ const directories = new Map<string, DirectoryState>();
 
 function memberTabs(): MemberTab[] {
   return foundingMember
-    ? ['detours', 'invitations', 'curation', 'settings']
-    : ['detours', 'invitations', 'settings'];
+    ? ['invitations', 'curation', 'settings']
+    : ['invitations', 'settings'];
 }
 
 function esc(value: string | undefined | null): string {
@@ -878,18 +939,6 @@ function entryForVenue(venue: Venue): WaitlistEntry | undefined {
   return matches.length === 1 ? matches[0] : undefined;
 }
 
-/** Canonical URL of a published place's own page — the same route the cards use. */
-function discoveryHref(venue: Venue): string {
-  const url = new URL(window.location.href);
-  url.pathname = '/';
-  url.searchParams.delete('city');
-  url.searchParams.delete('view');
-  url.searchParams.delete('invite');
-  url.searchParams.set('d', venueCitySlug(venue));
-  url.searchParams.set('p', venuePlaceSlug(venue, knownVenues));
-  url.hash = '';
-  return `${url.pathname}${url.search}`;
-}
 
 function entryPlaceLocked(entry: WaitlistEntry): boolean {
   return lockedEntryIds.has(entry.id);
@@ -935,7 +984,14 @@ function entryEditMarkup(entry: WaitlistEntry): string {
         }, { replaceImage: true })}
         ${placeLocked ? '<p class="community-form-note">This place has confirmed coordinates. Its identity and address are locked; contact Detour for an exceptional correction.</p>' : ''}
         <p class="community-form-note">${esc(editPromise)}</p>
-        <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting && !deletingRecommendationId ? 'Saving…' : 'Save changes'}</button>
+        <div class="community-form-actions">
+          <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting && !deletingRecommendationId ? 'Saving…' : 'Save changes'}</button>
+          <!-- Leaving the form is one decision with two answers, so Cancel sits
+               on the same row as Save rather than below it. It closes the
+               disclosure and nothing else: the fields keep whatever was typed
+               until the next render, and no edit is written. -->
+          <button class="secondary-button" type="button" data-entry-edit-cancel="${esc(entry.id)}" ${submitting ? 'disabled' : ''}>Cancel</button>
+        </div>
       </form>`;
 }
 
@@ -981,21 +1037,23 @@ function waitlistRow(entry: WaitlistEntry): string {
   const directoryKey = `share-${entry.id}`;
   const category = labelForOption(CATEGORY_OPTIONS, entry.category);
   const occasions = (entry.occasions || []).map((occasion) => labelForOption(OCCASION_OPTIONS, occasion)).filter(Boolean);
-  const name = entry.venue_name || 'Unnamed food-and-drink destination';
-  const where = [entry.address, entry.city, entry.country].filter(Boolean).join(', ');
+  // The name and the address are the card's to state now, not the row's.
   // A just-saved or just-deleted entry is marked and focused, never expanded:
   // opening its pre-filled Edit form would read as an edit the member did not
   // ask for.
   const highlighted = highlightedWaitlistId === entry.id;
-  // A live place ends its line with Open; anything else ends it with the
-  // reason it has no page yet, so the collapsed list still tells the truth.
-  const openOrStatus = publishedVenue
-    ? `<a class="community-queue-open" href="${esc(discoveryHref(publishedVenue))}" data-place="${esc(publishedVenue.id)}" aria-label="Open the ${esc(publishedVenue.name)} place page">Open</a>`
+  // NO OPEN CONTROL. The card's own title is the link to the place page, the
+  // same anchor every other card in the app carries, so a second one underneath
+  // would be two ways to do one thing sitting a centimetre apart. A place with
+  // no page yet says so instead — the strip still tells the truth about what is
+  // live, which is the half of the old control that was carrying weight.
+  const status = publishedVenue
+    ? ''
     : `<span class="community-queue-status is-${statusClass}">${statusLabel}</span>`;
   const deleteAction = rec
     ? `<button class="community-queue-delete" type="button" data-community-delete-recommendation="${esc(rec.id)}" data-waitlist="${esc(entry.id)}" data-place-name="${esc(entry.venue_name || '')}" data-published="${published ? 'true' : 'false'}" ${submitting ? 'disabled' : ''}>${deletingRecommendationId === rec.id ? 'Deleting…' : 'Delete'}</button>`
     : '';
-  const trailing = `<div class="community-queue-actions">${deleteAction}${openOrStatus}</div>`;
+  const trailing = `<div class="community-queue-actions">${deleteAction}${status}</div>`;
   const publicationNote = published
     ? publishedVenue
       ? ''
@@ -1003,13 +1061,16 @@ function waitlistRow(entry: WaitlistEntry): string {
     : rec
       ? '<p class="community-queue-context">Your recommendation is saved, but this place is not live yet.</p>'
       : '<p class="community-queue-context">This entry has no recommendation note, so it is not publishable yet.</p>';
-  return `<li class="community-queue-row${highlighted ? ' is-highlighted' : ''}" id="waitlist-${esc(entry.id)}" tabindex="-1">
-    <details class="community-queue-entry">
-      <summary class="community-queue-line">
-        <span class="community-queue-name">${esc(name)}</span>
-        ${where ? `<span class="community-queue-where">${esc(where)}</span>` : ''}
-        <span class="community-queue-edit">Edit</span>
-      </summary>
+  // Editing takes the card over. The strip is the card's footer while the place
+  // is just sitting there; the moment the member opens the form it is replaced
+  // by the form, full width, because Edit and Delete are then two ways to leave
+  // a job half done next to the Save and Cancel that actually finish it.
+  const editing = activeEditEntryId() === entry.id;
+  const strip = `<div class="community-queue-bar">
+      <button class="community-queue-edit" type="button" data-entry-edit="${esc(entry.id)}" aria-expanded="false" ${submitting ? 'disabled' : ''}>Edit</button>
+      ${trailing}
+    </div>`;
+  const body = `<div class="community-queue-bar community-queue-bar-editing">
       <div class="community-queue-body">
         ${publicationNote}
         ${category || occasions.length ? `<dl class="community-place-facts">${category ? `<div><dt>Category</dt><dd>${esc(category)}</dd></div>` : ''}${occasions.length ? `<div><dt>Good for</dt><dd>${esc(occasions.join(' · '))}</dd></div>` : ''}</dl>` : ''}
@@ -1028,9 +1089,128 @@ function waitlistRow(entry: WaitlistEntry): string {
             : ''
         }
       </div>
-    </details>
-    ${trailing}
+    </div>`;
+  return `<li class="community-queue-row${highlighted ? ' is-highlighted' : ''}${editing ? ' is-editing' : ''}" id="waitlist-${esc(entry.id)}" tabindex="-1">
+    ${entryCardMarkup(entry, rec)}
+    ${editing ? body : strip}
   </li>`;
+}
+
+/**
+ * One of the member's own places, as the same card the feed shows.
+ *
+ * Through `groupedRecommendationCardMarkup`, not a renderer of its own:
+ * `AGENTS.md` fixes what a card is — one place, one representative note, one
+ * byline, with the place page owning the complete list — and My detours showing
+ * a member's own place in a different shape from everybody else's would make
+ * their own list the odd one out on the one screen they open on.
+ *
+ * The card is built from what the member's own ledger holds rather than from the
+ * circle feed, because this list includes places that have not published yet and
+ * so are in no feed at all. Those render with everything the entry knows and the
+ * status line beneath says why there is no page to open.
+ */
+function entryCardMarkup(entry: WaitlistEntry, rec: RecommendationRecord | undefined): string {
+  return placeCardMarkup({
+    name: entry.venue_name || 'Unnamed food-and-drink destination',
+    city: entry.city || '',
+    country: entry.country || '',
+    // Reached only by an entry with no published note yet — nothing is in the
+    // feed for it, because there is nothing for anybody else to see.
+    fallback: {
+      id: rec?.id || entry.id,
+      is_own: true,
+      founding_member: foundingMember,
+      note: rec?.note || '',
+      address: entry.address || '',
+      // The entry's own `created` is deliberately not on WaitlistEntry, so an
+      // entry with no note yet carries no date — and the card simply omits one
+      // rather than inventing the day it was typed.
+      created: rec?.created || '',
+    },
+    emptyNote: 'Not live yet, so nobody can see this one but you.',
+  });
+}
+
+/**
+ * ONE CARD BUILDER, FOR EVERY TAB.
+ *
+ * Recommendations, Been & loved and Wanna go are three lists of places, and a
+ * place has to look the same on all of them — and the same as it does in the
+ * feed, on a destination list and in Explore. There used to be two builders here
+ * and it showed: one assembled a card out of the member's own ledger rows, which
+ * carry no photo, while the other read the circle feed, which does. Same place,
+ * two different cards, depending on which tab you were standing on.
+ *
+ * So every card is built the same way: find what the feed holds for this place
+ * and hand it to `groupedRecommendationCardMarkup` — the one renderer `AGENTS.md`
+ * allows — which then picks the fronting note, the byline and the cover exactly
+ * as it does everywhere else. The place's photograph comes from a member's
+ * recommendation rather than from the venue row, which is why a card built
+ * without the feed had no picture on it while the place page had one.
+ *
+ * The fallback is for a place the feed has nothing visible on: an entry that has
+ * not published, or a place saved from a private share whose recommender is
+ * outside this member's circle. It names nobody and says what the card is.
+ */
+function placeCardMarkup(place: {
+  name: string;
+  city: string;
+  country: string;
+  fallback?: Partial<DiscoveryRecommendation>;
+  emptyNote: string;
+}): string {
+  const notes = notesForPlace(place.name, place.city);
+  if (notes.length) return groupedRecommendationCardMarkup(notes, landingPlaceResolver);
+  return groupedRecommendationCardMarkup(
+    [
+      {
+        venue_name: place.name,
+        city: place.city,
+        country: place.country,
+        note: '',
+        ...(place.fallback || {}),
+      },
+    ],
+    landingPlaceResolver,
+    { emptyNote: place.emptyNote }
+  );
+}
+
+/**
+ * Every visible note on one place, matched the way the place page matches them.
+ *
+ * By normalised name and city, because the circle feed does not carry a venue id
+ * — see `projectRecommendation` in pb_hooks/main.pb.js. The normalisation has to
+ * be the same one main.ts uses to resolve a place, or a card and its own place
+ * page disagree about which rows belong to it.
+ */
+function notesForPlace(name: string, city: string): DiscoveryRecommendation[] {
+  const wantedName = normalizePlaceText(name);
+  const wantedCity = normalizePlaceText(city);
+  if (!wantedName) return [];
+  return networkPlaceNotes().filter((item) => {
+    const note = item.note?.trim();
+    const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
+    if (!note || (!item.is_own && !recommender)) return false;
+    if (normalizePlaceText(item.venue_name || '') !== wantedName) return false;
+    const itemCity = normalizePlaceText(item.city || '');
+    return !itemCity || !wantedCity || itemCity === wantedCity;
+  });
+}
+
+/** The same normalisation `normalizePlacePart` applies in main.ts. */
+function normalizePlaceText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[\u2019'`\u00b4]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[\u2010-\u2015]/g, ' ')
+    .replace(/[.,/#!$%^*;:{}=\-_~()\[\]"?<>\\|+]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
@@ -1083,27 +1263,37 @@ function collisionMarkup(pending: PendingCollision): string {
   </div>`;
 }
 
+/**
+ * Which place's edit form is open — the member's own list, and the pending
+ * instruction from an Edit pressed somewhere else, resolved to the same thing.
+ *
+ * ONE EDIT SURFACE. "Edit" on a place page used to open a screen of its own: a
+ * heading, a lead paragraph and a "View all recommendations" button, with no
+ * Cancel — a second editor that looked nothing like the one on the member's own
+ * card and could not be backed out of the same way. Now it points at the card,
+ * which already knows how to open, save and cancel.
+ *
+ * Resolved here rather than written into state when the link is pressed, because
+ * the link is pressed before the ledger has loaded: the venue is known and the
+ * entry it belongs to is not. Read-only, so no render mutates state on the way
+ * past.
+ */
+function activeEditEntryId(): string {
+  if (editingEntryId) return editingEntryId;
+  if (recommendationIntent !== 'edit' || !recommendationDraft) return '';
+  return entryForVenue(recommendationDraft)?.id || '';
+}
+
 function recommendationPanel(): string {
-  const draft = recommendationDraft;
-  if (draft && recommendationIntent === 'edit') {
-    const entry = entryForVenue(draft);
-    const recommendation = entry ? recommendationForEntry(entry.id) : undefined;
-    const editor =
-      loadingCommunity || !communityLoaded
-        ? '<p class="community-loading" role="status">Loading your recommendation…</p>'
-        : entry && recommendation
-          ? `<div class="community-direct-editor" id="waitlist-${esc(entry.id)}" tabindex="-1">
-              ${entryEditMarkup(entry)}
-            </div>`
-          : '<p class="community-empty">Your recommendation could not be matched to this place. Open all recommendations to find it.</p>';
-    return `<section class="community-ledger-section community-direct-edit" aria-labelledby="community-waitlist-title">
-      <div class="community-section-heading">
-        <div><h3 id="community-waitlist-title">Edit my recommendation for ${esc(draft.name)}</h3></div>
-        <p>Update your note or correct the place details. Saved changes appear on the place page.</p>
-      </div>
-      ${editor}
-      <button class="secondary-button community-view-all-recommendations" type="button" data-view-all-recommendations>View all recommendations</button>
-    </section>`;
+  const draft = recommendationIntent === 'edit' ? null : recommendationDraft;
+  // The ledger is still loading, so the place cannot be matched to a row yet.
+  if (recommendationIntent === 'edit' && (loadingCommunity || !communityLoaded)) {
+    return '<p class="community-loading" role="status">Loading your recommendation…</p>';
+  }
+  if (recommendationIntent === 'edit' && recommendationDraft && !activeEditEntryId()) {
+    return `<p class="community-empty">Your recommendation for ${esc(
+      recommendationDraft.name
+    )} could not be matched to a place on your list.</p>`;
   }
   const placeSummary = draft
     ? [draft.address, draft.city, draft.country].filter(Boolean).join(', ')
@@ -1159,20 +1349,31 @@ function recommendationPanel(): string {
   // recommended, and the form is the deliberate second step behind Add new. A
   // draft carried in from a place page is that deliberate step already, so it
   // opens the form on arrival.
+  // An empty ledger does NOT open the form. It shows the by-heart question and
+  // Add new, the same control a full ledger shows — a form unrolled under a
+  // question the member has not answered yet is a page of fields where a
+  // sentence should be, and the answer slot above has already offered Add place.
+  // The form opens when somebody asks for it: Add new, or a place carried in.
   const formOpen = Boolean(draft) || recommendationFormOpen;
-  return `<section class="community-ledger-section" aria-labelledby="your-community-queue-title">
-    <div class="community-queue" aria-labelledby="your-community-queue-title">
-      <div class="community-subheading">
-        <h4 id="your-community-queue-title">My recommendations</h4>
-        ${communityLoaded && !loadingCommunity && waitlistEntries.length ? `<p class="community-queue-count">${waitlistEntries.length} ${waitlistEntries.length === 1 ? 'entry' : 'entries'}</p>` : ''}
-      </div>
-      <p class="community-form-note">Places I have recommended, newest first — each line shows whether it is live.</p>
+  // No heading and no count above the cards. The tab is already labelled
+  // "Recommendations" a few pixels up, so a second title said the same word
+  // twice — and none of the sibling tabs carries one, so this was the odd tab
+  // out. The count went with it: a landing that states how many places a member
+  // has is a scoreboard, which is the one thing this screen must never become.
+  return `<section class="community-ledger-section" aria-label="My recommendations">
+    <div class="community-queue">
+      <p class="community-form-note">Places you put your name behind.</p>
       ${
         loadingCommunity || !communityLoaded
           ? '<p class="community-loading" role="status">Loading…</p>'
           : waitlistEntries.length
             ? queueListMarkup()
-            : '<p class="community-empty">Nothing here yet.</p>'
+            // Empty, this tab asks the question rather than describing the
+            // absence — and it is the by-heart one the new-member flow opens
+            // with, because it is the question people can actually answer. Add
+            // new sits under it, unopened: the question comes first and the
+            // fields only once the member has decided to answer.
+            : '<p class="community-empty">Where do you keep going back to? Not the best one — the one you actually return to.</p>'
       }
     </div>
     ${
@@ -1200,13 +1401,26 @@ function recommendationPanel(): string {
 // The newest entries first (the ledger is loaded newest-updated first), with
 // the rest a click away.
 function queueListMarkup(): string {
-  const shown = queueExpanded ? waitlistEntries : waitlistEntries.slice(0, QUEUE_PREVIEW_LIMIT);
+  const shown = queueExpanded ? waitlistEntries : waitlistEntries.slice(0, queuePreviewLimit());
   const hidden = waitlistEntries.length - shown.length;
   const toggle =
     hidden > 0
       ? `<button type="button" class="secondary-button community-queue-more" data-queue-toggle aria-expanded="false" aria-controls="community-queue-list">Show ${hidden} more</button>`
       : '';
-  return `<ul class="community-queue-list" id="community-queue-list">${shown.map(waitlistRow).join('')}</ul>${toggle}`;
+  // A stack of cards, not a ruled list. `AGENTS.md` fixes what a card is and My
+  // detours shows the member's own places in exactly that shape — the same one
+  // the feed, the destination lists and Explore use — so their own list is not
+  // the odd one out on the screen they open on. The container is a plain grid:
+  // the cards carry the chrome, and a bordered box around bordered boxes reads
+  // as a card inside a card.
+  // The feed's own grid classes, and the feed's own column count: the member
+  // picked 2 or 3 there and it is remembered, so their places lay out the same
+  // way on both surfaces instead of the app holding two opinions about how wide
+  // a card should be.
+  const columns = recommendationColumnCount();
+  return `<ul class="community-queue-cards network-entry-list network-recommendation-grid network-recommendation-grid-${columns}" id="community-queue-list">${shown
+    .map(waitlistRow)
+    .join('')}</ul>${toggle}`;
 }
 
 function formatDate(value: string | undefined): string {
@@ -1474,31 +1688,149 @@ function endorsementsPanel(): string {
   const marked = knownVenues
     .filter((venue) => venue.endorsedByCaller)
     .sort((a, b) => a.city.localeCompare(b.city) || a.name.localeCompare(b.name));
-  if (!marked.length) {
-    return `<div class="community-endorsement-list">
-      <p class="community-empty">Nothing here yet. When a member’s note sends you somewhere and they were right, say so on the place’s own page — one tap, and the person who wrote it hears about it.</p>
-    </div>`;
-  }
+  // The tagline is outside the empty check on purpose: it says what the tab is
+  // for, and a member looking at an empty one is exactly who has not worked that
+  // out yet. Every tab states its own line whether or not it has anything in it.
   return `<div class="community-endorsement-list">
-    <p class="community-form-note">Places you have been to on a member’s recommendation, and would send someone else to.</p>
-    <ul class="community-endorsement-items">
-      ${marked
-        .map(
-          (venue) => `<li>
-            <a class="community-queue-open" href="${esc(discoveryHref(venue))}" data-place="${esc(venue.id)}">${esc(venue.name)}</a>
-            <span class="community-endorsement-where">${esc([venue.city, venue.country].filter(Boolean).join(', '))}</span>
-          </li>`
+    <p class="community-form-note">Places you’ve been and would send someone to.</p>
+    ${!marked.length
+      ? // Says how, and nothing else. An empty state that only described the
+        // absence would leave a member who has never seen the control with
+        // nowhere to go. The button's label comes from the constant the button
+        // itself uses, so the instruction cannot drift from the thing it names.
+        `<p class="community-empty">Nothing yet. Open a place you have been to and press “${esc(
+          ENDORSE_LABEL
+        )}”.</p>`
+      : placeCardGrid(
+      marked.map((venue) => {
+        const busy = withdrawingEndorsementId === venue.id;
+        const failure = endorsementFailure.get(venue.id) || '';
+        return {
+          venue,
+          // Only reached when nothing visible stands behind the place any more —
+          // the note the member went on can be withdrawn while their mark stands.
+          // Normally the card carries that note and names whoever wrote it.
+          emptyNote: 'You have been here, and loved it.',
+          // Removal, at last, and deliberately here rather than on the place
+          // page. `docs/been-and-loved-spec.md` held it back until the member had
+          // a list of their own to take a mark back from: a control offering to
+          // undo a settled fact, loitering on a public page, invites a second
+          // thought nobody asked for. On the member's own list it is an ordinary
+          // operation on an ordinary row.
+          footer: `<div class="community-queue-bar community-queue-bar-single">
+            <button class="community-queue-delete" type="button" data-endorsement-drop="${esc(
+              venue.id
+            )}" ${busy ? 'disabled' : ''} aria-label="${esc(
+              `Remove your mark from ${venue.name}`
+            )}">${busy ? 'Removing…' : 'Remove'}</button>
+            ${failure ? `<p class="community-form-error" role="alert">${esc(failure)}</p>` : ''}
+          </div>`,
+        };
+      })
+    )}
+  </div>`;
+}
+
+/**
+ * A grid of places, in the same cards the feed runs.
+ *
+ * Been & loved and Wanna go are lists of places, not of notes: neither rung has
+ * the member write anything. They still belong in cards — a member's own screen
+ * should not show a place in a different shape from every other surface in the
+ * app — so they go through the shared renderer with a line saying what the card
+ * is where a quote would otherwise sit.
+ *
+ * Private shares are the exception and stay a deck: a share is a message from a
+ * named person with a reply thread on it, which is a correspondence rather than
+ * a place, and the cassette deck already models it.
+ */
+function placeCardGrid(
+  items: { venue?: Venue; name?: string; city?: string; country?: string; emptyNote: string; footer?: string }[]
+): string {
+  if (!items.length) return '';
+  const columns = recommendationColumnCount();
+  return `<ul class="community-queue-cards network-entry-list network-recommendation-grid network-recommendation-grid-${columns}">
+    ${items
+      .map(
+        (item) => `<li class="community-queue-row">
+          ${placeCardMarkup({
+            name: item.venue?.name || item.name || 'A place',
+            city: item.venue?.city || item.city || '',
+            country: item.venue?.country || item.country || '',
+            emptyNote: item.emptyNote,
+          })}
+          ${item.footer || ''}
+        </li>`
+      )
+      .join('')}
+  </ul>`;
+}
+
+/**
+ * Wanna go — the member's own list, newest first, and the only place in the
+ * product where these rows are ever shown.
+ *
+ * Its own request, unlike Been & loved beside it, and for a reason that is the
+ * whole feature: a mark can be read off the scoped catalogue payload because it
+ * is scoped-public, and a save cannot, because nothing computed for anybody else
+ * knows it exists. saved.ts holds what /api/detour/places/saved answered.
+ *
+ * Removal is offered here and takes no confirmation. This is the private,
+ * reversible rung — a dialogue asking a member whether they are sure about a
+ * bookmark is an insult, and the tab is where their own list is theirs to tidy.
+ *
+ * Newest first, deliberately, and nothing is ever aged out on the member's
+ * behalf. A list that only grows risks becoming a graveyard, and sinking the dead
+ * weight is a better answer than deleting somebody's intentions for them.
+ */
+function savedPanel(): string {
+  const places = savedPlaces();
+  const body = !savedPlacesLoaded()
+    ? '<p class="community-loading" role="status">Loading…</p>'
+    : places.length
+      ? placeCardGrid(
+          places.map((place) => {
+            const venue = knownVenues.find((item) => item.id === place.venue_id);
+            const name = place.venue_name || venue?.name || 'A place you saved';
+            const failure = savePlaceFailure(place.venue_id);
+            const busy = savingPlace(place.venue_id);
+            return {
+              venue,
+              name,
+              city: place.city,
+              country: place.country,
+              // Only reached when nothing visible stands behind the place — see
+              // placeCardMarkup.
+              emptyNote: 'On your wishlist. Nobody else can see it.',
+              // The same glued footer the Recommendations cards wear, with the
+              // one operation this rung has. No confirmation: it is private,
+              // reversible, and one tap put it there.
+              footer: `<div class="community-queue-bar community-queue-bar-single">
+                <button class="community-queue-delete" type="button" data-saved-drop="${esc(
+                  place.venue_id
+                )}" ${busy ? 'disabled' : ''} aria-label="${esc(
+                  `Remove ${name} from your wishlist`
+                )}">${busy ? 'Removing…' : 'Remove'}</button>
+                ${failure ? `<p class="community-form-error" role="alert">${esc(failure)}</p>` : ''}
+              </div>`,
+            };
+          })
         )
-        .join('')}
-    </ul>
+      : '<p class="community-empty">Nothing here yet. Open a place you mean to get to and press “Wanna go” — nobody but you ever sees this wishlist.</p>';
+  return `<div class="community-saved-list">
+    <p class="community-form-note">On your wishlist. Nobody else sees this.</p>
+    ${body}
   </div>`;
 }
 
 function detoursPanel(): string {
   const unseen = unseenShareCount();
+  // Down the ladder, then the inbox: what they wrote, where they have been, where
+  // they mean to go, and what other people sent them.
   const tabs: { id: DetourTab; label: string }[] = [
     { id: 'recommendations', label: 'Recommendations' },
     { id: 'endorsements', label: 'Been &amp; loved' },
+    { id: 'saved', label: 'Wanna go' },
     { id: 'shares', label: 'Private shares' },
   ];
   return `<div class="community-tab-panel community-detours-panel" id="member-panel-detours" role="tabpanel" aria-labelledby="member-tab-detours" tabindex="0">
@@ -1515,7 +1847,9 @@ function detoursPanel(): string {
         ? `<div class="community-detour-body" id="detour-panel-recommendations" role="tabpanel" aria-labelledby="detour-tab-recommendations">${recommendationPanel()}</div>`
         : detourTab === 'endorsements'
           ? `<div class="community-detour-body" id="detour-panel-endorsements" role="tabpanel" aria-labelledby="detour-tab-endorsements">${endorsementsPanel()}</div>`
-          : `<div class="community-detour-body" id="detour-panel-shares" role="tabpanel" aria-labelledby="detour-tab-shares">${sharesPanel()}</div>`
+          : detourTab === 'saved'
+            ? `<div class="community-detour-body" id="detour-panel-saved" role="tabpanel" aria-labelledby="detour-tab-saved">${savedPanel()}</div>`
+            : `<div class="community-detour-body" id="detour-panel-shares" role="tabpanel" aria-labelledby="detour-tab-shares">${sharesPanel()}</div>`
     }
   </div>`;
 }
@@ -1569,15 +1903,13 @@ function unseenShareCount(): number {
 }
 
 function memberTabsMarkup(): string {
-  const unseen = unseenShareCount();
   const tabs = memberTabs();
   return `<div class="community-member-bar">
     <div class="community-member-tabs" role="tablist" aria-label="Member areas">
       ${tabs.map(
         (tab) =>
           `<button class="community-member-tab${memberTab === tab ? ' is-active' : ''}" type="button" role="tab" id="member-tab-${tab}" aria-selected="${memberTab === tab}" aria-controls="member-panel-${tab}" tabindex="${memberTab === tab ? '0' : '-1'}" data-member-tab="${tab}">${MEMBER_TAB_LABELS[tab]}${
-            tab === 'detours' && unseen ? `<span class="community-tab-badge" aria-label="${unseen} new shares">${unseen}</span>` : ''
-          }${tab === 'curation' && imageCurationCount ? `<span class="community-tab-badge" aria-label="${imageCurationCount} photos awaiting review">${imageCurationCount}</span>` : ''}</button>`
+            tab === 'curation' && imageCurationCount ? `<span class="community-tab-badge" aria-label="${imageCurationCount} photos awaiting review">${imageCurationCount}</span>` : ''}</button>`
       ).join('')}
     </div>
   </div>`;
@@ -1589,17 +1921,88 @@ function signedInPanel(): string {
   const panel =
     memberTab === 'invitations'
       ? invitesPanel()
-      : memberTab === 'detours'
-        ? detoursPanel()
-        : memberTab === 'curation' && foundingMember
-          ? curationPanel()
-          : settingsPanel(record);
+      : memberTab === 'curation' && foundingMember
+        ? curationPanel()
+        : settingsPanel(record);
   return `<section class="community-panel community-panel-member" aria-label="Detour member area">
     ${memberTabsMarkup()}
     ${noticeMarkup()}
     ${panel}
     ${deleteRecommendationDialogMarkup()}
   </section>`;
+}
+
+/**
+ * My detours as the signed-in landing: the tabs and nothing else.
+ *
+ * The same panel the member area holds, mounted as the thing an invitation and a
+ * return visit both land on. See docs/landing-spec.md — a feed promises something
+ * new on every load, and at a few places a week that promise fails on most
+ * visits, teaching the member not to come back. A member's own record is never
+ * empty once they have done one thing, and the answer slot above this does not
+ * depend on supply at all.
+ *
+ * The answer slot is main.ts's, not this module's: it holds the triage card and
+ * the prompt ladder, which are not member-area furniture. Everything below it is.
+ *
+ * Deliberately without the member-area tab bar. The landing is one surface, not a
+ * panel inside four; Invitations, Settings and Curation stay where they are and
+ * are reached through the masthead.
+ */
+export function landingPanel(venues: Venue[], resolvePlace?: NetworkPlaceResolver): string {
+  knownVenues = venues;
+  landingPlaceResolver = resolvePlace;
+  if (!member()) return '';
+  // No `community-area` id or class here, deliberately: that is the member
+  // area's skip-link target and its own 1080px column, and the landing already
+  // sits on that column through `.landing`. Two elements claiming the id would
+  // make the account page's skip link ambiguous.
+  return `<section class="community-panel community-panel-landing" aria-label="My detours">
+    ${noticeMarkup()}
+    ${detoursPanel()}
+    ${deleteRecommendationDialogMarkup()}
+  </section>`;
+}
+
+/**
+ * Which tab the landing opens on.
+ *
+ * Recommendations by default, because it is the most committed rung and the one a
+ * member is most likely to have something in. A member with none opens on
+ * whichever tab does have something, so the first thing they see is a list rather
+ * than an empty state — and if nothing has anything, Recommendations stands,
+ * because its empty state is the by-heart question and that is the right thing to
+ * open on.
+ *
+ * Runs once, and never against the member's own choice: the moment they touch a
+ * tab, the landing stops picking for them.
+ */
+function settleLandingTab(): void {
+  if (detourTabChosen) return;
+  detourTabChosen = true;
+  if (waitlistEntries.length) return;
+  if (savedPlacesLoaded() && savedPlaces().length) {
+    detourTab = 'saved';
+    return;
+  }
+  if (unseenShareCount() || shares.length) {
+    detourTab = 'shares';
+    return;
+  }
+  const marked = knownVenues.some((venue) => venue.endorsedByCaller);
+  if (marked) detourTab = 'endorsements';
+}
+
+/**
+ * A place has just landed on this member's own list.
+ *
+ * The landing picks its opening tab once, from what the member has; a place added
+ * during the visit arrives after that decision and would otherwise leave them
+ * looking at the tab that was empty when they got here.
+ */
+export function markDetoursHaveContent(): void {
+  detourTabChosen = true;
+  detourTab = 'recommendations';
 }
 
 /** Apply invitation-link route state before the member area renders. */
@@ -1622,7 +2025,6 @@ export function applyInvitationRoute(code: string | null): void {
  * pseudo into an id.
  */
 export function openSharePlace(recipientPseudo?: string): void {
-  memberTab = 'detours';
   detourTab = 'shares';
   // Arriving via "Share privately" is an explicit ask for the form.
   shareFormOpen = true;
@@ -1681,8 +2083,11 @@ async function resolveShareRecipient(render: () => void): Promise<void> {
 
 /** Point the member area at the Recommend form, optionally fixed to one published place. */
 export function openRecommendPlace(venue?: Venue): void {
-  memberTab = 'detours';
   detourTab = 'recommendations';
+  detourTabChosen = false;
+  editingEntryId = '';
+  withdrawingEndorsementId = '';
+  endorsementFailure = new Map<string, string>();
   recommendationDraft = venue || null;
   recommendationIntent = 'add';
   // "Recommend" from the feed or a place page is an explicit ask for the form,
@@ -1694,7 +2099,6 @@ export function openRecommendPlace(venue?: Venue): void {
 
 /** Open the current member's editor for one published place. */
 export function openEditRecommendation(venue: Venue): void {
-  memberTab = 'detours';
   detourTab = 'recommendations';
   recommendationDraft = venue;
   recommendationIntent = 'edit';
@@ -1747,7 +2151,7 @@ export function communityPanel(venues: Venue[]): string {
 }
 
 function resetCommunityState(): void {
-  memberTab = 'detours';
+  memberTab = 'invitations';
   detourTab = 'recommendations';
   recommendationDraft = null;
   recommendationIntent = 'add';
@@ -1785,6 +2189,13 @@ function resetCommunityState(): void {
   memberDaysAway = null;
   memberNewSession = false;
   memberPlacePromptState = null;
+  // The answer slot belongs to the member who was signed in: their card, their
+  // three-per-session cap, and the places they have already passed on.
+  resetTriage();
+  // The Wanna go list is the most private thing the client holds. A signed-out
+  // shell must not keep the previous member's, and the next member reads their
+  // own rather than inheriting a stale one.
+  resetSavedPlaces();
   canGrantFounding = false;
   foundingSeatsRemaining = null;
   inviteGrantsFounding = false;
@@ -1832,6 +2243,14 @@ async function loadCommunity(render: () => void): Promise<void> {
   }
   communityLoaded = true;
   loadingCommunity = false;
+  // Writing a place hides any save the member had on it, and deleting the note
+  // brings that save back — the row is never destroyed on the way up the ladder.
+  // This reload is what every recommendation write ends with, so it is where the
+  // Wanna go list catches up.
+  void refreshSavedPlaces(render);
+  // Now that there is something to look at, the landing can tell whether
+  // Recommendations is the right tab to be on.
+  settleLandingTab();
   render();
 }
 
@@ -1919,6 +2338,7 @@ async function loadMemberFlags(signedInAs: string, render: () => void): Promise<
         days_away?: unknown;
         new_session?: unknown;
         place_prompt?: unknown;
+        triage_card?: unknown;
       };
     }>('/api/detour/community/me', { requestKey: null })
     .catch(() => null);
@@ -1951,12 +2371,17 @@ async function loadMemberFlags(signedInAs: string, render: () => void): Promise<
   memberDaysAway = Number.isFinite(away) && away >= 0 ? Math.floor(away) : null;
   memberNewSession = me.member?.new_session === true;
   memberPlacePromptState = readPlacePrompt(me.member?.place_prompt);
+  // The first card of the visit. The server returns at most one of these two —
+  // the answer slot holds one thing or nothing — so adopting both is safe.
+  const triage = readTriageCard(me.member?.triage_card);
+  adoptTriageCard(triage);
   memberFlagsLoaded = true;
-  // Two things here change what a page outside the member area shows: whether
-  // Curation sits in the masthead menu, and whether there is a place to ask for.
-  // Neither is the common case, so most members' sessions still cost no redraw —
-  // and an ordinary member's home map is left alone.
-  if (foundingMember !== wasFounding || memberPlacePromptState) render();
+  // Three things here change what a page outside the member area shows: whether
+  // Curation sits in the masthead menu, whether there is a place to ask for, and
+  // whether the landing has a card in its answer slot. None is the common case, so
+  // most members' sessions still cost no redraw — and an ordinary member's home
+  // map is left alone.
+  if (foundingMember !== wasFounding || memberPlacePromptState || triage) render();
 }
 
 async function loadInvites(render: () => void): Promise<void> {
@@ -2219,7 +2644,11 @@ export function bindCommunity(
   // The private-share deck is rendered by network.ts, so its own module binds
   // the flip, the archive buttons, and the reply threads — and loads the share
   // payload when the member area is opened directly on this tab.
-  if (member() && memberTab === 'detours' && detourTab === 'shares') {
+  // Mounted where the panel actually is, rather than where the member-area tab
+  // says it should be: the same panel is now the signed-in landing, which has no
+  // member-area tab behind it.
+  const detoursMounted = Boolean(root.querySelector('.community-detours-panel'));
+  if (member() && detoursMounted && detourTab === 'shares') {
     bindMemberShares(root, render, (shareId) => {
       shares = shares.filter((share) => share.id !== shareId);
     });
@@ -2251,14 +2680,6 @@ export function bindCommunity(
       });
     });
   }
-
-  root.querySelector<HTMLButtonElement>('[data-view-all-recommendations]')?.addEventListener('click', () => {
-    recommendationDraft = null;
-    recommendationIntent = 'add';
-    recommendationFormOpen = false;
-    pendingCollision = null;
-    render();
-  });
 
   root.querySelector<HTMLButtonElement>('[data-recommend-open]')?.addEventListener('click', () => {
     recommendationFormOpen = true;
@@ -2309,8 +2730,12 @@ export function bindCommunity(
 
   const activateDetourTab = (nextTab: DetourTab, focusTab: boolean) => {
     if (detourTab === nextTab) return;
+    // The member has said which tab they want. The landing does not get to
+    // second-guess that later in the session.
+    detourTabChosen = true;
     detourTab = nextTab;
     if (nextTab === 'shares' && communityLoaded) void markIncomingSharesSeen();
+    if (nextTab === 'saved') void ensureSavedPlaces(render);
     render();
     if (focusTab) {
       window.requestAnimationFrame(() => {
@@ -2322,7 +2747,7 @@ export function bindCommunity(
   root.querySelector<HTMLButtonElement>('[data-queue-toggle]')?.addEventListener('click', (event) => {
     event.preventDefault();
     if (queueExpanded) return;
-    const firstRevealedId = waitlistEntries[QUEUE_PREVIEW_LIMIT]?.id || '';
+    const firstRevealedId = waitlistEntries[queuePreviewLimit()]?.id || '';
     queueExpanded = true;
     render();
     if (firstRevealedId) {
@@ -2332,6 +2757,109 @@ export function bindCommunity(
         firstRevealed?.focus({ preventScroll: true });
       });
     }
+  });
+
+  // Arriving from a place page's Edit, the card being edited is somewhere down a
+  // grid of them. Put the member in front of it rather than at the top of a list
+  // they now have to search.
+  const pendingEditRow = recommendationIntent === 'edit' ? activeEditEntryId() : '';
+  if (pendingEditRow) {
+    window.requestAnimationFrame(() => {
+      const row = document.getElementById(`waitlist-${pendingEditRow}`);
+      row?.scrollIntoView({ block: 'center' });
+    });
+  }
+
+  // Open the form for one place. Only one at a time: two half-finished edits on
+  // one screen is a way to save the wrong one.
+  root.querySelectorAll<HTMLButtonElement>('[data-entry-edit]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const entryId = button.dataset.entryEdit || '';
+      if (!entryId || submitting) return;
+      editingEntryId = entryId;
+      render();
+      window.requestAnimationFrame(() => {
+        const row = document.getElementById(`waitlist-${entryId}`);
+        row?.scrollIntoView({ block: 'nearest' });
+        row?.querySelector<HTMLElement>('input, textarea, select')?.focus({ preventScroll: true });
+      });
+    });
+  });
+
+  // Cancel closes the form and does nothing else. No confirmation, and nothing
+  // written: an edit is only an edit once Save is pressed, so backing out of one
+  // has nothing to undo.
+  root.querySelectorAll<HTMLButtonElement>('[data-entry-edit-cancel]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const entryId = button.dataset.entryEditCancel || '';
+      if (submitting) return;
+      editingEntryId = '';
+      // An Edit pressed on a place page arrives as a draft rather than an id, so
+      // Cancel has to drop that too or the form reopens on the next render.
+      recommendationDraft = null;
+      recommendationIntent = 'add';
+      render();
+      // Back to the control that opened it, rather than leaving focus nowhere.
+      window.requestAnimationFrame(() => {
+        const row = entryId ? document.getElementById(`waitlist-${entryId}`) : null;
+        row?.querySelector<HTMLElement>('[data-entry-edit]')?.focus({ preventScroll: true });
+      });
+    });
+  });
+
+  // Withdrawing a Been & loved mark. The route already toggles — a second POST
+  // takes it back — so this is a surface onto what the write path could always
+  // do. No confirmation: the member is looking at their own list, and pressing
+  // it again re-marks the place.
+  root.querySelectorAll<HTMLButtonElement>('[data-endorsement-drop]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const venueId = button.dataset.endorsementDrop || '';
+      if (!venueId || withdrawingEndorsementId) return;
+      withdrawingEndorsementId = venueId;
+      endorsementFailure.delete(venueId);
+      render();
+      try {
+        const result = await pb.send<{ endorsed?: boolean; total?: number }>(
+          `/api/detour/places/${encodeURIComponent(venueId)}/endorsement`,
+          { method: 'POST', requestKey: null }
+        );
+        const venue = knownVenues.find((item) => item.id === venueId);
+        if (venue) {
+          // Written straight onto the catalogue object every surface shares, so
+          // the place page and its stamp settle on the same figures without a
+          // catalogue reload for one number.
+          venue.endorsedByCaller = result.endorsed === true;
+          venue.endorsementTotal =
+            typeof result.total === 'number' && Number.isFinite(result.total)
+              ? Math.max(0, Math.floor(result.total))
+              : Math.max(0, (venue.endorsementTotal ?? 1) - 1);
+          venue.endorsements = (venue.endorsements ?? []).filter((person) => !person.isOwn);
+        }
+        // Withdrawing the mark drops the member back a rung, and a save they had
+        // on this place before they went comes back to the Wanna go tab exactly
+        // where they left it. Nothing was deleted on the way up.
+        await refreshSavedPlaces(render);
+      } catch (error) {
+        endorsementFailure.set(
+          venueId,
+          readableError(error, 'That could not be withdrawn just now. Try again in a moment.')
+        );
+      } finally {
+        withdrawingEndorsementId = '';
+        render();
+      }
+    });
+  });
+
+  // Removal from the member's own Wanna go list. No confirmation, in keeping
+  // with the rest of the rung: it is private, reversible, and one tap put it
+  // there in the first place.
+  root.querySelectorAll<HTMLButtonElement>('[data-saved-drop]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const venueId = button.dataset.savedDrop || '';
+      if (!venueId || button.disabled) return;
+      void toggleSavedPlace(venueId, 'place_page', render);
+    });
   });
 
   const detourTabButtons = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-detour-tab]'));
@@ -2358,7 +2886,6 @@ export function bindCommunity(
   const activateMemberTab = (nextTab: MemberTab, focusTab: boolean) => {
     if (memberTab === nextTab) return;
     memberTab = nextTab;
-    if (nextTab === 'detours' && detourTab === 'shares' && communityLoaded) void markIncomingSharesSeen();
     if (nextTab === 'curation') {
       curationLoaded = false;
       coverlessLoaded = false;
@@ -3069,6 +3596,9 @@ export function bindCommunity(
         recommendationDraft = null;
         recommendationIntent = 'add';
         recommendationFormOpen = false;
+        // Saved is finished: the card comes back with its strip, rather than
+        // leaving the form up as though there were more to do.
+        editingEntryId = '';
         saved = true;
       } catch (error) {
         notice = { kind: 'error', text: readableError(error, 'Those changes could not be saved. Check the details and try again.') };
@@ -3251,7 +3781,7 @@ export function bindCommunity(
 
   if (member() && !communityLoaded && !loadingCommunity) {
     void loadCommunity(render).then(() => {
-      if (memberTab === 'detours' && detourTab === 'shares') void markIncomingSharesSeen();
+      if (detourTab === 'shares') void markIncomingSharesSeen();
       if (recommendationIntent === 'edit' && recommendationDraft) {
         const entry = entryForVenue(recommendationDraft);
         if (entry) focusWaitlistEntry(entry.id);

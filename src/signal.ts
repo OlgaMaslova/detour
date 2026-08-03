@@ -58,6 +58,24 @@ const BEEN_MARK = `<svg class="signal-mark signal-mark-been" viewBox="0 0 42 39"
  * `plate` — the place page's hero statement: large figure, full phrase.
  * `inline` — the card and preview pill: mark, figure, one noun.
  */
+/**
+ * The Wanna go mark: a bookmark, and no figure beside it.
+ *
+ * A bookmark because that is exactly what a save is — a place put aside to come
+ * back to. Not a tick, which is Been & loved and claims presence; not a bubble,
+ * which claims somebody said something; and not a heart, which would score.
+ *
+ * THE ABSENCE OF A FIGURE IS THE POINT. Every other cell in this stamp is a
+ * number and a mark, and this one must never become that: a visible tally of
+ * saves is a popularity ranking, which is the thing Detour exists in opposition
+ * to. It is also not a count in disguise — it says one binary fact about the
+ * reader and nothing about anybody else, because nobody else's saves exist as
+ * far as any surface is concerned. See docs/wanna-go-spec.md.
+ *
+ * Drawn on the same 42×39 field as the others so all three sit on one baseline.
+ */
+const SAVED_MARK = `<svg class="signal-mark signal-mark-saved" viewBox="0 0 42 39" aria-hidden="true" focusable="false"><path fill="currentColor" d="M10 0h22v38L21 27 10 38z"/></svg>`;
+
 export type SignalVariant = 'plate' | 'inline';
 
 /**
@@ -169,21 +187,33 @@ function signalSentence({ total, circle, founders, own }: SignalCounts): string 
 export function detouristSignalBadge(
   counts: Partial<SignalCounts>,
   variant: SignalVariant = 'inline',
-  endorsement: EndorsementSignal = {}
+  endorsement: EndorsementSignal = {},
+  /**
+   * Whether this reader has this place on their wishlist. Their own row and
+   * nobody else's — passed only by the place page, because a card carries one
+   * person's voice and anything personal to the viewer belongs on the page.
+   */
+  saved = false
 ): string {
   const n = clampCount(counts.total);
   const circle = Math.min(clampCount(counts.circle), n);
   const founders = Math.min(clampCount(counts.founders), n - circle);
   const own = counts.own === true;
   const been = endorsementCell(endorsement);
+  // No figure, ever. See SAVED_MARK.
+  const savedCell = saved
+    ? `<span class="signal-divider" aria-hidden="true"></span>${SAVED_MARK}`
+    : '';
+  const savedPhrase = saved ? 'On your wishlist' : '';
 
   // No count on file: the mark alone, with the wording carried in the label.
   if (n < 1) {
-    return `<p class="signal-badge signal-badge-${variant} signal-badge-bare" aria-label="${NO_COUNT_LABEL}">${DETOUR_MARK}</p>`;
+    const bare = savedPhrase ? `${NO_COUNT_LABEL}. ${savedPhrase}` : NO_COUNT_LABEL;
+    return `<p class="signal-badge signal-badge-${variant} signal-badge-bare" aria-label="${bare}">${DETOUR_MARK}${savedCell}</p>`;
   }
 
   const said = signalSentence({ total: n, circle, founders, own });
-  const tooltipPhrase = been.phrase ? `${said}. ${been.phrase}` : said;
+  const tooltipPhrase = [said, been.phrase, savedPhrase].filter(Boolean).join('. ');
   const tooltip = `<span class="signal-tooltip" role="tooltip" aria-hidden="true">${tooltipPhrase}</span>`;
 
   // One figure per claim, both in the one box. The badge is a stamp, so each
@@ -201,6 +231,7 @@ export function detouristSignalBadge(
     <strong class="signal-count">${n}</strong>
     ${DETOUR_MARK}
     ${been.html}
+    ${savedCell}
     ${tooltip}
   </p>`;
 }

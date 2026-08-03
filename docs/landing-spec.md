@@ -3,6 +3,20 @@
 *Drafted 2026-08-02. What a member sees when they open Detour, and why it is not
 the feed.*
 
+> **Shipped.** `renderLanding` in `src/main.ts`, `landingPanel` in
+> `src/community.ts`, the triage card in `pb_hooks/landing_triage.js`,
+> `pb_hooks/landing_triage.pb.js` and `src/triage.ts`, and the answer-slot
+> precedence in `/api/detour/community/me`. The feed moved to `?view=feed` and no
+> longer asks the member for anything. `AGENTS.md` has been amended as this
+> document requires.
+>
+> **Two things below are not built.** The answer slot has two of its four
+> entries — a triage card and the week's prompt; an ask has nothing to send one
+> yet and the *been yet?* follow-up is specified in `docs/wanna-go-spec.md` but
+> deliberately deferred. And **Explore has not folded into Feed**: that merge is
+> its own piece of work, so the nav reads My detours · Feed · Explore · My
+> Circle rather than the three items under *Navigation, after this*.
+
 ---
 
 ## The decision

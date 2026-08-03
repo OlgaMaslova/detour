@@ -11,6 +11,8 @@ import {
   communityControl,
   communityPanel,
   ensureMemberFlags,
+  landingPanel,
+  markDetoursHaveContent,
   memberPlacePrompt,
   openEditRecommendation,
   openMemberArea,
@@ -26,13 +28,20 @@ import {
   resetOnboarding,
 } from './onboarding';
 import { pb } from './pocketbase';
+import {
+  ensureSavedPlaces,
+  isSavedPlace,
+  refreshSavedPlaces,
+  savePlaceFailure,
+  savingPlace,
+  toggleSavedPlace,
+} from './saved';
 import { bindCircle, circleMarkup, resetCircle } from './circle';
 import {
   bindNetworkDiscovery,
   coverPhotoHref,
   ensureNetworkDiscovery,
   groupedRecommendationCardMarkup,
-  markFirstPlaceContributed,
   markRecommendationPhotoFailed,
   networkDiscoveryMarkup,
   networkPlaceNotes,
@@ -46,12 +55,25 @@ import {
 import type { DiscoveryRecommendation, NetworkPlaceResolver } from './network';
 import { defaultSurveyForm, renderSurvey, surveyFormFromPath, surveyMeta, surveyPath } from './survey';
 import { PLACE_MAP_ID, placeIsLocated, placePageMarkup } from './place';
+import { placePromptMarkup } from './place-prompt';
+import { bindTriageCard, triageCardMarkup } from './triage';
 import { detouristSignalBadge, detouristSignalText } from './signal';
 import type { PlaceChrome, PlaceHelpers } from './place';
 
 type DataMode = 'loading' | 'live' | 'error';
 type AppView =
+  /**
+   * The signed-in landing: My detours, with one thing to answer above it. For a
+   * visitor with no session this is still the invitation page — the route is the
+   * same, what it renders is not.
+   */
   | 'home'
+  /**
+   * The circle feed, which used to be what `home` rendered for a member. It is
+   * second place now: a feed promises something new on every load, and at a few
+   * places a week that promise fails on most visits. See docs/landing-spec.md.
+   */
+  | 'feed'
   | 'explore'
   | 'circle'
   | 'how'
@@ -410,6 +432,10 @@ function routeHref(
     url.searchParams.set('view', 'welcome');
     url.searchParams.delete('invite');
   }
+  else if (view === 'feed') {
+    url.searchParams.set('view', 'feed');
+    url.searchParams.delete('invite');
+  }
   else if (view === 'explore' || view === 'country') {
     url.searchParams.set('view', 'explore');
     url.searchParams.delete('invite');
@@ -440,6 +466,10 @@ function destinationHref(slug: string): string {
   return routeHref('destination', slug);
 }
 
+function feedHref(): string {
+  return routeHref('feed', null);
+}
+
 function exploreHref(): string {
   return routeHref('explore', null);
 }
@@ -468,14 +498,21 @@ function placeHref(v: Venue): string {
   return routeHref('place', venueRouteSlug(v), venuePageSlug(v));
 }
 
+/**
+ * Writing and editing both happen on My detours, which is the signed-in landing —
+ * so these deep links point home rather than at the account page. They used to
+ * point at the account, which is where the panel lived; opened in a new tab now,
+ * that would land on invitations and settings with no sign of the place the
+ * member asked to write about.
+ */
 function recommendHref(v: Venue): string {
-  const url = new URL(accountHref(), window.location.origin);
+  const url = new URL(homeHref(), window.location.origin);
   url.searchParams.set('recommend', v.id);
   return `${url.pathname}${url.search}`;
 }
 
 function editRecommendationHref(v: Venue): string {
-  const url = new URL(accountHref(), window.location.origin);
+  const url = new URL(homeHref(), window.location.origin);
   url.searchParams.set('edit-recommendation', v.id);
   return `${url.pathname}${url.search}`;
 }
@@ -541,6 +578,33 @@ function showHome(root: HTMLElement): void {
   state.pendingDestination = null;
   state.place = null;
   updateRoute('home', null, 'push');
+  // A member lands on their own record; a visitor lands on the invitation page.
+  // Two headings, one route.
+  pendingFocus = memberCanExplore() ? '#landing-title' : '#network-home-title';
+  render(root);
+}
+
+/**
+ * A member has just added their first place.
+ *
+ * The feed used to carry a "know somewhere worth a detour?" card and this is what
+ * took it down the moment it stopped being true. The card is gone — the landing
+ * owns asking now, and the server decides what to ask — so what is left is the
+ * one thing the client can still get wrong on its own: the landing opens on
+ * whichever tab has something, and it has just been given something.
+ */
+function noteFirstPlace(): void {
+  markDetoursHaveContent();
+}
+
+function showFeed(root: HTMLElement): void {
+  if (state.destination !== null) resetDestinationState();
+  state.view = 'feed';
+  state.destination = null;
+  state.country = null;
+  state.pendingDestination = null;
+  state.place = null;
+  updateRoute('feed', null, 'push');
   pendingFocus = '#network-home-title';
   render(root);
 }
@@ -650,6 +714,8 @@ function applyRouteFromUrl(root: HTMLElement): void {
       ? 'account'
       : url.searchParams.get('view') === 'welcome'
         ? 'welcome'
+      : url.searchParams.get('view') === 'feed'
+        ? 'feed'
       : url.searchParams.get('view') === 'explore'
         ? requestedCountry
           ? 'country'
@@ -666,14 +732,23 @@ function applyRouteFromUrl(root: HTMLElement): void {
   const requestedPlace = isSurveyRoute || !requested
     ? null
     : (url.searchParams.get('p') || '').trim().toLowerCase() || null;
-  const requestedRecommendationId =
-    !isSurveyRoute && nextView === 'account' ? (url.searchParams.get('recommend') || '').trim() : '';
-  const requestedEditRecommendationId =
-    !isSurveyRoute && nextView === 'account'
-      ? (url.searchParams.get('edit-recommendation') || '').trim()
-      : '';
+  // Honoured on the landing as well as the account page: My detours is where
+  // both forms live now, and the older ?view=members form of these links is still
+  // out there in shared URLs and browser history.
+  const placeFormRoute = !isSurveyRoute && (nextView === 'account' || nextView === 'home');
+  const requestedRecommendationId = placeFormRoute
+    ? (url.searchParams.get('recommend') || '').trim()
+    : '';
+  const requestedEditRecommendationId = placeFormRoute
+    ? (url.searchParams.get('edit-recommendation') || '').trim()
+    : '';
 
   applyInvitationRoute(invitationCode);
+  // An older ?view=members link carrying one of these lands on the account page,
+  // which no longer holds the form it is asking for. It is rerouted to the
+  // landing, where the form now is, rather than dropping the member on
+  // invitations and settings with no sign of the place they meant to write about.
+  let placeFormView: AppView | null = null;
   if (requestedEditRecommendationId || requestedRecommendationId) {
     const requestedVenue = state.venues.find(
       (venue) => venue.id === (requestedEditRecommendationId || requestedRecommendationId)
@@ -681,6 +756,7 @@ function applyRouteFromUrl(root: HTMLElement): void {
     if (requestedVenue) {
       if (requestedEditRecommendationId) openEditRecommendation(requestedVenue);
       else openRecommendPlace(requestedVenue);
+      if (memberCanExplore()) placeFormView = 'home';
     }
   }
   if (state.destination !== requested) resetDestinationState();
@@ -692,6 +768,8 @@ function applyRouteFromUrl(root: HTMLElement): void {
   state.view =
     nextView === 'survey'
       ? 'survey'
+      : placeFormView
+        ? placeFormView
       : nextView === 'account'
         ? 'account'
         : nextView === 'how'
@@ -1404,6 +1482,12 @@ function bindPlaceEndorsement(root: HTMLElement, v: Venue): void {
       .then((result) => {
         const endorsed = result.endorsed === true;
         v.endorsedByCaller = endorsed;
+        // The Wanna go list is re-read either way. Marking hides a save the
+        // member had on this place — the tab shows the highest rung they have
+        // reached — and withdrawing brings it back, because the row was never
+        // deleted. Only the server knows which, so it is asked rather than
+        // guessed.
+        void refreshSavedPlaces(() => render(root));
         v.endorsementTotal =
           typeof result.total === 'number' && Number.isFinite(result.total)
             ? Math.max(0, Math.floor(result.total))
@@ -1426,6 +1510,27 @@ function bindPlaceEndorsement(root: HTMLElement, v: Venue): void {
           );
         }
       });
+  });
+}
+
+/**
+ * Wanna go, pressed.
+ *
+ * Thinner than the endorsement above it because there is less to settle: no count
+ * comes back, nobody is notified, and the only thing that changes is whether one
+ * private row exists. The state lives in saved.ts, which every surface that
+ * offers this reads, so the re-render below picks up the new answer wherever the
+ * place appears.
+ */
+function bindPlaceSave(root: HTMLElement, v: Venue): void {
+  const button = root.querySelector<HTMLButtonElement>('[data-save-place]');
+  if (!button) return;
+  button.addEventListener('click', () => {
+    if (button.disabled) return;
+    // The control is inside the markup this re-renders, so focus is restored on
+    // the far side rather than here.
+    pendingFocus = '[data-save-place]';
+    void toggleSavedPlace(v.id, 'place_page', () => render(root));
   });
 }
 
@@ -1464,6 +1569,16 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
     // place" call to action can never both claim this reader has not spoken.
     canEndorse:
       memberCanExplore() && !placeNotesForVenue(v).some((item) => item.is_own),
+    // The same gate, one rung lower and with one more condition: the ladder runs
+    // forward only, so a place this reader has already been to is not somewhere
+    // they can still intend to go.
+    canSave:
+      memberCanExplore() &&
+      v.endorsedByCaller !== true &&
+      !placeNotesForVenue(v).some((item) => item.is_own),
+    saved: isSavedPlace(v.id),
+    saving: savingPlace(v.id),
+    saveError: savePlaceFailure(v.id),
     // The same nav the shared masthead renders, so Explore and My Circle travel
     // together here too.
     memberNav: memberCanExplore() ? memberNavLinks('other') : '',
@@ -1494,9 +1609,14 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
   bindRouteLinks(root);
   bindPlaceNoteCarousel(root);
   bindPlaceEndorsement(root, v);
+  bindPlaceSave(root, v);
   // Member notes render here, so a direct place link has to load the circle
   // feed itself rather than relying on the destination view having done it.
   ensureNetworkDiscovery(() => render(root), destination.name);
+  // The Wanna go control cannot say whether this place is already on the list
+  // until the list has been read. One request per session, shared with the tab
+  // and the share inbox.
+  if (memberCanExplore()) void ensureSavedPlaces(() => render(root));
   root.querySelector<HTMLButtonElement>('[data-city-notes-retry]')?.addEventListener('click', () => {
     pendingFocus = '[data-city-notes-retry]';
     retryNetworkPlaceNotes(() => render(root), destination.name);
@@ -1663,10 +1783,19 @@ function bindRouteLinks(root: HTMLElement): void {
             ? () => openRecommendPlace(recommendationVenue)
             : null;
       preset?.();
-      // Menu entries name the member-area tab they open.
-      const openedTab = !preset && target ? openMemberArea(target) : false;
+      // Recommend, Edit and Share all land on My detours, which is the signed-in
+      // landing now rather than a panel inside the member area — so they route
+      // home. The member area is what is left of the account: invitations,
+      // settings, and the founding circle's review queue, and its menu entries
+      // still name the tab they open.
+      if (preset) {
+        if (state.view !== 'home' || !memberCanExplore()) showHome(root);
+        else render(root);
+        return;
+      }
+      const openedTab = target ? openMemberArea(target) : false;
       if (state.view !== 'account') showAccount(root);
-      else if (preset || openedTab) render(root);
+      else if (openedTab) render(root);
     });
   });
   root.querySelectorAll<HTMLAnchorElement>('[data-return-discovery]').forEach((link) => {
@@ -1720,6 +1849,13 @@ function bindRouteLinks(root: HTMLElement): void {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
       showExplore(root);
+    });
+  });
+  root.querySelectorAll<HTMLAnchorElement>('[data-feed]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      showFeed(root);
     });
   });
   root.querySelectorAll<HTMLAnchorElement>('[data-how]').forEach((link) => {
@@ -1786,8 +1922,8 @@ function renderAccount(root: HTMLElement): void {
       </div>
       <div class="account-intro">
         <p class="account-kicker">Private member area</p>
-        <h1 id="account-title" tabindex="-1">Your Detour, one thing at a time.</h1>
-        <p>Move between invitations, your place activity, and settings without the rest competing for attention.</p>
+        <h1 id="account-title" tabindex="-1">Your account.</h1>
+        <p>Invitations and settings. Your places live on My detours.</p>
       </div>
     </header>
     ${communityPanel(state.venues)}
@@ -1802,7 +1938,7 @@ function renderAccount(root: HTMLElement): void {
     state.venues,
     () => render(root),
     () => showHome(root),
-    markFirstPlaceContributed,
+    noteFirstPlace,
     refreshCatalogue,
     () => {
       openOnboarding();
@@ -1839,7 +1975,7 @@ function renderWelcome(root: HTMLElement): void {
   bindOnboarding(root, state.venues, {
     render: () => render(root),
     onFinished: () => showHome(root),
-    onPlaceContributed: markFirstPlaceContributed,
+    onPlaceContributed: noteFirstPlace,
     refreshCatalogue,
   });
   bindRouteLinks(root);
@@ -1869,7 +2005,9 @@ function resolveSearch(query: string): { slug: string; venueId?: string } | null
   return null;
 }
 
-function mastheadMarkup(active: 'home' | 'explore' | 'circle' | 'other' = 'other'): string {
+type NavView = 'home' | 'feed' | 'explore' | 'circle' | 'other';
+
+function mastheadMarkup(active: NavView = 'other'): string {
   const brand =
     active === 'home'
       ? `<p class="network-brand">${brandMark()}<span class="brand-word">Detour</span></p>`
@@ -1884,16 +2022,30 @@ function mastheadMarkup(active: 'home' | 'explore' | 'circle' | 'other' = 'other
 }
 
 /**
- * Explore and My Circle are the two member-only ways into the app: the whole
- * directory, and the people it came through. They travel together in every
- * masthead so neither reads as the odd one out.
+ * **My detours · Feed · Explore · My Circle** — the member-only ways into the app,
+ * most-likely-to-be-useful first.
+ *
+ * My detours leads because it is the landing: their own record, which is never
+ * empty once they have done one thing, and one thing to answer above it. The feed
+ * follows rather than leads for the reason in docs/landing-spec.md — it promises
+ * something new every time it loads, and at this supply that promise mostly
+ * fails.
+ *
+ * The spec's eventual nav is three items, with Explore folded into Feed as a city
+ * filter and a map toggle. That merge is a piece of work in its own right and has
+ * not been done; until it is, Explore keeps its own entry rather than becoming
+ * unreachable.
  */
-function memberNavLinks(active: 'home' | 'explore' | 'circle' | 'other'): string {
-  const link = (view: 'explore' | 'circle', href: string, label: string): string =>
-    `<a class="network-explore-link${active === view ? ' is-current' : ''}" href="${esc(href)}" data-${view}${
-      active === view ? ' aria-current="page"' : ''
-    }>${label}</a>`;
-  return `${link('explore', exploreHref(), 'Explore')}${link('circle', circleHref(), 'My Circle')}`;
+function memberNavLinks(active: NavView): string {
+  const link = (view: 'home' | 'feed' | 'explore' | 'circle', href: string, label: string): string =>
+    `<a class="network-explore-link${active === view ? ' is-current' : ''}" href="${esc(href)}" data-${
+      view === 'home' ? 'home' : view
+    }${active === view ? ' aria-current="page"' : ''}>${label}</a>`;
+  return `${link('home', homeHref(), 'My detours')}${link('feed', feedHref(), 'Feed')}${link(
+    'explore',
+    exploreHref(),
+    'Explore'
+  )}${link('circle', circleHref(), 'My Circle')}`;
 }
 
 function memberCanExplore(): boolean {
@@ -2418,6 +2570,98 @@ function renderHowItWorks(root: HTMLElement): void {
   }
 }
 
+/**
+ * The signed-in landing: one thing to answer, then the member's own four lists.
+ *
+ * See docs/landing-spec.md. It replaces the feed as what an invitation and a
+ * return visit both land on, for one reason: a feed promises something new every
+ * time it loads, and at a few places a week that promise fails on most visits —
+ * each failure teaching the member not to come back. Two surfaces never fail that
+ * way, and both are here. A member's own record is never empty once they have
+ * done one thing, and a question does not depend on supply at all.
+ *
+ * NOTHING ELSE GOES ON THIS SCREEN. No stats, no streaks, no comparison to other
+ * members, and never an invented figure — "3 new places this week" when there
+ * were none is the same broken promise as the empty feed, one layer up.
+ */
+function renderLanding(root: HTMLElement): void {
+  destroyMap();
+  root.dataset.restyle = 'landing';
+  applyTapeTheme();
+  syncDocumentMeta(null);
+
+  root.innerHTML = `
+    <a class="skip-link" href="#landing-title">Skip to my detours</a>
+    ${mastheadMarkup('home')}
+    <section class="landing" aria-labelledby="landing-title">
+      <div class="landing-heading">
+        <h1 id="landing-title" tabindex="-1">My detours</h1>
+      </div>
+      ${answerSlotMarkup()}
+      ${landingPanel(state.venues, resolveNetworkPlace)}
+    </section>
+    <footer class="footer network-footer">
+      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
+      ${tapeThemeToggleMarkup()}
+    </footer>
+  `;
+
+  bindCommunity(
+    root,
+    state.venues,
+    () => render(root),
+    () => showHome(root),
+    noteFirstPlace,
+    refreshCatalogue,
+    () => {
+      openOnboarding();
+      showWelcome(root);
+    }
+  );
+  bindTriageCard(root, () => render(root));
+  bindRouteLinks(root);
+  // Been & loved and Wanna go show the note that put each place on the list, and
+  // that note comes from the circle feed — so the landing loads it even though it
+  // is not the feed. Without this the cards come up with no words on them.
+  ensureNetworkDiscovery(() => render(root));
+  // The Wanna go tab and the share inbox both read the member's own saved list;
+  // one request per session serves the landing whichever tab it opens on.
+  void ensureSavedPlaces(() => render(root));
+  if (pendingFocus) {
+    const target = root.querySelector<HTMLElement>(pendingFocus);
+    pendingFocus = null;
+    target?.focus({ preventScroll: true });
+  }
+}
+
+/**
+ * One thing to answer, or nothing.
+ *
+ * The precedence is the spec's — an ask, else a triage card, else a "been yet?"
+ * follow-up, else the week's prompt, else nothing — and the server settles which
+ * of the two that exist today is due, so the two can never both arrive. Of the
+ * other two, an ask has nothing to send one yet and the follow-up is specified
+ * but unbuilt; both slot in above and below the triage card respectively when
+ * they land.
+ *
+ * NEVER A STACK. One card or none, and none is a legitimate outcome: silence is
+ * better than a manufactured task, and an invented prompt is the same broken
+ * promise as an empty feed.
+ */
+function answerSlotMarkup(): string {
+  const triage = triageCardMarkup(accountHref());
+  if (triage) return triage;
+  const prompt = memberPlacePrompt();
+  return prompt ? placePromptMarkup(prompt, accountHref()) : '';
+}
+
+/**
+ * The circle feed — what home used to be for a member, now one step in.
+ *
+ * Unchanged in every way but its address. It is honest about being second: what
+ * is new is worth a look when there is something new, and the landing is what a
+ * member opens on when there is not.
+ */
 function renderHome(root: HTMLElement): void {
   destroyMap();
   root.dataset.restyle = 'home';
@@ -2426,8 +2670,8 @@ function renderHome(root: HTMLElement): void {
 
   root.innerHTML = `
     <a class="skip-link" href="#network-home-title">Skip to circle discovery</a>
-    ${mastheadMarkup('home')}
-    ${networkDiscoveryMarkup(accountHref(), resolveNetworkPlace, memberPlacePrompt())}
+    ${mastheadMarkup(memberCanExplore() ? 'feed' : 'home')}
+    ${networkDiscoveryMarkup(accountHref(), resolveNetworkPlace)}
     <footer class="footer network-footer">
       <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
       ${tapeThemeToggleMarkup()}
@@ -2493,7 +2737,11 @@ function render(root: HTMLElement) {
           ? 'circle'
         : state.view === 'how'
           ? 'how'
-        : state.mode === 'loading' || state.view === 'home' || !state.destination
+        // The signed-in landing is its own scope; a visitor on the same route
+        // still gets the invitation page, which is `home`.
+        : state.view === 'home' && memberCanExplore()
+          ? 'landing'
+        : state.mode === 'loading' || state.view === 'home' || state.view === 'feed' || !state.destination
           ? 'home'
           : state.view === 'place'
             ? 'place'
@@ -2540,12 +2788,21 @@ function render(root: HTMLElement) {
     return;
   }
 
-  if (!memberCanExplore() && (state.view === 'explore' || state.view === 'circle')) {
+  if (!memberCanExplore() && (state.view === 'explore' || state.view === 'circle' || state.view === 'feed')) {
     state.view = 'home';
     state.country = null;
     state.exploreQuery = '';
     updateRoute('home', null, 'replace');
     renderHome(root);
+    return;
+  }
+
+  // The signed-in landing. Before the catalogue gate below on purpose: My detours
+  // is the member's own record and the four tabs load themselves, so it must not
+  // wait on a catalogue load to appear — waiting is exactly the failure the feed
+  // was moved out of this slot for.
+  if (state.view === 'home' && memberCanExplore()) {
+    renderLanding(root);
     return;
   }
 
@@ -2566,7 +2823,7 @@ function render(root: HTMLElement) {
   }
 
   const destination = activeDestination();
-  if (state.mode === 'loading' || state.view === 'home' || !state.destination) {
+  if (state.mode === 'loading' || state.view === 'home' || state.view === 'feed' || !state.destination) {
     renderHome(root);
     return;
   }

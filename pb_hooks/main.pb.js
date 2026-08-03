@@ -335,10 +335,31 @@ routerAdd(
     // becomes a fact without new client plumbing.
     const sessions = require(__hooks + "/member_sessions.js");
     const session = sessions.touchMemberSession(e.app, e.auth);
-    // After the ping, never before: the ladder reads the previous-visit stamp the
-    // ping just moved to decide whether this visit has been asked already.
+    // ONE THING TO ANSWER, NEVER TWO. The landing's answer slot takes the first
+    // that applies, by the precedence in docs/landing-spec.md: an ask, else a
+    // triage card, else a "been yet?" follow-up, else the week's prompt, else
+    // nothing. The two that exist today are resolved in that order here, and
+    // silence is a legitimate answer — an invented prompt is the same broken
+    // promise as an empty feed, one layer up.
+    //
+    // The triage card is resolved FIRST, and the ordering is load-bearing rather
+    // than stylistic: resolvePlacePrompt advances the ladder and stamps the
+    // member's record as a side effect of returning a rung, so calling it and
+    // then discarding its answer would burn a rung on a question nobody was
+    // shown. It is only reached when the slot is still free.
+    //
+    // Both are after the session ping, never before: the ladder reads the
+    // previous-visit stamp that ping just moved to decide whether this visit has
+    // been asked already.
+    const triageCard = require(__hooks + "/landing_triage.js").nextTriageCard(
+      e.app,
+      e.auth.id,
+      []
+    );
     const prompts = require(__hooks + "/place_prompts.js");
-    const placePrompt = prompts.resolvePlacePrompt(e.app, e.auth, session);
+    const placePrompt = triageCard
+      ? null
+      : prompts.resolvePlacePrompt(e.app, e.auth, session);
     const imageCurationCount = foundingMember
       ? e.app.findRecordsByFilter(
           "community_place_images",
@@ -369,6 +390,10 @@ routerAdd(
         // may need. Null when there is nothing to ask. The wording is the
         // client's; see place_prompts.js.
         place_prompt: placePrompt,
+        // The first card of the visit, so the landing's answer slot is filled by
+        // the same request that decides the masthead rather than appearing a beat
+        // later. Every card after this one comes from /api/detour/landing/triage.
+        triage_card: triageCard,
       },
     });
   },
@@ -605,6 +630,13 @@ routerAdd(
       return {
         id: row.id,
         direction: row.direction,
+        // The published place this share points at, when it points at one. The
+        // recipient already holds the name, city and address from the share
+        // itself, so the id adds no fact about the place — it is what makes the
+        // inbox's one-tap Wanna go callable, which is the only way somebody
+        // else's suggestion ever becomes one of the recipient's own saves.
+        // Empty for a share of a place that has not published yet.
+        venue: row.venue,
         venue_name: row.venue_name,
         city: row.city,
         country: row.country,
@@ -1886,6 +1918,10 @@ onRecordCreateRequest((e) => {
     e.auth.id,
     resolved.entry.id
   );
+  // The rung below that — a Wanna go save — is left alone on purpose. One state
+  // per place is a display rule, not a storage rule: the save drops off the
+  // Wanna go tab while this note stands, and comes back if the note is ever
+  // withdrawn. See ownSaves in pb_hooks/place_saves.js.
   e.record.set("member", e.auth.id);
   e.record.set("waitlist", resolved.entry.id);
   e.record.set("note", note);
