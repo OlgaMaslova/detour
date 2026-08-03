@@ -21,6 +21,21 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+// Every member-facing mail is signed by hand: Detour is one person's catalogue,
+// and mail from it should read that way. Operator notifications (notifyOps) go
+// to that same person and are deliberately left unsigned. Kept here rather than
+// inlined at each call site so the wording is changed in one place -- callers
+// append signatureText() to their text body and signatureHtml() to their html.
+const SIGNATURE = "— Olga, First Detourist";
+
+function signatureText() {
+  return "\n\n" + SIGNATURE;
+}
+
+function signatureHtml() {
+  return "<p>" + SIGNATURE + "</p>";
+}
+
 // Member-facing mail. Throws on a missing recipient or an unconfigured sender
 // so the caller's existing try/catch logs it -- every call site is already
 // best-effort and must not fail the surrounding write.
@@ -94,6 +109,8 @@ function notifyOps(app, options) {
 
 module.exports = {
   escapeHtml: escapeHtml,
+  signatureText: signatureText,
+  signatureHtml: signatureHtml,
   sendMail: sendMail,
   notifyOps: notifyOps,
 };

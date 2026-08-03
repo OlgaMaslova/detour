@@ -448,6 +448,7 @@ function deliverEndorsementNotices(app) {
           textParts.join("\n\n---\n\n") +
           "\n\nSee it: " +
           siteUrl +
+          mailer.signatureText() +
           "\n\nYou received this because you recommended " +
           (items.length === 1 ? where : "these places") +
           " on Detour.",
@@ -456,6 +457,7 @@ function deliverEndorsementNotices(app) {
           '<p><a href="' +
           siteUrl +
           '">See it on Detour</a></p>' +
+          mailer.signatureHtml() +
           "<p>You received this because you recommended " +
           mailer.escapeHtml(items.length === 1 ? where : "these places") +
           " on Detour.</p>",

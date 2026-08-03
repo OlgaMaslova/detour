@@ -1980,7 +1980,7 @@ onRecordAfterCreateSuccess((e) => {
   // A fresh publication caused by this exact authenticated member request gets
   // one reserved notification attempt. Migration/backfill reconciliation,
   // superuser writes, already-published entries, internal members, and reserved
-  // .invalid fixtures never claim the marker or produce publication noise.
+  // .invalid fixtures never claim the marker, so they never send member mail.
   let publicationNotification = null;
   if (publication && publication.publishedNow) {
     try {
@@ -2038,7 +2038,8 @@ onRecordAfterCreateSuccess((e) => {
           publicationNotification.placeName +
           " is now on Detour.\n\nSee it: " +
           siteUrl +
-          "\n\nYou received this because your recommendation put this place on Detour.",
+          "\n\nThanks to you, our community keeps growing." +
+          mailer.signatureText(),
         html:
           "<p>Good call — <strong>" +
           mailer.escapeHtml(publicationNotification.placeName) +
@@ -2046,7 +2047,8 @@ onRecordAfterCreateSuccess((e) => {
           '<p><a href="' +
           siteUrl +
           '">See it on Detour</a></p>' +
-          "<p>You received this because your recommendation put this place on Detour.</p>",
+          "<p>Thanks to you, our community keeps growing.</p>" +
+          mailer.signatureHtml(),
       });
     } catch (error) {
       try {
@@ -2065,34 +2067,15 @@ onRecordAfterCreateSuccess((e) => {
         // Email delivery is best-effort after the durable marker is claimed.
       }
     }
-
-    try {
-      require(__hooks + "/mailer.js").notifyOps(e.app, {
-        subject: "Detour place published",
-        text:
-          publicationNotification.placeName +
-          (publicationNotification.city
-            ? " in " + publicationNotification.city
-            : "") +
-          " is now on Detour.",
-      });
-    } catch (error) {
-      try {
-        e.app.logger().error(
-          "Detour publication notification failed.",
-          "recommendationId",
-          e.record.id,
-          "waitlistId",
-          waitlistId,
-          "error",
-          String(error)
-        );
-      } catch {
-        // Notification is best-effort after the durable marker is claimed.
-      }
-    }
   }
 
+  // One operator notification per member recommendation, publication folded in
+  // rather than sent as a second mail: from an operator's side the note and the
+  // publication it triggers are the same event. The published sentence is keyed
+  // off the publication itself, not off publicationNotification -- whether the
+  // member's own mail was suppressed (a reserved .invalid fixture, an
+  // already-claimed marker) says nothing about whether ops should hear about a
+  // place going live.
   try {
     const memberId = e.record.getString("member");
     const author = e.app.findRecordById("members", memberId);
@@ -2104,15 +2087,19 @@ onRecordAfterCreateSuccess((e) => {
         (pseudo ? " (@" + pseudo + ")" : "");
       const placeName = e.record.getString("venue_name").trim() || "a place";
       const city = e.record.getString("city").trim();
+      const placeLabel = placeName + (city ? " in " + city : "");
+      const publishedNow = Boolean(publication && publication.publishedNow);
 
       require(__hooks + "/mailer.js").notifyOps(e.app, {
-        subject: "New Detour recommendation",
+        subject: publishedNow
+          ? "New Detour place published"
+          : "New Detour recommendation",
         text:
           memberLabel +
           " recommended " +
-          placeName +
-          (city ? " in " + city : "") +
-          ".",
+          placeLabel +
+          "." +
+          (publishedNow ? "\n\n" + placeName + " is now on Detour." : ""),
       });
     }
   } catch (error) {

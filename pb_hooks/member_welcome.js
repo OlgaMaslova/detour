@@ -32,6 +32,7 @@ function sendWelcomeEmail(app, member) {
       displayName +
       ",\n\nWelcome to Detour — a private circle sharing exceptional food-and-drink places.\n\nAdd your first place: " +
       SITE_URL +
+      mailer.signatureText() +
       "\n\nYou received this email because you joined Detour.",
     html:
       "<p>Hello " +
@@ -41,6 +42,7 @@ function sendWelcomeEmail(app, member) {
       '<p><a href="' +
       SITE_URL +
       '">Add your first place</a></p>' +
+      mailer.signatureHtml() +
       "<p>You received this email because you joined Detour.</p>",
   });
 }

@@ -199,14 +199,16 @@ onRecordAfterCreateSuccess((e) => {
         text:
           greeting +
           "\n\nThanks for your interest in Detour. The team will reply personally.\n\n" +
-          siteUrl,
+          siteUrl +
+          mailer.signatureText(),
         html:
           "<p>" +
           mailer.escapeHtml(greeting) +
           "</p><p>Thanks for your interest in Detour. The team will reply personally.</p>" +
           '<p><a href="' +
           siteUrl +
-          '">Visit Detour</a></p>',
+          '">Visit Detour</a></p>' +
+          mailer.signatureHtml(),
       });
     } catch (error) {
       logFailure("Detour invite-request confirmation email failed.", error);

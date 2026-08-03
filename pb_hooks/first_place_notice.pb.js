@@ -78,6 +78,7 @@ onRecordAfterCreateSuccess((e) => {
                 where +
                 ".\n\nSee it: " +
                 siteUrl +
+                mailer.signatureText() +
                 "\n\nYou received this because they joined on your invitation.",
               html:
                 "<p><strong>" +
@@ -89,6 +90,7 @@ onRecordAfterCreateSuccess((e) => {
                 '<p><a href="' +
                 siteUrl +
                 '">See it on Detour</a></p>' +
+                mailer.signatureHtml() +
                 "<p>You received this because they joined on your" +
                 " invitation.</p>",
             });
