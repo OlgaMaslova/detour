@@ -380,6 +380,174 @@ export function venuePlaceSlug(v: Venue, all: Venue[]): string {
   return `${base}-${v.id}`;
 }
 
+/** The venue fields every read of the catalogue asks for, member or public. */
+const VENUE_FIELDS =
+  'id,name,city,country,address,disambiguator,lat,lng,category,official_url,instagram_url,image_url,curated_cover,approx_location,occasions,suppressed,published';
+
+/** What a venue needs from its city: the route it is listed under, and a country. */
+type VenueCity = Pick<LiveCity, 'id' | 'slug' | 'country'>;
+
+/**
+ * The `cities` records, keyed by lowercased name — the authority on which cities
+ * exist and how they present.
+ *
+ * Shared by the member catalogue and the public single-place read so a place is
+ * listed under the same route either way: a city record's own slug can differ
+ * from the one derived from its name, and a visitor's URL for a place has to be
+ * the member's URL for the same place.
+ */
+function citiesFromRecords(cityRecords: CityRecord[]): Map<string, LiveCity> {
+  const citiesByName = new Map<string, LiveCity>();
+  for (const record of cityRecords) {
+    const name = cleanString(record.name);
+    const slug = cleanString(record.slug).toLowerCase() || citySlug(name);
+    if (!name || !slug) continue;
+    const key = name.toLowerCase();
+    if (citiesByName.has(key)) continue;
+
+    const centerLat = cleanNumber(record.center_lat);
+    const centerLng = cleanNumber(record.center_lng);
+    const zoom = cleanNumber(record.zoom);
+    const latMin = cleanNumber(record.bounds_lat_min);
+    const latMax = cleanNumber(record.bounds_lat_max);
+    const lngMin = cleanNumber(record.bounds_lng_min);
+    const lngMax = cleanNumber(record.bounds_lng_max);
+    // A 0/0 centre is the catalogue's non-location sentinel — never a view.
+    const center: [number, number] | null =
+      centerLat !== null && centerLng !== null && !(centerLat === 0 && centerLng === 0)
+        ? [centerLat, centerLng]
+        : null;
+    const bounds: CityBounds | null =
+      latMin !== null && latMax !== null && lngMin !== null && lngMax !== null && latMin < latMax && lngMin < lngMax
+        ? { latMin, latMax, lngMin, lngMax }
+        : null;
+
+    citiesByName.set(key, {
+      id: record.id,
+      hasRecord: true,
+      name,
+      slug,
+      country: cleanString(record.country),
+      presentation: cleanString(record.presentation),
+      center,
+      zoom,
+      bounds,
+    });
+  }
+  return citiesByName;
+}
+
+/**
+ * One venue record as the app's Venue, or null when the row is too incomplete to
+ * route (no id, no name, no city).
+ *
+ * Carries no visibility and no counts. Those are per-caller facts the server
+ * answers separately, so this function cannot accidentally assert that a place is
+ * on somebody's list.
+ */
+function venueFromRecord(record: VenueRecord, city: VenueCity): Venue | null {
+  const id = cleanString(record.id);
+  const name = cleanString(record.name);
+  const cityName = cleanString(record.city);
+  if (!id || !name || !cityName) return null;
+
+  const rawLat = cleanNumber(record.lat);
+  const rawLng = cleanNumber(record.lng);
+  const hasCoordinates = rawLat !== null && rawLng !== null && !(rawLat === 0 && rawLng === 0);
+
+  return {
+    id,
+    name,
+    cityId: city.id,
+    citySlug: city.slug,
+    city: cityName,
+    country: cleanString(record.country) || city.country,
+    category: cleanString(record.category),
+    // The qualifier that tells this place from another of the same name in the
+    // same city. It reads as the place's locality wherever a neighborhood would
+    // have — "Toma Café · Calle de la Palma" — and is empty for almost every
+    // place, since it is only ever asked for after a name collision.
+    neighborhood: cleanString(record.disambiguator),
+    address: cleanString(record.address),
+    lat: hasCoordinates ? rawLat : null,
+    lng: hasCoordinates ? rawLng : null,
+    approxLocation: record.approx_location === true,
+    officialUrl: cleanExternalUrl(record.official_url) || undefined,
+    instagramUrl: cleanExternalUrl(record.instagram_url) || undefined,
+    imageUrl: cleanExternalUrl(record.image_url) || undefined,
+    curatedCover: curatedCoverPath(id, record.curated_cover),
+    // The venue owns its occasion tags. Award records are still merged by the
+    // catalogue load for backends that predate the move, but this is the authority.
+    occasions: knownOccasions(record.occasions),
+    suppressed: record.suppressed === true,
+  };
+}
+
+/**
+ * The published places, with no session.
+ *
+ * A visitor has no circle, so there is no scoped list to compute: what they get is
+ * the places publication has already made public, which is what the landing's own
+ * recommendation cards are drawn from. That is the whole reason this exists — a card
+ * that names a place has to open it, and resolving a place needs its record.
+ *
+ * `published` is the boundary and it is the honest one: publication only ever happens
+ * behind a real member recommendation (see pb_hooks/community_waitlist.js). A curator
+ * takedown wins over it, here as everywhere.
+ *
+ * Nothing per-caller is attached: no counts, no marks, no notes. Those are circle
+ * facts, and `/api/detour/place-detourists` is not answerable without a session — so
+ * a visitor's place page states what the place is and what the public feed says about
+ * it, and nothing about who else stands behind it.
+ *
+ * This is not a way into the list: browsing surfaces stay members-only, gated on
+ * `memberCanExplore` in main.ts, and a visitor still sees no destination lists, no
+ * Explore and no feed.
+ */
+async function loadPublicCatalogue(): Promise<LiveCatalogue> {
+  const [venueRecords, cityRecords] = await Promise.all([
+    pb.collection('venues').getFullList<VenueRecord>({
+      filter: 'published = true && suppressed != true',
+      fields: VENUE_FIELDS,
+      sort: 'city,name',
+      requestKey: null,
+    }),
+    // Same tolerance as the member catalogue: no city records means venues still
+    // join their route by name.
+    pb
+      .collection('cities')
+      .getFullList<CityRecord>({ sort: 'name', requestKey: null })
+      .catch(() => [] as CityRecord[]),
+  ]);
+
+  const citiesByName = citiesFromRecords(cityRecords);
+  const venues: Venue[] = [];
+  for (const record of venueRecords) {
+    const cityName = cleanString(record.city);
+    const slug = citySlug(cityName);
+    if (!slug) continue;
+    const city = citiesByName.get(cityName.toLowerCase()) ?? {
+      id: `legacy-city-${slug}`,
+      hasRecord: false,
+      name: cityName,
+      slug,
+      country: cleanString(record.country),
+    };
+    if (!citiesByName.has(cityName.toLowerCase())) citiesByName.set(cityName.toLowerCase(), city);
+    const venue = venueFromRecord(record, city);
+    if (!venue) continue;
+    // Published and not suppressed is the whole of the visitor's visibility rule.
+    // It is set here rather than left undefined because `allVenues` in main.ts
+    // filters on it, and a place the server has already made public must not need a
+    // circle to be seen.
+    venue.visibleToCaller = true;
+    venues.push(venue);
+  }
+
+  const cities = [...citiesByName.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return { cities, venues };
+}
+
 /**
  * Load the caller's catalogue.
  *
@@ -391,18 +559,19 @@ export function venuePlaceSlug(v: Venue, all: Venue[]): string {
  * which of them you can actually see, and a candidate with no visible
  * recommender is dropped entirely below.
  *
- * A signed-out visitor has no circle, so they have no list. They are not shown a
- * degraded or partial catalogue — they are shown none of it, and the landing page
- * speaks for the founding circle through its own route instead.
+ * A signed-out visitor has no circle, so there is no scoped list to compute for
+ * them: they get the published places instead, via `loadPublicCatalogue`. Their
+ * landing speaks for the founding circle through its own public route, and the cards
+ * it renders resolve to those places — which is what the catalogue is for here.
  */
 export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
   if (!pb.authStore.isValid || !pb.authStore.record) {
-    return { cities: [], venues: [] };
+    return loadPublicCatalogue();
   }
 
   const [venueRecords, cityRecords, contributionRecords, detouristSignals] = await Promise.all([
     pb.collection('venues').getFullList<VenueRecord>({
-      fields: 'id,name,city,country,address,disambiguator,lat,lng,category,official_url,instagram_url,image_url,curated_cover,approx_location,occasions,suppressed,published',
+      fields: VENUE_FIELDS,
       sort: 'city,name',
       requestKey: null,
     }),
@@ -468,44 +637,7 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
   const endorsementNames = detouristSignals.endorsements?.names ?? {};
   const endorsementOwn = detouristSignals.endorsements?.own ?? {};
 
-  const citiesByName = new Map<string, LiveCity>();
-
-  for (const record of cityRecords) {
-    const name = cleanString(record.name);
-    const slug = cleanString(record.slug).toLowerCase() || citySlug(name);
-    if (!name || !slug) continue;
-    const key = name.toLowerCase();
-    if (citiesByName.has(key)) continue;
-
-    const centerLat = cleanNumber(record.center_lat);
-    const centerLng = cleanNumber(record.center_lng);
-    const zoom = cleanNumber(record.zoom);
-    const latMin = cleanNumber(record.bounds_lat_min);
-    const latMax = cleanNumber(record.bounds_lat_max);
-    const lngMin = cleanNumber(record.bounds_lng_min);
-    const lngMax = cleanNumber(record.bounds_lng_max);
-    // A 0/0 centre is the catalogue's non-location sentinel — never a view.
-    const center: [number, number] | null =
-      centerLat !== null && centerLng !== null && !(centerLat === 0 && centerLng === 0)
-        ? [centerLat, centerLng]
-        : null;
-    const bounds: CityBounds | null =
-      latMin !== null && latMax !== null && lngMin !== null && lngMax !== null && latMin < latMax && lngMin < lngMax
-        ? { latMin, latMax, lngMin, lngMax }
-        : null;
-
-    citiesByName.set(key, {
-      id: record.id,
-      hasRecord: true,
-      name,
-      slug,
-      country: cleanString(record.country),
-      presentation: cleanString(record.presentation),
-      center,
-      zoom,
-      bounds,
-    });
-  }
+  const citiesByName = citiesFromRecords(cityRecords);
 
   for (const record of [...venueRecords, ...contributionRecords]) {
     if ('status' in record && cleanString(record.status) !== 'approved') continue;
@@ -532,43 +664,10 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
 
   const venuesById = new Map<string, Venue>();
   for (const record of venueRecords) {
-    const id = cleanString(record.id);
-    const name = cleanString(record.name);
-    const cityName = cleanString(record.city);
-    const city = citiesByName.get(cityName.toLowerCase());
-    if (!id || !name || !cityName || !city) continue;
-
-    const rawLat = cleanNumber(record.lat);
-    const rawLng = cleanNumber(record.lng);
-    const hasCoordinates =
-      rawLat !== null && rawLng !== null && !(rawLat === 0 && rawLng === 0);
-
-    venuesById.set(id, {
-      id,
-      name,
-      cityId: city.id,
-      citySlug: city.slug,
-      city: cityName,
-      country: cleanString(record.country) || city.country,
-      category: cleanString(record.category),
-      // The qualifier that tells this place from another of the same name in the
-      // same city. It reads as the place's locality wherever a neighborhood would
-      // have — "Toma Café · Calle de la Palma" — and is empty for almost every
-      // place, since it is only ever asked for after a name collision.
-      neighborhood: cleanString(record.disambiguator),
-      address: cleanString(record.address),
-      lat: hasCoordinates ? rawLat : null,
-      lng: hasCoordinates ? rawLng : null,
-      approxLocation: record.approx_location === true,
-      officialUrl: cleanExternalUrl(record.official_url) || undefined,
-      instagramUrl: cleanExternalUrl(record.instagram_url) || undefined,
-      imageUrl: cleanExternalUrl(record.image_url) || undefined,
-      curatedCover: curatedCoverPath(id, record.curated_cover),
-      // The venue owns its occasion tags. Award records are still merged below
-      // for backends that predate the move, but this is the authority.
-      occasions: knownOccasions(record.occasions),
-      suppressed: record.suppressed === true,
-    });
+    const city = citiesByName.get(cleanString(record.city).toLowerCase());
+    if (!city) continue;
+    const venue = venueFromRecord(record, city);
+    if (venue) venuesById.set(venue.id, venue);
   }
 
   const venueByIdentity = new Map<string, Venue>();

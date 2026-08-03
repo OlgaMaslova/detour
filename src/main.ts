@@ -282,8 +282,11 @@ const SHORT_LIST_DESTINATION_MAX = 6;
  * data.ts) — so this filter is the single gate and never a second opinion about
  * who may see what.
  *
- * A signed-out visitor has no circle and therefore no list; the catalogue is
- * empty for them by construction, not by a check here.
+ * A signed-out visitor has no circle, so there is no scoped list to derive: the
+ * server's published places are their list, marked visible by
+ * `loadPublicCatalogue`. That is what lets a card on their landing open the place it
+ * names. Browsing is still members-only, and that gate is `memberCanExplore` rather
+ * than an empty catalogue.
  */
 function allVenues(): Venue[] {
   return state.mode === 'live' ? state.venues.filter((v) => v.visibleToCaller === true) : [];

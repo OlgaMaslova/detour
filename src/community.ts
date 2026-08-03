@@ -166,6 +166,8 @@ interface PendingCollision {
   venueName: string;
   city: string;
   note: string;
+  /** The kind of place they picked, '' when they left it unanswered. */
+  category: string;
   photo: File | null;
   /** Set once the member says it is a different place and is asked which. */
   distinguishing: boolean;
@@ -678,6 +680,24 @@ function bindMapLinkField(form: HTMLElement): void {
   });
 }
 
+/**
+ * The category select, shared by the recommend form and the entry's own edit
+ * form so both offer the same list in the same words.
+ *
+ * Optional in both. A member with nothing to pick is never held up, and the
+ * enrichment passes still fill a blank one from the place itself — the field is
+ * here because the member standing in the place is the one who knows, not
+ * because the record needs them to answer.
+ */
+function categoryField(selected = ''): string {
+  const options = CATEGORY_OPTIONS.map(
+    ([value, label]) => `<option value="${value}"${value === selected ? ' selected' : ''}>${label}</option>`
+  ).join('');
+  return `<label>Category <span class="community-optional">Optional</span><select name="category"><option value=""${
+    selected ? '' : ' selected'
+  }>Choose one</option>${options}</select></label>`;
+}
+
 /** The chosen file from a form's photo picker, or null when none was chosen. */
 function chosenPhoto(form: HTMLFormElement): File | null {
   const input = form.querySelector<HTMLInputElement>('input[name="photo"]');
@@ -974,7 +994,7 @@ function entryEditMarkup(entry: WaitlistEntry): string {
           <label>Country <span class="community-optional">Optional — we look it up</span><input name="country" value="${esc(entry.country || '')}" maxlength="120" placeholder="Country"${lockedAttribute}></label>
         </div>
         <label>Which one <span class="community-optional">Optional — only if another place shares this name and city</span><input name="disambiguator" value="${esc(entry.disambiguator || '')}" maxlength="120" placeholder="Street or neighbourhood"${lockedAttribute}></label>
-        <label>Category <span class="community-optional">Optional</span><select name="category"><option value=""${selectedCategory ? '' : ' selected'}>Choose one</option>${CATEGORY_OPTIONS.map(([value, label]) => `<option value="${value}"${value === selectedCategory ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
+        ${categoryField(selectedCategory)}
         <fieldset class="community-choice-fieldset">
           <legend>Good for <span class="community-optional">Optional — choose any that fit</span></legend>
           <div class="community-choice-grid">${OCCASION_OPTIONS.map(([value, label]) => `<label><input type="checkbox" name="occasions" value="${value}"${selectedOccasions.indexOf(value) !== -1 ? ' checked' : ''}><span>${label}</span></label>`).join('')}</div>
@@ -1329,17 +1349,21 @@ function recommendationPanel(): string {
       </form>`
     : pendingCollision
       ? collisionMarkup(pendingCollision)
-      : // A name, a city, your words, and your photo. Everything else about a
-        // place — its street, its country, its coordinates, its website and its
-        // Instagram — is found by the enrichment passes from exactly these two
-        // facts, so asking a member to type any of it only asked them to do work
-        // the server was going to redo anyway. Category and what it is good for
-        // stay available on the entry's own line, where correcting them is one
-        // click and does not stand between having something to say and saying it.
+      : // A name, a city, what kind of place it is, your words, and your photo.
+        // Everything else about a place — its street, its country, its
+        // coordinates, its website and its Instagram — is found by the
+        // enrichment passes from the name and the city alone, so asking a member
+        // to type any of it only asked them to do work the server was going to
+        // redo anyway. Category is the exception: it is one tap, the member
+        // standing in the place is the one who knows, and it is what the lists
+        // sort by. It stays optional, and what it is good for stays on the
+        // entry's own line, where correcting it is one click and does not stand
+        // between having something to say and saying it.
         `<form class="community-form" data-community-recommendation>
         ${mapLinkField()}
         <label>Food-and-drink destination name<input name="venue_name" maxlength="200" required placeholder="A restaurant, café, bar, or other food-and-drink destination"></label>
         <label>City or locality<input name="city" maxlength="120" required placeholder="City or locality"></label>
+        ${categoryField()}
         <label>My recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?"></textarea></label>
         ${photoField()}
         <div class="community-form-actions">
@@ -3379,14 +3403,15 @@ export function bindCommunity(
    * question.
    *
    * `held` is what the member typed. It is kept so a 409 can ask which place they
-   * mean without losing their words or their photo: answering re-renders the
-   * panel, and a file input cannot be repopulated from markup, so the File has to
-   * outlive the form it was chosen in.
+   * mean without losing their words, their photo or the kind of place they said
+   * it was: answering re-renders the panel, and a file input cannot be
+   * repopulated from markup, so the File has to outlive the form it was chosen
+   * in.
    */
   const sendRecommendation = async (
     payload: Record<string, string | string[]>,
     photo: File | null,
-    held: { venueName: string; city: string; note: string }
+    held: { venueName: string; city: string; note: string; category?: string }
   ): Promise<void> => {
     submitting = true;
     notice = null;
@@ -3430,9 +3455,10 @@ export function bindCommunity(
         : createdEntry
           ? { kind: 'info', text: 'Your recommendation is saved. Its line shows whether the place is live.' }
           : notice;
-      // Category and what a place is good for are no longer asked before the note
-      // is written, so the ledger line is where they get added. Worth saying once
-      // here, because the occasion filters on discovery are what they feed.
+      // What a place is good for is still not asked before the note is written —
+      // it is a list of checkboxes, not one tap like the category — so the ledger
+      // line is where it gets added. Worth saying once here, because the occasion
+      // filters on discovery are what it feeds.
       if (notice && createdEntry) {
         notice.text += ' Open its line to say what it is good for.';
       }
@@ -3452,7 +3478,13 @@ export function bindCommunity(
         // A collision on a qualifier the member just supplied means that qualifier
         // is taken too, so the field stays open for them to give another rather
         // than dropping them back to a choice they have already made.
-        pendingCollision = { collision, ...held, photo, distinguishing: Boolean(askedFor) };
+        pendingCollision = {
+          collision,
+          ...held,
+          category: held.category || '',
+          photo,
+          distinguishing: Boolean(askedFor),
+        };
         notice = askedFor
           ? { kind: 'info', text: 'A place with that name and street is already on the list. Try a different street or neighbourhood.' }
           : null;
@@ -3507,6 +3539,7 @@ export function bindCommunity(
       venueName: String(payload.venue_name),
       city: String(payload.city),
       note,
+      category,
     });
   });
 
@@ -3522,6 +3555,10 @@ export function bindCommunity(
         venue_name: pending.venueName,
         city: pending.city,
         note: pending.note,
+        // Joining an existing place carries the category too: the create hook
+        // fills a blank one and never overwrites what the first member said, so
+        // this can only add a fact the place was missing.
+        ...(pending.category ? { category: pending.category } : {}),
       },
       pending.photo,
       pending
@@ -3560,6 +3597,7 @@ export function bindCommunity(
         note: pending.note,
         disambiguator,
         place_intent: 'distinct',
+        ...(pending.category ? { category: pending.category } : {}),
       },
       pending.photo,
       pending
