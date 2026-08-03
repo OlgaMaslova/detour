@@ -338,17 +338,18 @@ routerAdd(
     // ONE THING TO ANSWER, NEVER TWO. The landing's answer slot takes the first
     // that applies, by the precedence in docs/landing-spec.md: an ask, else a
     // triage card, else a "been yet?" follow-up, else the week's prompt, else
-    // nothing. The two that exist today are resolved in that order here, and
+    // nothing. The three that exist today are resolved in that order here, and
     // silence is a legitimate answer — an invented prompt is the same broken
     // promise as an empty feed, one layer up.
     //
-    // The triage card is resolved FIRST, and the ordering is load-bearing rather
-    // than stylistic: resolvePlacePrompt advances the ladder and stamps the
-    // member's record as a side effect of returning a rung, so calling it and
-    // then discarding its answer would burn a rung on a question nobody was
-    // shown. It is only reached when the slot is still free.
+    // THE ORDER OF THESE THREE CALLS IS LOAD-BEARING, not stylistic. Both the
+    // follow-up and the place prompt stamp the member's record as a side effect of
+    // returning something — that stamp is what stops the same question arriving on
+    // every page load — so calling one and discarding its answer burns a question
+    // nobody was shown. Each is reached only while the slot is still free, and the
+    // cheap check that cannot spend anything (the triage card) goes first.
     //
-    // Both are after the session ping, never before: the ladder reads the
+    // All three are after the session ping, never before: each reads the
     // previous-visit stamp that ping just moved to decide whether this visit has
     // been asked already.
     const triageCard = require(__hooks + "/landing_triage.js").nextTriageCard(
@@ -356,10 +357,18 @@ routerAdd(
       e.auth.id,
       []
     );
-    const prompts = require(__hooks + "/place_prompts.js");
-    const placePrompt = triageCard
+    const followUp = triageCard
       ? null
-      : prompts.resolvePlacePrompt(e.app, e.auth, session);
+      : require(__hooks + "/landing_followup.js").nextFollowUp(
+          e.app,
+          e.auth,
+          session
+        );
+    const prompts = require(__hooks + "/place_prompts.js");
+    const placePrompt =
+      triageCard || followUp
+        ? null
+        : prompts.resolvePlacePrompt(e.app, e.auth, session);
     const imageCurationCount = foundingMember
       ? e.app.findRecordsByFilter(
           "community_place_images",
@@ -394,6 +403,11 @@ routerAdd(
         // the same request that decides the masthead rather than appearing a beat
         // later. Every card after this one comes from /api/detour/landing/triage.
         triage_card: triageCard,
+        // *Been yet?* about a place this member said they wanted to go to, three
+        // weeks ago or more, in a city they are plausibly in. Null when there is
+        // nothing to ask — which is most members most of the time. One per visit:
+        // it is not a queue, and it does not advance the way a triage card does.
+        follow_up: followUp,
       },
     });
   },

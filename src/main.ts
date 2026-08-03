@@ -18,6 +18,8 @@ import {
   openMemberArea,
   openRecommendPlace,
   openSharePlace,
+  shouldShowLandingFeedCta,
+  shouldShowLandingCommunityStrip,
   signOutMember,
 } from './community';
 import {
@@ -39,6 +41,7 @@ import {
 import { bindCircle, circleMarkup, resetCircle } from './circle';
 import {
   bindNetworkDiscovery,
+  communityStripMarkup,
   coverPhotoHref,
   ensureNetworkDiscovery,
   groupedRecommendationCardMarkup,
@@ -56,6 +59,7 @@ import type { DiscoveryRecommendation, NetworkPlaceResolver } from './network';
 import { defaultSurveyForm, renderSurvey, surveyFormFromPath, surveyMeta, surveyPath } from './survey';
 import { PLACE_MAP_ID, placeIsLocated, placePageMarkup } from './place';
 import { placePromptMarkup } from './place-prompt';
+import { bindFollowUpCard, followUpCardMarkup } from './follow-up';
 import { bindTriageCard, triageCardMarkup } from './triage';
 import { detouristSignalBadge, detouristSignalText } from './signal';
 import type { PlaceChrome, PlaceHelpers } from './place';
@@ -2580,9 +2584,18 @@ function renderHowItWorks(root: HTMLElement): void {
  * way, and both are here. A member's own record is never empty once they have
  * done one thing, and a question does not depend on supply at all.
  *
+ * On day one, three places from the community, because that is the one visit where
+ * "their own record is never empty" is false: a member who has just signed up
+ * has four empty tabs and a form, and nothing to read. The band under them is
+ * content rather than encouragement. It disappears as soon as the member has a
+ * recommendation of their own, and entirely when it has nothing — see
+ * communityStripMarkup.
+ *
  * NOTHING ELSE GOES ON THIS SCREEN. No stats, no streaks, no comparison to other
  * members, and never an invented figure — "3 new places this week" when there
- * were none is the same broken promise as the empty feed, one layer up.
+ * were none is the same broken promise as the empty feed, one layer up. The
+ * community band is places, not figures; the moment it grows a count of what
+ * anybody has added it has become the thing this rule forbids.
  */
 function renderLanding(root: HTMLElement): void {
   destroyMap();
@@ -2598,7 +2611,16 @@ function renderLanding(root: HTMLElement): void {
         <h1 id="landing-title" tabindex="-1">My detours</h1>
       </div>
       ${answerSlotMarkup()}
+      ${
+        shouldShowLandingFeedCta()
+          ? `<div class="landing-feed-cta">
+              <p>See what’s new in the community</p>
+              <a href="${esc(feedHref())}" data-feed>See Feed<span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>
+            </div>`
+          : ''
+      }
       ${landingPanel(state.venues, resolveNetworkPlace)}
+      ${shouldShowLandingCommunityStrip() ? communityStripMarkup(feedHref(), resolveNetworkPlace) : ''}
     </section>
     <footer class="footer network-footer">
       <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
@@ -2619,6 +2641,7 @@ function renderLanding(root: HTMLElement): void {
     }
   );
   bindTriageCard(root, () => render(root));
+  bindFollowUpCard(root, () => render(root));
   bindRouteLinks(root);
   // Been & loved and Wanna go show the note that put each place on the list, and
   // that note comes from the circle feed — so the landing loads it even though it
@@ -2639,10 +2662,13 @@ function renderLanding(root: HTMLElement): void {
  *
  * The precedence is the spec's — an ask, else a triage card, else a "been yet?"
  * follow-up, else the week's prompt, else nothing — and the server settles which
- * of the two that exist today is due, so the two can never both arrive. Of the
- * other two, an ask has nothing to send one yet and the follow-up is specified
- * but unbuilt; both slot in above and below the triage card respectively when
- * they land.
+ * of the three that exist today is due, so two can never both arrive. The order
+ * here is the same order, and it is the safety net rather than the decision: the
+ * two that stamp a member's record on the way out are only resolved server-side
+ * while the slot is still free.
+ *
+ * The one still missing is the ask, which has nothing to send one yet; it slots in
+ * above the triage card when it lands.
  *
  * NEVER A STACK. One card or none, and none is a legitimate outcome: silence is
  * better than a manufactured task, and an invented prompt is the same broken
@@ -2651,6 +2677,8 @@ function renderLanding(root: HTMLElement): void {
 function answerSlotMarkup(): string {
   const triage = triageCardMarkup(accountHref());
   if (triage) return triage;
+  const followUp = followUpCardMarkup(accountHref());
+  if (followUp) return followUp;
   const prompt = memberPlacePrompt();
   return prompt ? placePromptMarkup(prompt, accountHref()) : '';
 }

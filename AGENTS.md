@@ -254,18 +254,37 @@ nav reads **My detours · Feed · Explore · My Circle**. Specified in
   and a question, which does not depend on supply at all.
 - **One thing to answer, or nothing.** The slot above the tabs takes the first
   that applies — an ask, else a triage card, else a "been yet?" follow-up, else
-  the week's prompt, else nothing. **Never a stack.** The two that exist are
+  the week's prompt, else nothing. **Never a stack.** The three that exist are
   resolved server-side in `/api/detour/community/me`, in that order, and the
-  order is load-bearing: `resolvePlacePrompt` advances the ladder as a side
-  effect of returning a rung, so it must only be reached when the slot is still
-  free. Nothing is a legitimate outcome — an invented prompt is the same broken
-  promise as an empty feed, one layer up.
+  order is load-bearing: both `nextFollowUp` and `resolvePlacePrompt` stamp a
+  record as a side effect of returning something, so each must only be reached
+  while the slot is still free — calling one and discarding its answer burns a
+  question nobody was shown. Nothing is a legitimate outcome — an invented prompt
+  is the same broken promise as an empty feed, one layer up.
 - **The feed does not ask for anything any more.** The first-place card and the
   eligibility request behind it are gone. A second ask one click from the first
   is the stack the spec rules out.
 - **Nothing else goes on this screen.** No stats, no streaks, no comparison to
   other members, and never an invented figure. "3 new places this week" when
   there were none is the thing this landing exists in opposition to.
+- **The feed route has two mutually exclusive treatments.** A member whose
+  Recommendations tab has cards sees the compact **See what’s new in the
+  community · See Feed →** row between the answer slot and tabs. A member with
+  no recommendation cards does not see that row; they get the full **From the
+  community** band below the tabs instead. While the private entry list is
+  loading or failed, show neither rather than flashing the wrong treatment.
+- **From the community**, under the tabs **only while the member's
+  Recommendations tab has no cards**: three places from the circle, newest first,
+  and a **See all** link to the feed (`communityStripMarkup` in
+  `src/network.ts`). Day one is the one visit where "their own record is never
+  empty" is false, and a first landing with nothing to read teaches the same
+  lesson the empty feed did. The band disappears once that tab has a place.
+  Never their own places, never a badge or a count, no "show more", and
+  **absent entirely** — not a spinner, not an error, not an empty heading —
+  while either the member's recommendations or the feed load, when either
+  request fails, and when the feed holds nothing but the member's own. It
+  honours the Founders'-places filter so *See all* never leads to a feed with
+  fewer places than the strip.
 - **Four tabs, grouped by state**, in ladder order with the inbox last:
   Recommendations · Been & loved · Wanna go · Private shares. A member with
   nothing still sees all four; their empty states say what would put something
@@ -304,6 +323,38 @@ own city, somebody else's note in full, and *Know this place?*
   member with a text field is a small betrayal they only fall for once.
 - **Every answer goes through the route that owns it.** The card is a surface
   onto `/endorsement` and `/save`, never a shortcut around their rules.
+
+### The been-yet follow-up
+
+The rung below the triage card, and the reason Wanna go earns a place in the
+ladder at all: saving does nothing for anybody else on its own, and what it buys
+is the right to ask one question later — *You saved {place} a while back. Been
+yet?* — at the point where the member finally has something to say
+(`pb_hooks/landing_followup.js`, `src/follow-up.ts`).
+
+- **It asks about a place the member chose**, which is the whole difference from
+  the triage card next door. It needs no justification, cannot read as social
+  pressure, and has no *Don't know it*: three answers, not four. **Been & loved
+  it** and **Not yet** cost a tap; *Write your own* is the heavier link beneath.
+- **Four gates, and each one is a decision.** No earlier than **three weeks**
+  after saving — sooner tells a member their bookmarks are being watched. Only in
+  a city they are plausibly in: their home city, or somewhere they have since put
+  a place. Only where they can see a fronting note, the same clause the triage
+  card carries and for the same reason. And it goes quiet when ignored — a week
+  after being shown, **a month** after a *Not yet*, and **never again after two**.
+- **`prompted_at` is stamped when the card is shown**, not when it is answered:
+  that stamp is what stops the same question arriving on every page load, and it
+  is also what hands the same card back for the rest of the visit. `declineFollowUp`
+  moves it and raises `prompt_declines`, which is the only thing the *Not yet*
+  route does.
+- **One question per visit, and the slot empties behind it.** It is not a queue
+  and it does not advance the way a triage card does — the triage card is filling
+  a blank record, and this is asking a member to account for their own list.
+  Twice in a sitting is an audit.
+- **Nothing tells the server that Been & loved was the answer.** The mark takes
+  the place out of the follow-up's own query, because a member who has been is no
+  longer somebody to ask. The save row survives it, as ever — one state per place
+  is a display rule, not a storage rule.
 
 ## Wanna go
 
@@ -365,7 +416,11 @@ member's recommendation and would send you there too. Specified in
 - **Corroboration, never authorship.** It does not publish a place, does not
   contribute to `signal_count` or `detouristCount`, and never decides who can
   see anything. It is not a rating: there is no counterpart, no score, and
-  nothing may be ordered by it.
+  nothing may be ordered by it. **Presentation merges it with recommendations:**
+  the place-page signal shows one distinct-member total — recommendations plus
+  Been & loved marks — with one recommendation mark. This is derived client-side
+  and never changes the stored recommendation count or publication rules. The
+  sum is safe because one member cannot occupy both states on one place.
 - **Global count, scoped names, and the clause that matched.** The count is
   every mark from every circle; the names are only the members the caller may
   see, each carrying `in_graph` so the copy says "in your circle" when the graph

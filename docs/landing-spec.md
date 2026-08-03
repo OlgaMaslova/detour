@@ -5,17 +5,23 @@ the feed.*
 
 > **Shipped.** `renderLanding` in `src/main.ts`, `landingPanel` in
 > `src/community.ts`, the triage card in `pb_hooks/landing_triage.js`,
-> `pb_hooks/landing_triage.pb.js` and `src/triage.ts`, and the answer-slot
-> precedence in `/api/detour/community/me`. The feed moved to `?view=feed` and no
-> longer asks the member for anything. `AGENTS.md` has been amended as this
-> document requires.
+> `pb_hooks/landing_triage.pb.js` and `src/triage.ts`, the *been yet?* follow-up
+> in `pb_hooks/landing_followup.js`, `pb_hooks/landing_followup.pb.js` and
+> `src/follow-up.ts`, and the answer-slot precedence in
+> `/api/detour/community/me`. The feed moved to `?view=feed` and no longer asks
+> the member for anything. `AGENTS.md` has been amended as this document requires.
 >
-> **Two things below are not built.** The answer slot has two of its four
-> entries — a triage card and the week's prompt; an ask has nothing to send one
-> yet and the *been yet?* follow-up is specified in `docs/wanna-go-spec.md` but
-> deliberately deferred. And **Explore has not folded into Feed**: that merge is
-> its own piece of work, so the nav reads My detours · Feed · Explore · My
-> Circle rather than the three items under *Navigation, after this*.
+> **Two things below are not built.** The answer slot has three of its four
+> entries — a triage card, the follow-up, and the week's prompt; **an ask** has
+> nothing to send one yet, and it is the only entry still missing. And **Explore
+> has not folded into Feed**: that merge is its own piece of work, so the nav
+> reads My detours · Feed · Explore · My Circle rather than the three items under
+> *Navigation, after this*.
+>
+> One departure in the follow-up, recorded where it happens: the card **quotes the
+> note that put the place on the member's list**, which the copy below does not
+> ask for. Three weeks is long enough that a name alone does not always identify
+> the place, and the note has to be fetched anyway to check the member can see one.
 
 ---
 
@@ -58,14 +64,77 @@ detours serves both. The feed serves neither.
 ┌─────────────────────────────────────┐
 │  ONE THING TO ANSWER                │   ← at most one card, dismissible
 ├─────────────────────────────────────┤
+│  See what’s new in the community    │
+│                          See Feed → │   ← only once Recommendations has cards
+├─────────────────────────────────────┤
 │  RECOMMENDATIONS · BEEN & LOVED ·   │ ← tabs, as shipped plus one
 │  WANNA GO · PRIVATE SHARES          │
 │                                     │
-│  [ cards ]                          │
+│  [ cards ]                          │   ← their own, empty on day one
+├─────────────────────────────────────┤
+│  FROM THE COMMUNITY                 │   ← instead of the compact row on day one
+│  [ card ] [ card ] [ card ]         │   ← other people's, three, newest
+│                        See all →    │   ← to the feed
 └─────────────────────────────────────┘
 ```
 
 Nothing else. No stats, no streaks, no comparison to other members.
+
+Once the member has a card in Recommendations, the full day-one community band
+is replaced by a compact row between the answer slot and tabs: **See what’s new
+in the community · See Feed →**. The two treatments are mutually exclusive. A
+member with no recommendation cards sees the full **From the community** band
+instead; while that state is loading or unavailable, neither treatment appears.
+
+## From the community
+
+*Added 2026-08-03. `communityStripMarkup` in `src/network.ts`, mounted by
+`renderLanding`.*
+
+When the member has no recommendations of their own, three places from the
+circle appear under the member's lists, newest first, with a **See all** link to
+the feed. The whole band disappears once they have made a recommendation.
+
+**Why this does not contradict "why not the feed".** The argument above is about
+what a screen *promises*, not about whether other people's places may appear on
+it. A feed promises something new on every load and breaks that promise on most
+visits. A band of three at the bottom of a screen that is already about the
+member promises nothing — it is either there or it is not, and nobody arrived
+for it.
+
+**Why it is needed.** "A member's own record is never empty once they have done
+one thing" is exactly false on the one visit that decides whether there is a
+second: the first landing after signing up is four empty tabs and a form. The
+answer slot covers the *ask* and this covers the *read*. A member who has
+nothing to look at leaves, and the only content that is reliably there on day
+one is other people's.
+
+Rules, all of which are the difference between this and a second feed:
+
+- **Only while Recommendations is empty.** This is a day-one scaffold. Once the
+  member has a card in Recommendations, their record is no longer empty and the
+  band is absent. The client uses the same private entry list that renders that
+  tab and waits for it to load successfully before deciding it is empty.
+
+- **Three, and no "show more".** It is a window on the feed; the link is what
+  the rest of the feed is for.
+- **Never the member's own places.** A place they recommended is already in
+  Recommendations above; showing their own sentence back to them under
+  somebody else's heading is a lie about whose it is.
+- **Silent when it has nothing.** No spinner, no error box, no "no places yet"
+  heading — the section is simply absent while either the member's own
+  recommendations or the feed load, when either request fails, and when there
+  is nothing but the member's own. An empty band under an empty screen is the
+  second broken promise on one page.
+- **Honours the founding-circle filter.** A member who switched *Founders'
+  places* off in the feed does not get them here, so **See all** always leads to
+  a feed containing at least these three.
+- **No badges and no counts**, including the feed's 24-hour "new" stamp. This
+  band shows places. The moment it shows a figure it is the statistic the rest
+  of this document rules out.
+
+It does not replace the triage card, which asks; this only offers something to
+read.
 
 ## The answer slot
 

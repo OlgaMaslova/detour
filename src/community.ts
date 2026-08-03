@@ -10,6 +10,7 @@ import {
 } from './network';
 import type { DiscoveryRecommendation, NetworkPlaceResolver } from './network';
 import type { PlacePrompt } from './place-prompt';
+import { adoptFollowUpCard, readFollowUpCard, resetFollowUp } from './follow-up';
 import { adoptTriageCard, readTriageCard, resetTriage } from './triage';
 import type { Venue } from './data';
 import { OCCASION_OPTIONS } from './occasions';
@@ -304,6 +305,7 @@ let notice: Notice | null = null;
 let knownVenues: Venue[] = [];
 let waitlistEntries: WaitlistEntry[] = [];
 let recommendations: RecommendationRecord[] = [];
+let waitlistEntriesLoaded = false;
 let shares: ShareRecord[] = [];
 let lockedEntryIds = new Set<string>();
 let communityLoaded = false;
@@ -1965,6 +1967,21 @@ export function landingPanel(venues: Venue[], resolvePlace?: NetworkPlaceResolve
 }
 
 /**
+ * The community strip is a day-one scaffold, not permanent landing content.
+ * Use the exact list that renders the Recommendations tab, and wait for it to
+ * load successfully before deciding it is empty. A slow or failed request must
+ * not flash the strip for a returning member who already has cards there.
+ */
+export function shouldShowLandingCommunityStrip(): boolean {
+  return Boolean(member()) && communityLoaded && waitlistEntriesLoaded && waitlistEntries.length === 0;
+}
+
+/** The compact Feed route replaces the full day-one strip once this list exists. */
+export function shouldShowLandingFeedCta(): boolean {
+  return Boolean(member()) && communityLoaded && waitlistEntriesLoaded && waitlistEntries.length > 0;
+}
+
+/**
  * Which tab the landing opens on.
  *
  * Recommendations by default, because it is the most committed rung and the one a
@@ -2162,6 +2179,7 @@ function resetCommunityState(): void {
   pendingShareRecipient = null;
   waitlistEntries = [];
   recommendations = [];
+  waitlistEntriesLoaded = false;
   shares = [];
   lockedEntryIds = new Set<string>();
   communityLoaded = false;
@@ -2192,6 +2210,9 @@ function resetCommunityState(): void {
   // The answer slot belongs to the member who was signed in: their card, their
   // three-per-session cap, and the places they have already passed on.
   resetTriage();
+  // And their follow-up, which names a place off their own private list — the one
+  // thing in the slot that would leak something if it outlived the session.
+  resetFollowUp();
   // The Wanna go list is the most private thing the client holds. A signed-out
   // shell must not keep the previous member's, and the next member reads their
   // own rather than inheriting a stale one.
@@ -2218,6 +2239,7 @@ function resetCommunityState(): void {
 async function loadCommunity(render: () => void): Promise<void> {
   if (!member() || loadingCommunity) return;
   loadingCommunity = true;
+  waitlistEntriesLoaded = false;
   render();
   const results = await Promise.allSettled([
     pb.collection('community_waitlist_entries').getFullList<WaitlistEntry>({ sort: '-updated', requestKey: null }),
@@ -2226,6 +2248,7 @@ async function loadCommunity(render: () => void): Promise<void> {
     pb.send<{ ids?: string[] }>('/api/detour/community/place-locks', { requestKey: null }),
   ]);
 
+  waitlistEntriesLoaded = results[0].status === 'fulfilled';
   if (results[0].status === 'fulfilled') waitlistEntries = results[0].value;
   if (results[1].status === 'fulfilled') shares = results[1].value;
   if (results[2].status === 'fulfilled') recommendations = results[2].value;
@@ -2339,6 +2362,7 @@ async function loadMemberFlags(signedInAs: string, render: () => void): Promise<
         new_session?: unknown;
         place_prompt?: unknown;
         triage_card?: unknown;
+        follow_up?: unknown;
       };
     }>('/api/detour/community/me', { requestKey: null })
     .catch(() => null);
@@ -2371,17 +2395,20 @@ async function loadMemberFlags(signedInAs: string, render: () => void): Promise<
   memberDaysAway = Number.isFinite(away) && away >= 0 ? Math.floor(away) : null;
   memberNewSession = me.member?.new_session === true;
   memberPlacePromptState = readPlacePrompt(me.member?.place_prompt);
-  // The first card of the visit. The server returns at most one of these two —
-  // the answer slot holds one thing or nothing — so adopting both is safe.
+  // The first card of the visit. The server returns at most one of these three —
+  // the answer slot holds one thing or nothing, and its precedence is settled
+  // server-side — so adopting all of them is safe.
   const triage = readTriageCard(me.member?.triage_card);
   adoptTriageCard(triage);
+  const followUp = readFollowUpCard(me.member?.follow_up);
+  adoptFollowUpCard(followUp);
   memberFlagsLoaded = true;
   // Three things here change what a page outside the member area shows: whether
   // Curation sits in the masthead menu, whether there is a place to ask for, and
   // whether the landing has a card in its answer slot. None is the common case, so
   // most members' sessions still cost no redraw — and an ordinary member's home
   // map is left alone.
-  if (foundingMember !== wasFounding || memberPlacePromptState || triage) render();
+  if (foundingMember !== wasFounding || memberPlacePromptState || triage || followUp) render();
 }
 
 async function loadInvites(render: () => void): Promise<void> {

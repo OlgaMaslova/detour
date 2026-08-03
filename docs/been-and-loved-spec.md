@@ -83,6 +83,11 @@ accurate, and will survive a copy revision.
 - **Never gates visibility.** It does not publish a place, does not contribute
   to `signal_count`, and does not change who can see anything. It is
   corroboration of a place that is already there.
+- **One presentation signal.** On the place page, Recommended and Been & loved
+  render as one distinct-member total with one recommendation mark. The number
+  is derived by adding the two disjoint states; it is never written back to
+  `signal_count` and never affects publication or ordering. The tooltip states
+  the combined standing once rather than repeating both signals.
 - **Always attributed.** The name travels with it wherever it is shown to
   someone who may see it. There are no anonymous signals in Detour.
 - **Only verified members** — the same gate as recommending

@@ -1,16 +1,16 @@
 /**
  * The member-recommendation signal — one badge, every surface.
  *
- * How many Detourists put a place on the list is the single reason anything is
- * on Detour, so it is stated the same way wherever it appears: a mark, a
- * figure, and at most two words. Cards, the map preview and the place page all
- * render this, so the count can never read one way in a list and another way on
- * the page it links to.
+ * How many Detourists stand behind a place: those who wrote a recommendation,
+ * plus those who went on one and loved it. The two states are mutually
+ * exclusive per member, so the merged figure still counts people rather than
+ * actions. Cards and map previews only know recommendation counts; the place
+ * page adds its corroboration count to the same signal.
  *
  * Self-contained on purpose: no venue type, and every figure is a clamped
- * integer. One exception, and it is the only one: the been-and-loved stamp names
- * the members behind it, and a member-supplied name is the one string here that
- * did not come from this file — so it goes through escapeText below.
+ * integer. One exception, and it is the only one: the merged standing names
+ * visible been-and-loved members, and a member-supplied name is the one string
+ * here that did not come from this file — so it goes through escapeText below.
  */
 
 /**
@@ -39,20 +39,6 @@ function escapeText(value: string): string {
  * accent on a card), which `currentColor` gives for free.
  */
 const DETOUR_MARK = `<svg class="signal-mark" viewBox="0 0 42 39" aria-hidden="true" focusable="false"><path fill="currentColor" d="M0 0h42v26H28L21 39l-7-13H0z"/></svg>`;
-
-/**
- * The been-and-loved mark: a tick, beside the bubble in the same stamp.
- *
- * A tick because the claim is *confirmed* — somebody went, on somebody's word,
- * and it held up. Deliberately not a heart: a heart says "liked", which is the
- * rating this must never become, and it would be the only mark in the product
- * that scores rather than states. Deliberately not a second bubble either: the
- * bubble means somebody said something, and the whole value of this signal is
- * that it says nothing except that the note was right.
- *
- * Drawn on the same 42×39 field as the bubble so the two align on one baseline.
- */
-const BEEN_MARK = `<svg class="signal-mark signal-mark-been" viewBox="0 0 42 39" aria-hidden="true" focusable="false"><path fill="currentColor" d="M16.2 33 2 18.8l6-6 8.2 8.2L34 3l6 6z"/></svg>`;
 
 /**
  * `plate` — the place page's hero statement: large figure, full phrase.
@@ -195,11 +181,25 @@ export function detouristSignalBadge(
    */
   saved = false
 ): string {
-  const n = clampCount(counts.total);
-  const circle = Math.min(clampCount(counts.circle), n);
-  const founders = Math.min(clampCount(counts.founders), n - circle);
-  const own = counts.own === true;
-  const been = endorsementCell(endorsement);
+  const recommended = clampCount(counts.total);
+  const recommendedCircle = Math.min(clampCount(counts.circle), recommended);
+  const recommendedFounders = Math.min(
+    clampCount(counts.founders),
+    recommended - recommendedCircle
+  );
+  const endorsed = clampCount(endorsement.total);
+  const endorsedCircle = Math.min(clampCount(endorsement.circle), endorsed);
+  const endorsedFounders = Math.min(
+    clampCount(endorsement.founders),
+    endorsed - endorsedCircle
+  );
+  // A member cannot occupy both states on one place: writing a recommendation
+  // removes their Been & loved mark in the same transaction. This is therefore
+  // a distinct-person total, not two activity counts added together.
+  const n = recommended + endorsed;
+  const circle = recommendedCircle + endorsedCircle;
+  const founders = recommendedFounders + endorsedFounders;
+  const own = counts.own === true || endorsement.own === true;
   // No figure, ever. See SAVED_MARK.
   const savedCell = saved
     ? `<span class="signal-divider" aria-hidden="true"></span>${SAVED_MARK}`
@@ -212,25 +212,21 @@ export function detouristSignalBadge(
     return `<p class="signal-badge signal-badge-${variant} signal-badge-bare" aria-label="${bare}">${DETOUR_MARK}${savedCell}</p>`;
   }
 
+  const visibleEndorsers = (endorsement.names ?? []).map(escapeText);
   const said = signalSentence({ total: n, circle, founders, own });
-  const tooltipPhrase = [said, been.phrase, savedPhrase].filter(Boolean).join('. ');
+  const attributed = visibleEndorsers.length
+    ? `${said} — ${joinClauses(visibleEndorsers)}`
+    : said;
+  const tooltipPhrase = [attributed, savedPhrase].filter(Boolean).join('. ');
   const tooltip = `<span class="signal-tooltip" role="tooltip" aria-hidden="true">${tooltipPhrase}</span>`;
 
-  // One figure per claim, both in the one box. The badge is a stamp, so each
-  // claim gets a figure and a mark and no noun — the marks are the words, which
-  // is the whole point of having them, and it keeps the stamp the same width in
-  // every language. How many of those members are in the reader's circle is
-  // carried by the accessible name and the tooltip, which is where a sentence
-  // can afford to be a sentence.
-  //
-  // Two figures, never one sum. Authorship and corroboration are different
-  // claims — somebody wrote this place down, somebody else went on their word —
-  // and adding them together would state a number nobody can act on. The divider
-  // is what keeps them legible as two while the plate stays one signal.
+  // One figure: how many distinct Detourists stand behind this place, whether
+  // they wrote a note or went on one and loved it. The stored recommendation
+  // count and publication threshold remain recommendation-only; this sum exists
+  // only in presentation.
   return `<p class="signal-badge signal-badge-${variant}" aria-label="${tooltipPhrase}" tabindex="0">
     <strong class="signal-count">${n}</strong>
     ${DETOUR_MARK}
-    ${been.html}
     ${savedCell}
     ${tooltip}
   </p>`;
@@ -239,8 +235,7 @@ export function detouristSignalBadge(
 /* ---------- been & loved ---------- */
 
 /**
- * The second line: members who went somewhere on somebody's note and would send
- * you there too.
+ * Members who went somewhere on somebody's note and would send you there too.
  *
  * Two claims, both stated — *I went, and I would send you* — and both are load
  * bearing. "Been" alone takes no position, and silence is Detour's only
@@ -250,12 +245,9 @@ export function detouristSignalBadge(
  * presence, and firsthand experience is the entire value of the signal.
  *
  * It is never a rating: no counterpart, no score, and nothing is ordered by it.
- * It sits beside the recommendation count and must not blur into it —
- *
- *   3 RECOMMEND          wrote a note, put their name to it
- *   BEEN & LOVED · 2     went because of one, and would return
- *
- * the first is authorship, the second corroboration.
+ * In the place-page stamp it joins the recommendation figure as one count of
+ * distinct members who stand behind the place. The stored counts remain
+ * separate because only written recommendations can publish a place.
  *
  * The ampersand belongs in the compact positions, where it scans in caps beside
  * `3 RECOMMEND`. Wherever the line is a sentence, the words are spelled out:
@@ -290,36 +282,6 @@ export interface EndorsementSignal extends Partial<EndorsementCounts> {
    * time reads as "You have been and loved it — You".
    */
   names?: string[];
-}
-
-/**
- * The second cell of the stamp: a figure and the tick.
- *
- * Not a badge of its own. It used to be — `BEEN & LOVED · 2` sat beside the
- * recommendation plate as a second bordered box, and two boxes side by side read
- * as two competing scores rather than one place's standing. Inside the plate it
- * is one signal carrying two figures, which is what it always was.
- *
- * Returns the markup and the sentence separately, because the sentence belongs
- * to the whole stamp's accessible name rather than to a label of its own: a
- * badge with two tooltips is a badge nobody reads.
- */
-function endorsementCell(signal: EndorsementSignal): { html: string; phrase: string } {
-  const n = clampCount(signal.total);
-  if (n < 1) return { html: '', phrase: '' };
-  const sentence =
-    endorsementSentence({
-      total: n,
-      circle: clampCount(signal.circle),
-      founders: clampCount(signal.founders),
-      own: signal.own === true,
-    }) || `${n} have been and loved it`;
-  // The names must ride somewhere: there are no anonymous signals in Detour.
-  const names = signal.names ?? [];
-  return {
-    html: `<span class="signal-divider" aria-hidden="true"></span><strong class="signal-count">${n}</strong>${BEEN_MARK}`,
-    phrase: names.length ? `${sentence} — ${joinClauses(names.map(escapeText))}` : sentence,
-  };
 }
 
 /**

@@ -284,6 +284,7 @@ h1,
 #network-membership-title,
 .network-section-heading h2,
 .network-public-sample-heading h2,
+.landing-community-heading h2,
 .network-first-place h2,
 .network-empty h3 {
   font-family: var(--tape-anton);
@@ -297,7 +298,8 @@ h1,
 }
 h1 { margin: 0; font-size: clamp(34px, 6vw, 54px); }
 .network-section-heading h2,
-.network-public-sample-heading h2 { margin: 0; font-size: clamp(24px, 4vw, 34px); text-wrap: balance; }
+.network-public-sample-heading h2,
+.landing-community-heading h2 { margin: 0; font-size: clamp(24px, 4vw, 34px); text-wrap: balance; }
 
 .empty-state-title,
 .detail h2,
@@ -1253,11 +1255,10 @@ legend { color: var(--tape-text); }
 .results { margin-top: 1.2rem; }
 .loading { color: var(--tape-muted); padding: 1rem 0; font-style: italic; }
 
-/* ------------------------------------------------ Member-recommendation signal
-   One badge for the only fact that puts a place on Detour: how many members
-   recommended it. Shared by cards, the map preview and the place page (see
-   signal.ts), so the figure can never read one way in a list and another way on
-   the page that list links to.
+/* ------------------------------------------------ Member standing signal
+   One badge for how many distinct members stand behind a place. Cards and map
+   previews know who recommended it; the place page adds members who went on a
+   recommendation and loved it. See signal.ts.
 
    The plate is the cassette label: chunky chrome, hard shadow. The inline pill
    is the same idiom at index-card scale. */
@@ -1280,7 +1281,7 @@ legend { color: var(--tape-text); }
 .signal-count { font-family: var(--tape-anton); font-weight: 400; letter-spacing: 0; line-height: 1; }
 
 /* The box holds the total and nothing else — it is two characters and a mark
-   wide. How many of those recommenders are in the reader's own circle is carried
+   wide. How many of those members are in the reader's own circle is carried
    by the badge's accessible name and its tooltip, which have room for words. */
 
 .signal-badge-plate {
@@ -1320,10 +1321,8 @@ legend { color: var(--tape-text); }
 }
 .signal-badge-bare .signal-mark { color: var(--tape-muted); }
 
-/* BEEN & LOVED — the stamp's second cell, not a stamp of its own. Two bordered
-   boxes side by side read as two competing scores; one box with two figures
-   reads as one place's standing, which is what it is. The rule between them is
-   what keeps authorship and corroboration legible as separate claims. */
+/* The only divider separates the place's combined public standing from the
+   reader's private wishlist state. */
 .signal-divider {
   align-self: stretch;
   width: 2px;
@@ -1331,12 +1330,9 @@ legend { color: var(--tape-text); }
   background: currentColor;
   opacity: 0.3;
 }
-/* Slightly smaller than the bubble: the tick is a plain glyph and matches its
-   optical weight at a smaller size. */
-.signal-mark-been { transform: scale(0.86); }
-/* Smaller again, and the only cell with no figure in front of it. It is the
+/* The bookmark is the only cell with no figure in front of it. It is the
    reader's own private state rather than a claim about the place, so it sits at
-   the end of the stamp and carries the least weight of the three. */
+   the end of the stamp and carries less weight than the public signal. */
 .signal-mark-saved { transform: scale(0.72); }
 
 .signal-tooltip {
@@ -5738,6 +5734,47 @@ legend { color: var(--tape-text); }
    left behind. */
 .landing .network-first-place { margin-top: clamp(1.25rem, 3vw, 2rem); }
 .landing .community-panel-landing { margin-top: clamp(1.5rem, 4vw, 2.75rem); }
+.landing-feed-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 2rem;
+  margin-top: clamp(1.25rem, 3vw, 2rem);
+  padding: 0.8rem 0;
+  border-block: 2px solid var(--tape-hairline-strong);
+}
+.landing-feed-cta p {
+  margin: 0;
+  color: var(--tape-text);
+  font-family: var(--tape-mono);
+  font-size: clamp(0.85rem, 1.5vw, 1rem);
+}
+.landing-feed-cta a {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--tape-accent);
+  font-family: var(--tape-mono);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+.landing-feed-cta a:visited { color: var(--tape-accent); }
+.landing-feed-cta a:hover,
+.landing-feed-cta a:focus-visible { color: var(--tape-text); }
+.landing-feed-cta .nav-arrow { transition: transform 120ms ease; }
+.landing-feed-cta a:hover .nav-arrow { transform: translateX(3px); }
+.landing-feed-cta + .community-panel-landing { margin-top: clamp(1rem, 2.5vw, 1.5rem); }
+@media (max-width: 520px) {
+  .landing-feed-cta { align-items: flex-start; flex-direction: column; gap: 0.6rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-feed-cta .nav-arrow,
+  .landing-feed-cta a:hover .nav-arrow { transition: none; transform: none; }
+}
 .community-panel-landing { display: grid; gap: 1rem; }
 /* The tab panel carries an inset because in the member area it sits inside that
    area's chrome. On the landing there is no chrome around it, so the inset was
@@ -5746,6 +5783,59 @@ legend { color: var(--tape-text); }
 .community-panel-landing .community-tab-panel {
   min-height: 0;
   padding: 0;
+}
+
+/* ---- from the community ----
+   Three places the member did not put there, under the ones they did. A rule
+   across the column, because the change of ownership is the one thing this band
+   has to make obvious: everything above is theirs and everything below is not.
+   No panel, no tint, no box — a heading, a link and three cards on the same
+   column as the rest, so it reads as the next thing on the page rather than an
+   advertisement wedged under it.
+
+   Nothing here counts anything. This band shows places; the moment it grows a
+   figure it has become the statistic the top of this section rules out. */
+.landing-community {
+  margin-top: clamp(2rem, 5vw, 3.25rem);
+  padding-top: clamp(1.25rem, 3vw, 1.75rem);
+  border-top: 2.5px solid var(--tape-chrome);
+}
+.landing-community-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 0.75rem 2rem;
+  margin-bottom: clamp(1rem, 2.5vw, 1.4rem);
+}
+/* The link sits on the heading's baseline, quiet: the band is worth reading in
+   place, and "See all" is for the member who wants more of it — not the thing
+   the eye should land on first. */
+.landing-community-all {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 0.15rem;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+}
+.landing-community-all:visited { color: var(--tape-muted); }
+.landing-community-all:hover,
+.landing-community-all:focus-visible {
+  color: var(--tape-text);
+  border-bottom-color: var(--tape-accent);
+}
+.landing-community-all .nav-arrow { transition: transform 120ms ease; }
+.landing-community-all:hover .nav-arrow { transform: translateX(3px); }
+@media (prefers-reduced-motion: reduce) {
+  .landing-community-all .nav-arrow,
+  .landing-community-all:hover .nav-arrow { transition: none; transform: none; }
 }
 
 /* ---- the triage card ----
@@ -5841,6 +5931,23 @@ legend { color: var(--tape-text); }
   font-family: var(--tape-mono);
   font-size: 0.85rem;
 }
+
+/* ---- been yet? ----
+   The follow-up on a place the member said they wanted to go to. It wears the
+   triage card's frame deliberately: both are one question about one place with the
+   cheap answers together and the heavier one beneath, and giving the answer slot
+   two different-looking cards would make the slot itself read as two features.
+   What differs is only what the frame does not need — there is no "don't know it",
+   because the member chose this place, and the place name is inside the question
+   rather than headlined above it. */
+.network-follow-up h2 strong {
+  color: var(--tape-text);
+  font-weight: 700;
+}
+.network-follow-up-where { margin: 0.35rem 0 0; }
+/* One answer, and the slot empties behind it, so nothing here spans the row the
+   way the triage card's three-per-session answers do. */
+.network-follow-up .network-triage-more { justify-content: flex-start; }
 
 /* ---- Wanna go ----
    Quiet everywhere it appears, because it competes with Been & loved and that is

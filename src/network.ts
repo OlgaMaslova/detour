@@ -109,6 +109,9 @@ const PUBLIC_RECOMMENDATION_PREVIEW_LIMIT = 3;
 // Each cassette side opens on its newest shares and expands from there, so a
 // long ledger cannot stretch the shell past the flip control.
 const SHARE_PREVIEW_LIMIT = 3;
+// The landing's community strip. Three, one row, never more: it is a window on
+// the feed, not a second feed. See communityStripMarkup.
+const COMMUNITY_STRIP_LIMIT = 3;
 
 /**
  * Resolves a recommended place to a published catalogue venue so the feed can
@@ -1174,6 +1177,67 @@ function memberFeedMarkup(
   </div>`;
 }
 
+/**
+ * From the community: three places other members put their names to, on the
+ * signed-in landing, under the member's own empty lists. The caller owns the
+ * day-one guard because the member's private recommendation list lives in the
+ * community module, not in this feed module.
+ *
+ * The one thing on that screen the member did not put there. My detours is the
+ * landing because a member's own record is never empty — but on day one it is
+ * exactly that, and a first visit that shows nothing but four empty tabs and a
+ * form teaches the same lesson the empty feed did. This band is the answer: not
+ * a stat, not a comparison, not a count of what anyone else has achieved, but
+ * three real places with somebody's sentence on each. It is content, and it is
+ * the only kind of content that is reliably there on day one.
+ *
+ * SILENT WHEN IT HAS NOTHING. No spinner, no error box, no "no places yet"
+ * heading — the whole section is absent while the feed loads, when the request
+ * fails, and when the circle has nothing this member has not already written
+ * themselves. A member who never asked for this band should not be told about
+ * its problems, and an empty band under an empty screen is the second broken
+ * promise on one page.
+ *
+ * NEVER THE MEMBER'S OWN PLACES. A place they recommended is above, in
+ * Recommendations; repeating it here as "the community" would show them their
+ * own sentence and call it somebody else's.
+ *
+ * The founding-circle filter is honoured, so "See all" always leads to a feed
+ * that contains at least these three. A strip showing places the feed has been
+ * told to hide would make the link a dead end.
+ *
+ * Three, never a "show more". This is a window on the feed and the whole point
+ * of the link is that the feed is where the rest lives.
+ */
+export function communityStripMarkup(
+  feedHref: string,
+  resolvePlace?: NetworkPlaceResolver
+): string {
+  if (!memberRecord() || status !== 'ready') return '';
+  // The private recommendation ledger is the primary day-one guard in main.ts,
+  // including for places that are not live. Keep the same invariant here from
+  // the discovery side as well: if this feed knows any note is the caller's,
+  // rendering other cards under "From the community" would contradict the
+  // populated Recommendations tab above it.
+  if (discovery.recommendations.some((item) => item.is_own === true)) return '';
+  const grouped = groupRecommendations(discovery.recommendations, resolvePlace)
+    // Any note of the member's own on a place makes it theirs, however many
+    // other members are on the card.
+    .filter((group) => !group.items.some((item) => item.is_own === true))
+    .filter((group) => showFoundingPlaces || groupIsFromOwnCircle(group));
+  if (!grouped.length) return '';
+  const latest = grouped.slice(0, COMMUNITY_STRIP_LIMIT);
+  return `<section class="landing-community" aria-labelledby="landing-community-title">
+    <div class="landing-community-heading">
+      <h2 id="landing-community-title">From the community</h2>
+      <a class="landing-community-all" href="${esc(feedHref)}" data-feed>See all<span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>
+    </div>
+    <div class="network-entry-list network-recommendation-grid network-recommendation-grid-3">
+      ${latest.map((group) => groupedRecommendationCardMarkup(group.items, resolvePlace)).join('')}
+    </div>
+  </section>`;
+}
+
 // The anonymous sample section: same card renderer as the member feed. The
 // server supplies at most three founding-circle recommendations, one per city.
 function publicRecommendationSampleMarkup(resolvePlace?: NetworkPlaceResolver): string {
@@ -1243,7 +1307,7 @@ export function networkDiscoveryMarkup(
     <div class="network-home-heading">
       <p class="network-kicker">Your Detour circle</p>
       <h1 id="network-home-title">Places the circle recommends.</h1>
-      <p>Welcome back, ${esc(memberLabel)}. Each place appears once, with the members who recommend it and why. Your private shares stay in My detours.</p>
+      <p>Welcome back, ${esc(memberLabel)}. Each place appears once, with the members who recommend it and why.</p>
     </div>
     ${memberFeedMarkup(accountHref, resolvePlace)}
   </section>`;
