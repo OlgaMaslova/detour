@@ -1922,10 +1922,12 @@ function renderAccount(root: HTMLElement): void {
     <header class="account-masthead">
       <div class="account-nav-row">
         <a class="account-brand" href="${esc(homeHref())}" data-return-discovery>${brandMark()}<span class="brand-word">Detour</span></a>
-        <nav class="account-nav" aria-label="Member navigation">
-          ${memberCanExplore() ? memberNavLinks('other') : ''}
-          ${communityControl(accountHref(), true)}
-        </nav>
+        ${
+          memberCanExplore()
+            ? `<nav class="account-nav" aria-label="Member navigation">${memberNavLinks('other')}</nav>`
+            : ''
+        }
+        ${communityControl(accountHref(), true)}
       </div>
       <div class="account-intro">
         <p class="account-kicker">Private member area</p>
@@ -2019,12 +2021,17 @@ function mastheadMarkup(active: NavView = 'other'): string {
     active === 'home'
       ? `<p class="network-brand">${brandMark()}<span class="brand-word">Detour</span></p>`
       : `<a class="network-brand" href="${esc(homeHref())}" data-home>${brandMark()}<span class="brand-word">Detour</span></a>`;
+  // The member control is a sibling of the nav, not a child of it: on a phone the
+  // four nav items need the whole row to themselves, and the control has to stay
+  // up on the brand row rather than travel down with them.
   return `<header class="network-masthead">
     ${brand}
-    <nav class="network-primary-nav" aria-label="Primary navigation">
-      ${memberCanExplore() ? memberNavLinks(active) : ''}
-      ${communityControl(accountHref())}
-    </nav>
+    ${
+      memberCanExplore()
+        ? `<nav class="network-primary-nav" aria-label="Primary navigation">${memberNavLinks(active)}</nav>`
+        : ''
+    }
+    ${communityControl(accountHref())}
   </header>`;
 }
 

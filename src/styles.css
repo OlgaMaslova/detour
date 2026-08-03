@@ -386,7 +386,7 @@ h1 { margin: 0; font-size: clamp(34px, 6vw, 54px); }
   padding-bottom: 16px;
   border-bottom: 2.5px solid var(--tape-chrome);
 }
-.account-nav { justify-content: flex-end; }
+.account-nav { justify-content: flex-end; margin-left: auto; }
 .account-intro { max-width: 65ch; margin-top: clamp(1.5rem, 4vw, 2.5rem); }
 .account-intro h1 { max-width: 22ch; text-wrap: balance; }
 .account-intro > p:last-child { max-width: 58ch; margin: 0.8rem 0 0; font-size: 1rem; line-height: 1.65; }
@@ -489,6 +489,9 @@ a.welcome-brand:hover,
   align-items: center;
   justify-content: flex-end;
   gap: 0.75rem;
+  /* The member control is the masthead's last child, so the nav takes the slack
+     and the two travel together against the right edge. */
+  margin-left: auto;
 }
 .network-explore-link,
 .network-explore-link:visited {
@@ -5347,11 +5350,8 @@ legend { color: var(--tape-text); }
   .network-public-list .network-entry:nth-child(1) { transform: translate(0.65rem, -0.35rem) rotate(3deg); }
   .network-public-list .network-entry:nth-child(2) { transform: translate(-0.65rem, 80%) rotate(-4deg); }
   .network-public-list .network-entry:nth-child(3) { transform: translate(0.4rem, 160%) rotate(2deg); }
-  /* Only the mark carries the brand on a phone: the wordmark and three nav
-     items are wider than the screen together, and what that cost was the
-     masthead — the nav ended up printed over the wordmark. Clipped rather than
-     display: none so the link keeps its accessible name. */
-  .brand-word,
+  /* "Member:" goes; the control is the name and its caret. The wordmark stays —
+     the nav has its own row below now, so nothing is competing for this one. */
   .community-toggle-prefix {
     position: absolute;
     width: 1px;
@@ -5362,19 +5362,42 @@ legend { color: var(--tape-text); }
     clip: rect(0 0 0 0);
     border: 0;
   }
-  /* With "Member:" gone the control is the name and its caret, and it may now
-     shrink — a long name ellipsises rather than shoving the row off-screen. */
+  /* Two rows on a phone: the brand and the member control keep the top row, and
+     the four nav items get the whole width beneath them. On one row they were
+     wider than the screen — the labels broke onto two lines each and the member
+     control was pushed off the right edge entirely. */
+  .network-masthead,
+  .account-nav-row { flex-wrap: wrap; row-gap: 0.75rem; }
+  .network-masthead > .network-brand,
+  .account-nav-row > .account-brand { order: 0; }
+  .network-masthead > .community-menu,
+  .network-masthead > a.community-toggle,
+  .account-nav-row > .community-menu,
+  .account-nav-row > a.community-toggle { order: 1; }
+  .network-primary-nav,
+  .account-nav {
+    order: 2;
+    flex: 1 0 100%;
+    /* A tape-strip of four: spread across the row rather than bunched right. */
+    justify-content: space-between;
+    gap: 0.35rem;
+    margin-left: 0;
+  }
+  /* One line per label — a two-line "My detours" beside single-line items is
+     what made the row look ragged. */
+  .network-explore-link { white-space: nowrap; }
+  /* The name is member-supplied: it ellipsises rather than shoving the brand out
+     of the row. The menu wrapper is the flex item when signed in, so it needs
+     the shrink as much as the button does. */
+  .network-masthead .community-menu,
+  .account-nav-row .community-menu,
   .network-masthead .community-toggle,
-  .account-nav .community-toggle { flex: 0 1 auto; min-width: 0; }
-  /* Alone in the corner an 18px chip reads as a stray dot, and it is now the
-     only way home — it needs to be both visible and tappable. */
+  .account-nav-row .community-toggle { flex: 0 1 auto; min-width: 0; }
+  /* The mark is the only way home from some views — it needs to be both visible
+     and tappable, not an 18px chip. */
   .brand-mark,
   .survey-brand .brand-mark { width: 26px; height: 26px; }
   .network-brand { min-height: 44px; }
-  /* One row, the same as every other masthead. This used to stack the brand
-     above the nav because the wordmark and three nav items could not share a
-     phone row — with the wordmark clipped above, they fit. */
-  .account-nav { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; }
   .community-panel { padding: 0; }
   .community-panel-intro,
   .community-form-wrap { padding: 1.25rem; }
@@ -5415,18 +5438,15 @@ legend { color: var(--tape-text); }
 }
 
 @media (max-width: 560px) {
-  /* 0.2rem was what the row cost when the wordmark was still in it; the two
-     links no longer have to sit on top of each other to fit. */
-  .network-primary-nav { gap: 0.5rem; }
   .network-explore-link { padding-inline: 7px; letter-spacing: 0.1em; }
   .circle-person-provenance { white-space: normal; }
 }
 
 @media (max-width: 520px) {
-  .network-masthead .community-toggle { max-width: 13rem; min-height: 40px; }
-  /* Three nav items share the row with the brand mark, and "My Circle" is the
-     longest of them; tighten the links before the member control, which already
-     has its own max-width above. */
+  .network-masthead .community-toggle,
+  .account-nav-row .community-toggle { max-width: 13rem; min-height: 40px; }
+  /* Four labels share the nav row, "My detours" the longest of them; tighten the
+     type so the strip still fits a 320px screen without wrapping. */
   .network-explore-link { padding-inline: 5px; font-size: 10px; letter-spacing: 0.06em; }
   .network-home,
   .network-invitation { padding-top: 2.4rem; }

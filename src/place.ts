@@ -351,10 +351,12 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
     <a class="skip-link" href="#place-title">Skip to this place</a>
     <header class="network-masthead">
       <a class="network-brand" href="${h.esc(chrome.homeHref)}" data-home>${chrome.brandMark}<span class="brand-word">Detour</span></a>
-      <nav class="network-primary-nav" aria-label="Primary navigation">
-        ${chrome.memberNav}
-        ${chrome.communityControl}
-      </nav>
+      ${
+        chrome.memberNav
+          ? `<nav class="network-primary-nav" aria-label="Primary navigation">${chrome.memberNav}</nav>`
+          : ''
+      }
+      ${chrome.communityControl}
     </header>
     <nav class="place-back-row explore-breadcrumb" aria-label="Breadcrumb">
       ${
