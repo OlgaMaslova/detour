@@ -3088,6 +3088,67 @@ legend { color: var(--tape-text); }
 .place-endorsement-status:empty { display: none; }
 .place-endorsement-status { margin: 0; color: var(--tape-rust); font-family: var(--tape-mono); font-size: 0.85rem; }
 
+/* More — the three quiet acts, behind one control so Recommend keeps the row.
+   Deliberately the masthead member menu's panel, down to the oxblood drop
+   shadow: the app has one way of opening a menu and this is it. Only the
+   anchoring differs — the masthead's hangs from the right edge of the viewport,
+   this one from the left edge of its own trigger, which is mid-row. */
+.place-more { position: relative; flex: none; }
+.place-more-toggle { gap: 0.4rem; }
+.place-more-items {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  /* The containing block is the trigger, so plain shrink-to-fit sizes the panel
+     to the width of the word "More" and breaks the longest item — Been here, and
+     loved it — over two lines. max-content sizes it to that item on one line
+     instead. Not `nowrap`, which would overflow the panel on the narrowest phone
+     rather than wrap as a last resort. */
+  width: max-content;
+  min-width: 14rem;
+  max-width: 84vw;
+  padding: 0;
+  background: var(--tape-surface);
+  border: 2.5px solid var(--tape-chrome);
+  border-radius: 0;
+  box-shadow: 4px 4px 0 var(--tape-rust);
+  text-align: left;
+}
+/* As with the member menu: the display above would beat [hidden]. */
+.place-more-items[hidden] { display: none; }
+.place-more-item {
+  display: block;
+  width: 100%;
+  padding: 11px 15px;
+  color: var(--tape-text);
+  background: none;
+  border: 0;
+  border-radius: 0;
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1.55;
+  text-align: left;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+}
+.place-more-item:visited { color: var(--tape-text); }
+.place-more-item + .place-more-item { border-top: 1px solid var(--tape-hairline-strong); }
+.place-more-item:hover,
+.place-more-item:focus-visible { color: var(--tape-ink); background: var(--tape-orange); }
+.place-more-item:disabled { color: var(--tape-text); background: none; opacity: 0.5; cursor: default; }
+/* Narrow enough that 14rem of minimum would push the panel off-screen. The anchor
+   stays on the trigger either way: a panel positioned against some ancestor
+   further up the hero would open nowhere near the button that was pressed. */
+@media (max-width: 520px) {
+  .place-more-items { min-width: 0; }
+}
+
 /* My detours → Been & loved and Wanna go: the note above the grid of cards. The
    cards themselves are the feed's, laid out by `.community-queue-cards`. */
 .community-endorsement-list,
@@ -4529,7 +4590,48 @@ legend { color: var(--tape-text); }
 /* ---- member directory lookup ---- */
 .member-identity { color: var(--tape-accent-strong); font-weight: 750; }
 .member-directory { position: relative; display: grid; gap: 0.32rem; }
-.member-directory-output { min-height: 2rem; }
+/* No reserved height any more: the suggestions are a dropdown, so the slot under
+   the field is empty until a member is chosen and the sentence naming them lands
+   in it. Reserving 2rem for something that overlays the form left a gap under
+   every recipient box. */
+.member-directory-output { min-height: 0; }
+/* The dropdown itself: the field's suggestions, over the form rather than in it.
+   Anchored to the whole field group, so it opens under the input and its label
+   whichever of them the member clicked, and wears the app's one menu treatment —
+   chrome frame, oxblood drop shadow — as the masthead and the place page do. */
+.member-directory-panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 0.3rem);
+  right: 0;
+  left: 0;
+  display: grid;
+  gap: 0.32rem;
+  padding: 0.5rem;
+  /* Opaque, and it has to be said explicitly: --tape-inset is a 45% veil, which
+     is right for a quote sitting on a card and wrong for a panel that has to hide
+     the form it opens over — the labels and inputs behind it showed straight
+     through the first version of this. */
+  background: var(--tape-surface);
+  border: 2.5px solid var(--tape-chrome);
+  box-shadow: 4px 4px 0 var(--tape-rust);
+}
+.member-directory-panel > .member-directory-hint:last-child { padding-bottom: 0; }
+/* The results list is a framed card in its own right — it appears on its own
+   elsewhere — so inside the dropdown it gives that up rather than drawing a
+   second chrome border and a second oxblood shadow inside the first. Rows carry
+   their own hairline instead of relying on a 1px gap showing the backdrop, which
+   an opaque panel of the same colour no longer does. */
+.member-directory-panel .member-directory-results {
+  gap: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+.member-directory-panel .member-directory-results li + li button,
+.member-directory-circle-list li + li button {
+  border-top: 1px solid var(--tape-hairline-strong);
+}
 .member-directory-hint,
 .member-directory-error { margin: 0; padding: 0.35rem 0; font-size: 0.78rem; }
 .member-directory-error { color: var(--tape-accent-strong); }
@@ -4572,6 +4674,66 @@ legend { color: var(--tape-text); }
 .member-directory-results button:hover,
 .member-directory-results button[aria-selected='true'] { color: var(--tape-ink); background: var(--tape-orange); }
 .member-directory-results button:focus-visible { position: relative; z-index: 1; outline-offset: -3px; border-radius: 0; }
+
+/* ---- the circle, inside that dropdown ----
+   What the field offers before a pseudo is typed: the people a share is nearly
+   always going to. Wears the search results' own rows, because it occupies the
+   same slot and pressing one does the same thing — the only additions are the
+   band on the right and a cap on the height, so a wide circle scrolls inside the
+   dropdown rather than running off the bottom of the screen. The frame is the
+   panel's, not the list's. */
+.member-directory-circle { display: grid; gap: 0.32rem; }
+.member-directory-circle-label {
+  margin: 0;
+  color: var(--tape-accent);
+  font-family: var(--tape-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.member-directory-circle-list {
+  display: grid;
+  max-height: 13.5rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-color: var(--tape-orange) var(--tape-hairline);
+  scrollbar-width: thin;
+}
+.member-directory-circle-list button {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.55rem 0.7rem;
+  color: var(--tape-text);
+  background: var(--tape-surface);
+  border: 0;
+  font: inherit;
+  font-family: var(--tape-mono);
+  font-size: 0.88rem;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+.member-directory-circle-band {
+  color: var(--tape-muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.member-directory-circle-list button:hover,
+.member-directory-circle-list button:focus-visible { color: var(--tape-ink); background: var(--tape-orange); }
+/* Against orange the muted band would drop out; on the ink it reads as a label. */
+.member-directory-circle-list button:hover .member-directory-circle-band,
+.member-directory-circle-list button:focus-visible .member-directory-circle-band { color: var(--tape-ink); }
+.member-directory-circle-list button:focus-visible { position: relative; z-index: 1; outline-offset: -3px; }
 
 /* ---- the ledger of lines: one cassette shell, hairline-ruled rows ---- */
 .community-subheading {
@@ -5973,8 +6135,10 @@ legend { color: var(--tape-text); }
    Quiet everywhere it appears, because it competes with Been & loved and that is
    the one worth encouraging: a mark tells a contributor their note landed, and a
    save tells nobody anything. Once a place is on the list the control is gone
-   entirely — see place.ts — so there is no pressed state to style. */
-.place-save-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+   entirely — see place.ts — so there is no pressed state to style. On the place
+   page the control sits inside More now, so all that is left here is its refusal:
+   the sentence belongs to the row rather than to the button, which may be behind
+   a closed menu by the time the server answers. */
 .place-save-status:empty,
 .network-share-save-status:empty { display: none; }
 .place-save-status,

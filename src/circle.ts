@@ -226,6 +226,41 @@ export function ensureCircle(render: () => void): void {
   }
 }
 
+/**
+ * One band of the circle offered as somewhere to send a private share.
+ *
+ * A member sharing a place is nearly always sending it to somebody in here, and
+ * the share form used to open on a blank pseudo search — asking them to spell a
+ * handle they know as a person. The band label travels with the names because
+ * "friend of a friend" is the difference between two rows that otherwise read
+ * identically.
+ *
+ * Names, not ids: the circle payload deliberately carries no member ids, and the
+ * directory stays the one thing allowed to turn a name into one. A member has one
+ * name in Detour — their pseudo — so a name from here is a pseudo the directory
+ * can find, and the picker resolves it the same way an invitation deep link does.
+ */
+export interface CircleRecipientGroup {
+  label: string;
+  names: string[];
+}
+
+export function circleRecipientGroups(): CircleRecipientGroup[] {
+  const { inviter, invited, secondDegree } = circle;
+  return [
+    { label: 'Your inviter', names: inviter ? [inviter.name] : [] },
+    { label: 'You invited', names: invited.map((person) => person.name) },
+    { label: 'Friend of a friend', names: secondDegree.map((person) => person.name) },
+  ]
+    .map((group) => ({ label: group.label, names: group.names.filter((name) => name.trim()) }))
+    .filter((group) => group.names.length);
+}
+
+/** Whether the circle is still on its way, so a picker can say so. */
+export function circleLoading(): boolean {
+  return status === 'loading' || status === 'idle';
+}
+
 export function resetCircle(): void {
   status = 'idle';
   loadedFor = '';

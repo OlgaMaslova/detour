@@ -6,6 +6,7 @@ import type { Venue } from './data';
 import { GLOBAL_META_DESCRIPTION, GLOBAL_META_TITLE } from './cities';
 import { OCCASION_OPTIONS, occasionLabel } from './occasions';
 import {
+  adoptCircleRecipients,
   applyInvitationRoute,
   bindCommunity,
   communityControl,
@@ -38,7 +39,14 @@ import {
   savingPlace,
   toggleSavedPlace,
 } from './saved';
-import { bindCircle, circleMarkup, resetCircle } from './circle';
+import {
+  bindCircle,
+  circleLoading,
+  circleMarkup,
+  circleRecipientGroups,
+  ensureCircle,
+  resetCircle,
+} from './circle';
 import {
   bindNetworkDiscovery,
   communityStripMarkup,
@@ -159,8 +167,8 @@ const state: State = {
  * otherwise lost when a control is clicked.
  */
 let pendingFocus: string | null = null;
-/** Guards the once-per-session document listeners that dismiss the member menu. */
-let memberMenuDismissBound = false;
+/** Guards the once-per-session document listeners that dismiss the app's menus. */
+let disclosureDismissBound = false;
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -461,6 +469,7 @@ function routeHref(
   }
   url.searchParams.delete('recommend');
   url.searchParams.delete('edit-recommendation');
+  url.searchParams.delete('share');
   if (view === 'survey') url.hash = '';
   return `${url.pathname}${url.search}${url.hash}`;
 }
@@ -521,6 +530,17 @@ function recommendHref(v: Venue): string {
 function editRecommendationHref(v: Venue): string {
   const url = new URL(homeHref(), window.location.origin);
   url.searchParams.set('edit-recommendation', v.id);
+  return `${url.pathname}${url.search}`;
+}
+
+/**
+ * The same shape for the private share, which lives on the same landing — so
+ * a place page's Share item opens in a new tab with the place already
+ * named, rather than on a blank form asking which place they meant.
+ */
+function sharePlaceHref(v: Venue): string {
+  const url = new URL(homeHref(), window.location.origin);
+  url.searchParams.set('share', v.id);
   return `${url.pathname}${url.search}`;
 }
 
@@ -749,6 +769,7 @@ function applyRouteFromUrl(root: HTMLElement): void {
   const requestedEditRecommendationId = placeFormRoute
     ? (url.searchParams.get('edit-recommendation') || '').trim()
     : '';
+  const requestedShareId = placeFormRoute ? (url.searchParams.get('share') || '').trim() : '';
 
   applyInvitationRoute(invitationCode);
   // An older ?view=members link carrying one of these lands on the account page,
@@ -756,13 +777,16 @@ function applyRouteFromUrl(root: HTMLElement): void {
   // landing, where the form now is, rather than dropping the member on
   // invitations and settings with no sign of the place they meant to write about.
   let placeFormView: AppView | null = null;
-  if (requestedEditRecommendationId || requestedRecommendationId) {
+  if (requestedEditRecommendationId || requestedRecommendationId || requestedShareId) {
     const requestedVenue = state.venues.find(
-      (venue) => venue.id === (requestedEditRecommendationId || requestedRecommendationId)
+      (venue) =>
+        venue.id ===
+        (requestedEditRecommendationId || requestedRecommendationId || requestedShareId)
     );
     if (requestedVenue) {
       if (requestedEditRecommendationId) openEditRecommendation(requestedVenue);
-      else openRecommendPlace(requestedVenue);
+      else if (requestedRecommendationId) openRecommendPlace(requestedVenue);
+      else openSharePlace(undefined, requestedVenue);
       if (memberCanExplore()) placeFormView = 'home';
     }
   }
@@ -1504,8 +1528,10 @@ function bindPlaceEndorsement(root: HTMLElement, v: Venue): void {
           ? [{ name: 'You', inGraph: true, isOwn: true }, ...others]
           : others;
         // The button is inside the markup this re-renders, so focus is restored
-        // on the far side rather than here.
-        pendingFocus = '[data-endorse-place]';
+        // on the far side rather than here. The menu's trigger comes first when
+        // there is one: marking removes this button, and it is the trigger the
+        // member pressed to reach it.
+        pendingFocus = '[data-place-more-toggle], [data-endorse-place]';
         render(root);
       })
       .catch((error) => {
@@ -1516,6 +1542,9 @@ function bindPlaceEndorsement(root: HTMLElement, v: Venue): void {
             'That could not be recorded just now. Try again in a moment.'
           );
         }
+        // Nothing re-renders on this path, so an open menu would sit over the
+        // sentence explaining what went wrong.
+        closeDisclosureMenus(true);
       });
   });
 }
@@ -1535,8 +1564,9 @@ function bindPlaceSave(root: HTMLElement, v: Venue): void {
   button.addEventListener('click', () => {
     if (button.disabled) return;
     // The control is inside the markup this re-renders, so focus is restored on
-    // the far side rather than here.
-    pendingFocus = '[data-save-place]';
+    // the far side rather than here — on the menu's trigger where there is one,
+    // since saving removes this button from inside it.
+    pendingFocus = '[data-place-more-toggle], [data-save-place]';
     void toggleSavedPlace(v.id, 'place_page', () => render(root));
   });
 }
@@ -1583,6 +1613,10 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
       memberCanExplore() &&
       v.endorsedByCaller !== true &&
       !placeNotesForVenue(v).some((item) => item.is_own),
+    // No further conditions: a share is a private message about a place, so a
+    // member may send one about anywhere they can see — including a place they
+    // recommended themselves, which is the likeliest thing they would pass on.
+    canShare: memberCanExplore(),
     saved: isSavedPlace(v.id),
     saving: savingPlace(v.id),
     saveError: savePlaceFailure(v.id),
@@ -1593,6 +1627,7 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
     accountHref: accountHref(),
     recommendHref,
     editRecommendationHref,
+    sharePlaceHref,
     brandMark: brandMark(),
     communityControl: communityControl(accountHref()),
     footerTagline: FOOTER_TAGLINE,
@@ -1686,43 +1721,73 @@ function syncDocumentMeta(destinationName: string | null, account = false, place
   }
 }
 
-/** Close any open masthead member menu; document-level so it survives re-renders. */
-function closeMemberMenu(focusToggle = false): void {
-  document.querySelectorAll<HTMLElement>('[data-community-menu]').forEach((menu) => {
-    const toggle = menu.querySelector<HTMLButtonElement>('[data-community-menu-toggle]');
-    const items = menu.querySelector<HTMLElement>('.community-menu-items');
-    if (!toggle || !items || toggle.getAttribute('aria-expanded') !== 'true') return;
-    toggle.setAttribute('aria-expanded', 'false');
-    items.hidden = true;
-    menu.classList.remove('is-open');
-    if (focusToggle) toggle.focus({ preventScroll: true });
+/**
+ * Every collapsible menu in the app: the masthead's member menu, and the place
+ * page's More. They behave identically — click or ArrowDown to open, click-away or
+ * Escape to close, arrows to walk the items — so they are described here once
+ * rather than growing a second copy of that wiring with its own near-misses.
+ */
+interface DisclosureMenu {
+  /** The wrapper, which also marks "inside the menu" for the click-away test. */
+  root: string;
+  toggle: string;
+  items: string;
+}
+
+const DISCLOSURE_MENUS: DisclosureMenu[] = [
+  {
+    root: '[data-community-menu]',
+    toggle: '[data-community-menu-toggle]',
+    items: '.community-menu-items',
+  },
+  { root: '[data-place-more]', toggle: '[data-place-more-toggle]', items: '.place-more-items' },
+];
+
+/** Close any open menu; document-level so it survives re-renders. */
+function closeDisclosureMenus(focusToggle = false): void {
+  DISCLOSURE_MENUS.forEach((spec) => {
+    document.querySelectorAll<HTMLElement>(spec.root).forEach((menu) => {
+      const toggle = menu.querySelector<HTMLButtonElement>(spec.toggle);
+      const items = menu.querySelector<HTMLElement>(spec.items);
+      if (!toggle || !items || toggle.getAttribute('aria-expanded') !== 'true') return;
+      toggle.setAttribute('aria-expanded', 'false');
+      items.hidden = true;
+      menu.classList.remove('is-open');
+      if (focusToggle) toggle.focus({ preventScroll: true });
+    });
   });
 }
 
-function bindMemberMenu(root: HTMLElement): void {
+function bindDisclosureMenus(root: HTMLElement): void {
   // Dismissal is bound to the document once per session: every menu action
   // re-renders the view, so per-render listeners here would accumulate.
-  if (!memberMenuDismissBound) {
-    memberMenuDismissBound = true;
+  if (!disclosureDismissBound) {
+    disclosureDismissBound = true;
     // Capture phase: map pins stop propagation on click, so a bubble-phase
     // listener would miss those and leave the menu open.
     document.addEventListener(
       'click',
       (event) => {
         const target = event.target;
-        if (target instanceof Element && target.closest('[data-community-menu]')) return;
-        closeMemberMenu();
+        const inside =
+          target instanceof Element &&
+          DISCLOSURE_MENUS.some((spec) => target.closest(spec.root));
+        if (inside) return;
+        closeDisclosureMenus();
       },
       true
     );
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') closeMemberMenu(true);
+      if (event.key === 'Escape') closeDisclosureMenus(true);
     });
   }
+  DISCLOSURE_MENUS.forEach((spec) => bindDisclosureMenu(root, spec));
+}
 
-  const menu = root.querySelector<HTMLElement>('[data-community-menu]');
-  const toggle = menu?.querySelector<HTMLButtonElement>('[data-community-menu-toggle]');
-  const items = menu?.querySelector<HTMLElement>('.community-menu-items');
+function bindDisclosureMenu(root: HTMLElement, spec: DisclosureMenu): void {
+  const menu = root.querySelector<HTMLElement>(spec.root);
+  const toggle = menu?.querySelector<HTMLButtonElement>(spec.toggle);
+  const items = menu?.querySelector<HTMLElement>(spec.items);
   if (!menu || !toggle || !items) return;
   const entries = Array.from(items.querySelectorAll<HTMLElement>('[role="menuitem"]'));
 
@@ -1734,7 +1799,7 @@ function bindMemberMenu(root: HTMLElement): void {
   };
 
   toggle.addEventListener('click', () => {
-    if (toggle.getAttribute('aria-expanded') === 'true') closeMemberMenu();
+    if (toggle.getAttribute('aria-expanded') === 'true') closeDisclosureMenus();
     else openMenu(false);
   });
   toggle.addEventListener('keydown', (event) => {
@@ -1766,7 +1831,7 @@ function bindRouteLinks(root: HTMLElement): void {
     applyTapeTheme();
     (event.currentTarget as HTMLButtonElement).textContent = tapeThemeLabel();
   });
-  bindMemberMenu(root);
+  bindDisclosureMenus(root);
   root.querySelectorAll<HTMLButtonElement>('[data-community-sign-out]').forEach((button) => {
     button.addEventListener('click', () => {
       signOutMember();
@@ -1781,9 +1846,14 @@ function bindRouteLinks(root: HTMLElement): void {
       const recommendationVenue = link.dataset.recommendVenue
         ? allVenues().find((venue) => venue.id === link.dataset.recommendVenue)
         : undefined;
+      // A share link carries whichever half its surface knows: My Circle names the
+      // person, a place page names the place.
+      const shareVenue = link.dataset.shareVenue
+        ? allVenues().find((venue) => venue.id === link.dataset.shareVenue)
+        : undefined;
       const preset =
         target === 'share-place'
-          ? () => openSharePlace(link.dataset.shareRecipient)
+          ? () => openSharePlace(link.dataset.shareRecipient, shareVenue)
           : target === 'edit-recommendation' && recommendationVenue
             ? () => openEditRecommendation(recommendationVenue)
           : target === 'recommend-place'
@@ -1914,9 +1984,36 @@ async function refreshCatalogue(): Promise<Venue[]> {
   return venues;
 }
 
+/**
+ * Hand the share pickers the member's circle, so the recipient field can offer the
+ * people a share is nearly always going to instead of an empty pseudo search.
+ *
+ * Pushed from here rather than read by community.ts, which cannot ask circle.ts
+ * for it: circle.ts imports that module, and pulling the other way would close an
+ * import loop. This is the wiring layer, so the wiring lives here.
+ *
+ * Reads state only — the request that fills it is `loadCircleForSharePickers`,
+ * which belongs after the markup for the same reason every other loader here
+ * does: it renders synchronously the moment it starts, and a render inside a
+ * render builds the surface twice.
+ */
+function offerCircleToSharePickers(): void {
+  adoptCircleRecipients(circleRecipientGroups(), circleLoading());
+}
+
+/**
+ * Also the gate on the request: My Circle would load the same payload anyway and
+ * it is one call per session either way, but the invitation graph has no business
+ * being fetched by surfaces that hold nothing to share with it.
+ */
+function loadCircleForSharePickers(root: HTMLElement): void {
+  if (memberCanExplore()) ensureCircle(() => render(root));
+}
+
 function renderAccount(root: HTMLElement): void {
   destroyMap();
   syncDocumentMeta(null, true);
+  offerCircleToSharePickers();
   root.innerHTML = `
     <a class="skip-link" href="#community-area">Skip to member area</a>
     <header class="account-masthead">
@@ -1955,6 +2052,8 @@ function renderAccount(root: HTMLElement): void {
     }
   );
   bindRouteLinks(root);
+  // The share picker on an unpublished entry offers this member's circle too.
+  loadCircleForSharePickers(root);
   if (pendingFocus) {
     const target = root.querySelector<HTMLElement>(pendingFocus);
     pendingFocus = null;
@@ -2612,6 +2711,7 @@ function renderLanding(root: HTMLElement): void {
   root.dataset.restyle = 'landing';
   applyTapeTheme();
   syncDocumentMeta(null);
+  offerCircleToSharePickers();
 
   root.innerHTML = `
     <a class="skip-link" href="#landing-title">Skip to my detours</a>
@@ -2660,6 +2760,8 @@ function renderLanding(root: HTMLElement): void {
   // The Wanna go tab and the share inbox both read the member's own saved list;
   // one request per session serves the landing whichever tab it opens on.
   void ensureSavedPlaces(() => render(root));
+  // The share form's recipient field offers this member's circle.
+  loadCircleForSharePickers(root);
   if (pendingFocus) {
     const target = root.querySelector<HTMLElement>(pendingFocus);
     pendingFocus = null;

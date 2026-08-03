@@ -9,6 +9,10 @@ import {
   resetNetworkDiscovery,
 } from './network';
 import type { DiscoveryRecommendation, NetworkPlaceResolver } from './network';
+// Type only, deliberately: circle.ts imports this module, and a value import back
+// would close the loop. The circle's own data arrives through the setter below,
+// pushed by main.ts, which is where cross-module wiring lives.
+import type { CircleRecipientGroup } from './circle';
 import type { PlacePrompt } from './place-prompt';
 import { adoptFollowUpCard, readFollowUpCard, resetFollowUp } from './follow-up';
 import { adoptTriageCard, readTriageCard, resetTriage } from './triage';
@@ -130,6 +134,13 @@ interface DirectoryState {
   error: string;
   activeIndex: number;
   timer: number | null;
+  /**
+   * Whether the cursor is in the field. The suggestions — the circle, the search
+   * results, the hint — are a dropdown, so they exist only while it is, and they
+   * overlay the form rather than pushing the note and the send button down the
+   * page every time somebody clicks the recipient box.
+   */
+  focused: boolean;
 }
 
 interface Notice {
@@ -303,6 +314,15 @@ let pendingFormReveal: 'recommendation' | 'share' | null = null;
 // A pseudo a deep link asked to share with, held until the next bind can turn it
 // into a picked member through the directory.
 let pendingShareRecipient: string | null = null;
+// The member's circle, offered by the share pickers as somewhere to send it.
+// Pushed in rather than read, so this module never imports circle.ts back.
+let circleRecipients: CircleRecipientGroup[] = [];
+let circleRecipientsLoading = false;
+// The place a route intent already named — a place page's Share item. Held
+// as the string the form's own matcher understands rather than an id, because the
+// field is a free-text one: a member may still edit it into somewhere off the
+// list, and prefilling it must not take that away.
+let sharePlacePrefill = '';
 let notice: Notice | null = null;
 let knownVenues: Venue[] = [];
 let waitlistEntries: WaitlistEntry[] = [];
@@ -837,7 +857,7 @@ function clearInvitationRoute(): void {
 function directoryState(key: string): DirectoryState {
   let state = directories.get(key);
   if (!state) {
-    state = { query: '', selected: null, items: [], loading: false, error: '', activeIndex: -1, timer: null };
+    state = { query: '', selected: null, items: [], loading: false, error: '', activeIndex: -1, timer: null, focused: false };
     directories.set(key, state);
   }
   return state;
@@ -854,14 +874,81 @@ function pseudoLabel(pseudo: string | undefined, fallback = 'A Detour member'): 
   return cleaned || fallback;
 }
 
+/**
+ * The circle, in the slot the search results will occupy.
+ *
+ * What the field offers before anything is typed. It used to be the sentence
+ * "Type a pseudo, such as anna-lisboa" — accurate, and useless: a member knows who
+ * they want to send a place to as a person, not as a handle they can spell. Nearly
+ * every share goes to somebody in here, so the people come first and the search
+ * stays for everyone else.
+ *
+ * Not a popup. The input is a combobox with a listbox of its own for search
+ * results, and a second overlay opening from the same field would fight it — so
+ * this list sits in that same slot and is simply what is there first. Bands are
+ * named on the rows rather than as headings, because "your inviter" is usually one
+ * person and three headings over four names is furniture.
+ *
+ * Plain buttons, not options: these are shortcuts into a search, not the
+ * combobox's own popup, and each still resolves through the directory when
+ * pressed. Giving them listbox semantics would put two listboxes on one
+ * aria-controls and break the activedescendant contract the arrow keys rely on.
+ */
+function circleRecipientsMarkup(): string {
+  const hint = 'Or type any member’s pseudo, such as anna-lisboa.';
+  if (!circleRecipients.length) {
+    return `<p class="member-directory-hint">${
+      circleRecipientsLoading
+        ? 'Reading your circle… meanwhile, type a pseudo, such as anna-lisboa.'
+        : 'Type a pseudo, such as anna-lisboa — at least two characters.'
+    }</p>`;
+  }
+  const rows = circleRecipients
+    .map((group) =>
+      group.names
+        // The label form travels in the attribute as well, so the exact-match test
+        // in lookupPseudo compares the same string the row shows.
+        .map((name) => pseudoLabel(name))
+        .map(
+          (name) =>
+            `<li><button type="button" data-circle-recipient="${esc(name)}" aria-label="${esc(
+              `Share with ${pseudoLabel(name)} — ${group.label.toLowerCase()}`
+            )}"><span class="member-directory-circle-name">${esc(
+              pseudoLabel(name)
+            )}</span><span class="member-directory-circle-band">${esc(group.label)}</span></button></li>`
+        )
+        .join('')
+    )
+    .join('');
+  return `<div class="member-directory-circle">
+    <p class="member-directory-circle-label" aria-hidden="true">Your circle</p>
+    <ul class="member-directory-circle-list" aria-label="Your circle">${rows}</ul>
+    <p class="member-directory-hint">${hint}</p>
+  </div>`;
+}
+
+/**
+ * What sits under the recipient field.
+ *
+ * Two different things, and the difference is what stays put. A chosen member is
+ * the field's answer, so it is stated in the flow and stays there — leaving the
+ * field must never quietly withdraw the sentence naming who the share is going
+ * to. Everything else is a suggestion, and suggestions are a dropdown: they open
+ * on focus, close when the cursor leaves, and overlay the form rather than
+ * shoving the note field down the page each time the box is clicked.
+ */
 function directoryResultsMarkup(key: string): string {
   const state = directoryState(key);
   if (state.selected) {
     return `<p class="member-directory-selected"><span>Selected</span><strong>${esc(pseudoLabel(state.selected.pseudo))}</strong></p>`;
   }
-  if (state.query.trim().length < 2) {
-    return '<p class="member-directory-hint">Type a pseudo, such as anna-lisboa — at least two characters.</p>';
-  }
+  if (!state.focused) return '';
+  return `<div class="member-directory-panel">${directorySuggestionsMarkup(key)}</div>`;
+}
+
+function directorySuggestionsMarkup(key: string): string {
+  const state = directoryState(key);
+  if (state.query.trim().length < 2) return circleRecipientsMarkup();
   if (state.loading) return '<p class="member-directory-hint" role="status">Searching members…</p>';
   if (state.error) return `<p class="member-directory-error" role="alert">${esc(state.error)}</p>`;
   if (!state.items.length) return '<p class="member-directory-hint">No matching members.</p>';
@@ -1456,7 +1543,13 @@ function formatDate(value: string | undefined): string {
   return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).format(parsed);
 }
 
-function matchVenue(placeInput: string, city: string): Venue | undefined {
+/**
+ * The place a share names, resolved against the catalogue. `city` settles the one
+ * ambiguous case — two places of the same name in different cities — and is only
+ * passed by callers that hold one; the list's own options carry the city in them,
+ * so anything picked rather than typed resolves on the first test.
+ */
+function matchVenue(placeInput: string, city = ''): Venue | undefined {
   const norm = (value: string) => value.trim().toLowerCase();
   const input = norm(placeInput);
   if (!input) return undefined;
@@ -1468,18 +1561,24 @@ function matchVenue(placeInput: string, city: string): Venue | undefined {
   return undefined;
 }
 
+/**
+ * Send one place to one member.
+ *
+ * A share points at a place that is already on Detour, and nothing else — so the
+ * form is the recipient, the place, and why you thought of them. It used to carry
+ * an address, a city and a country as well, for sending somewhere the catalogue
+ * had never heard of; that made the share a second, quieter way to enter a place
+ * into Detour, bypassing the recommendation it is supposed to arrive with. A place
+ * worth telling one person about is worth recommending, and that form is one tab
+ * away.
+ */
 function sharePlaceForm(): string {
   return `<form class="community-form community-share-place-form" data-community-share-place>
     ${directoryMarkup('share-place', 'Share with a member')}
-    <label>Food-and-drink destination<input name="place" list="community-share-place-options" autocomplete="off" maxlength="200" required placeholder="Pick from the list or add a restaurant, café, bar, or other destination"></label>
+    <label>Food-and-drink destination<input name="place" list="community-share-place-options" autocomplete="off" maxlength="200" required value="${esc(sharePlacePrefill)}" placeholder="Pick a place from the list"></label>
     <datalist id="community-share-place-options">${knownVenues
       .map((venue) => `<option value="${esc(`${venue.name} — ${venue.city}`)}"></option>`)
       .join('')}</datalist>
-    <label>Address<input name="address" maxlength="300" placeholder="Street and number — needed for a destination not in the list"></label>
-    <div class="community-form-grid community-place-grid">
-      <label>City<input name="city" maxlength="120" placeholder="Madrid"></label>
-      <label>Country<input name="country" maxlength="120" placeholder="Spain"></label>
-    </div>
     <label>Personal note<textarea name="personal_note" rows="3" maxlength="1200" minlength="8" required placeholder="Why you thought of them for this food-and-drink destination"></textarea></label>
     <div class="community-form-actions">
       <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Sharing…' : 'Share destination'}</button>
@@ -1499,7 +1598,7 @@ function sharesPanel(): string {
       ? `<section class="community-ledger-section community-share-new is-open" id="community-share-new" aria-labelledby="private-shares-title">
           <div class="community-section-heading">
             <div><h3 id="private-shares-title">Share a food-and-drink destination</h3></div>
-            <p>Send a restaurant, café, bar, or other food-and-drink destination to a member with a note — from the list, or one of your own.</p>
+            <p>Send a place from the list to one member, with a note only they see.</p>
           </div>
           <div class="community-action-grid community-share-place-action">
             ${sharePlaceForm()}
@@ -2064,12 +2163,21 @@ export function applyInvitationRoute(code: string | null): void {
  * that member on the next bind. Only the pseudo travels: the circle payload
  * carries no member ids, and the directory is the one place allowed to turn a
  * pseudo into an id.
+ *
+ * A place names what the share is about — a place page sends one, since a member
+ * asking to share from there has already chosen the place and should not have to
+ * find it again in a list of everything. The two halves are independent: My Circle
+ * knows the person and not the place, the place page the reverse, and whichever
+ * half arrives filled leaves the cursor in the other.
  */
-export function openSharePlace(recipientPseudo?: string): void {
+export function openSharePlace(recipientPseudo?: string, place?: Venue): void {
   detourTab = 'shares';
-  // Arriving via "Share privately" is an explicit ask for the form.
+  // Arriving via a Share CTA is an explicit ask for the form.
   shareFormOpen = true;
   pendingFormReveal = 'share';
+  // Written the way the form's own matcher reads it back, so a prefilled place
+  // resolves to the record rather than being sent as a name with no address.
+  sharePlacePrefill = place ? `${place.name} — ${place.city}` : '';
   const pseudo = pseudoLabel(recipientPseudo, '');
   if (!pseudo) return;
   const state = directoryState('share-place');
@@ -2082,10 +2190,8 @@ export function openSharePlace(recipientPseudo?: string): void {
 }
 
 /**
- * Turns the pseudo a deep link arrived with into the picker's selected member.
- * An exact pseudo match selects itself; anything else is left as search results
- * for the member to choose from, so a renamed or ambiguous handle degrades into
- * the ordinary lookup rather than sending to the wrong person.
+ * Turns the pseudo a deep link arrived with into the picker's selected member —
+ * the circle rows in the picker itself take the same path, one function down.
  */
 async function resolveShareRecipient(render: () => void): Promise<void> {
   const pseudo = pendingShareRecipient;
@@ -2094,6 +2200,18 @@ async function resolveShareRecipient(render: () => void): Promise<void> {
   const state = directoryState('share-place');
   state.loading = true;
   render();
+  applyPseudoLookup(state, pseudo, await lookupPseudo(pseudo));
+  render();
+}
+
+/**
+ * One pseudo, asked of the directory. The name a circle row or a deep link carries
+ * is a name, and only this route may turn one into the id a share is addressed to
+ * — so both go through here and get the same answer to the same question.
+ */
+async function lookupPseudo(
+  pseudo: string
+): Promise<{ items: DirectoryMember[]; exact: DirectoryMember | null; error: string }> {
   try {
     const response = await pb.send<{ items: DirectoryMember[] }>(
       `/api/detour/member-directory?q=${encodeURIComponent(pseudo)}`,
@@ -2101,25 +2219,44 @@ async function resolveShareRecipient(render: () => void): Promise<void> {
     );
     const ownId = member()?.id;
     const items = (response.items || []).filter((item) => item.id !== ownId && item.pseudo?.trim());
-    const exact = items.find(
-      (item) => pseudoLabel(item.pseudo).toLowerCase() === pseudo.toLowerCase()
-    );
-    if (exact) {
-      state.selected = exact;
-      state.query = pseudoLabel(exact.pseudo);
-      state.items = [];
-    } else {
-      state.items = items;
-    }
-    state.error = '';
+    return {
+      items,
+      exact:
+        items.find((item) => pseudoLabel(item.pseudo).toLowerCase() === pseudo.toLowerCase()) ??
+        null,
+      error: '',
+    };
   } catch (error) {
-    state.items = [];
-    state.error = readableError(error, 'Member search is unavailable. Please try again.');
-  } finally {
-    state.loading = false;
-    state.activeIndex = -1;
-    render();
+    return {
+      items: [],
+      exact: null,
+      error: readableError(error, 'Member search is unavailable. Please try again.'),
+    };
   }
+}
+
+/**
+ * An exact pseudo selects itself; anything else is left as search results for the
+ * member to choose from. So a renamed handle, or one that now matches two members,
+ * degrades into the ordinary lookup rather than addressing the share to the wrong
+ * person on the strength of a stale name.
+ */
+function applyPseudoLookup(
+  state: DirectoryState,
+  pseudo: string,
+  result: { items: DirectoryMember[]; exact: DirectoryMember | null; error: string }
+): void {
+  if (result.exact) {
+    state.selected = result.exact;
+    state.query = pseudoLabel(result.exact.pseudo);
+    state.items = [];
+  } else {
+    state.items = result.items;
+    state.query = pseudo;
+  }
+  state.error = result.error;
+  state.loading = false;
+  state.activeIndex = -1;
 }
 
 /** Point the member area at the Recommend form, optionally fixed to one published place. */
@@ -2186,6 +2323,16 @@ export function signOutMember(): void {
   notice = { kind: 'info', text: 'You have signed out of Detour.' };
 }
 
+/**
+ * Hand the share pickers the member's circle. Called on every render of a surface
+ * that holds one, so the list appears as soon as the payload lands rather than on
+ * the next thing the member happens to click.
+ */
+export function adoptCircleRecipients(groups: CircleRecipientGroup[], loading: boolean): void {
+  circleRecipients = groups;
+  circleRecipientsLoading = loading;
+}
+
 export function communityPanel(venues: Venue[]): string {
   knownVenues = venues;
   return `<div id="community-area" class="community-area">${member() ? signedInPanel() : signedOutPanel()}</div>`;
@@ -2201,6 +2348,7 @@ function resetCommunityState(): void {
   shareFormOpen = false;
   pendingFormReveal = null;
   pendingShareRecipient = null;
+  sharePlacePrefill = '';
   waitlistEntries = [];
   recommendations = [];
   waitlistEntriesLoaded = false;
@@ -2511,7 +2659,13 @@ function updateDirectoryResults(root: HTMLElement, key: string): void {
   const state = directoryState(key);
   if (output) output.innerHTML = directoryResultsMarkup(key);
   if (input) {
-    input.setAttribute('aria-expanded', String(state.items.length > 0 && !state.selected));
+    // The popup is open whenever the dropdown is on screen, which is what the
+    // attribute is for — it used to describe only the search results, and read
+    // "collapsed" over an open list of the member's circle.
+    input.setAttribute(
+      'aria-expanded',
+      String(state.focused && !state.selected)
+    );
     if (state.activeIndex >= 0) input.setAttribute('aria-activedescendant', `${directoryListId(key)}-option-${state.activeIndex}`);
     else input.removeAttribute('aria-activedescendant');
   }
@@ -2540,8 +2694,46 @@ function bindDirectories(root: HTMLElement): void {
     const output = container.querySelector<HTMLElement>('[data-member-results]');
     if (!key || !input || !output) return;
 
+    // A full render replaced this field, so whatever focus it had is gone with it:
+    // the flag is re-read from the document rather than trusted across the
+    // rebuild, or a dropdown open when the circle payload landed would stay open
+    // over an input the browser is no longer in.
+    const bound = directoryState(key);
+    if (bound.focused !== (document.activeElement === input)) {
+      bound.focused = document.activeElement === input;
+      updateDirectoryResults(root, key);
+    }
+
+    // Open on focus, close when focus leaves the field for good. `focusout` fires
+    // with the incoming element, so focus moving to something inside the dropdown
+    // is not focus leaving — otherwise the panel would close under a row on its
+    // way to being pressed.
+    container.addEventListener('focusin', () => {
+      const state = directoryState(key);
+      if (state.focused) return;
+      state.focused = true;
+      updateDirectoryResults(root, key);
+    });
+    container.addEventListener('focusout', (event) => {
+      const next = event.relatedTarget;
+      if (next instanceof Node && container.contains(next)) return;
+      const state = directoryState(key);
+      if (!state.focused) return;
+      state.focused = false;
+      state.activeIndex = -1;
+      updateDirectoryResults(root, key);
+    });
+    // Safari does not focus a button when it is clicked, so a press inside the
+    // panel would read as focus leaving the field — closing the dropdown, and
+    // taking the row out of the DOM before its click could land. Refusing the
+    // mousedown's default keeps the cursor in the input; the click still fires.
+    output.addEventListener('mousedown', (event) => event.preventDefault());
+
     input.addEventListener('input', () => {
       const state = directoryState(key);
+      // A dropdown dismissed with Escape reopens as soon as the member types
+      // rather than staying shut over the results of what they are typing.
+      state.focused = true;
       state.query = input.value;
       state.selected = null;
       state.items = [];
@@ -2582,6 +2774,16 @@ function bindDirectories(root: HTMLElement): void {
 
     input.addEventListener('keydown', (event) => {
       const state = directoryState(key);
+      // Escape closes the dropdown itself, results or circle, and does it before
+      // the guard below — there is nothing in `items` to walk when what is open is
+      // the circle, and Escape has to work over that too.
+      if (event.key === 'Escape' && state.focused) {
+        state.items = [];
+        state.activeIndex = -1;
+        state.focused = false;
+        updateDirectoryResults(root, key);
+        return;
+      }
       if (!state.items.length) return;
       if (event.key === 'ArrowDown') {
         event.preventDefault();
@@ -2594,18 +2796,44 @@ function bindDirectories(root: HTMLElement): void {
       } else if (event.key === 'Enter' && state.activeIndex >= 0) {
         event.preventDefault();
         selectDirectoryMember(root, key, state.activeIndex);
-      } else if (event.key === 'Escape') {
-        state.items = [];
-        state.activeIndex = -1;
-        updateDirectoryResults(root, key);
       }
     });
 
     output.addEventListener('click', (event) => {
-      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-member-choice]');
-      if (!button) return;
-      selectDirectoryMember(root, key, Number(button.dataset.memberChoice));
+      const target = event.target as HTMLElement;
+      const choice = target.closest<HTMLButtonElement>('[data-member-choice]');
+      if (choice) {
+        selectDirectoryMember(root, key, Number(choice.dataset.memberChoice));
+        input.focus();
+        return;
+      }
+      // A circle row names a person, so it still has to be looked up: the name
+      // becomes the query and the directory turns it into the id the share is
+      // addressed to. Everything refreshes through updateDirectoryResults rather
+      // than a panel render, so a note already typed below survives the pick.
+      const circleRow = target.closest<HTMLButtonElement>('[data-circle-recipient]');
+      if (!circleRow) return;
+      const pseudo = circleRow.dataset.circleRecipient || '';
+      if (!pseudo) return;
+      const state = directoryState(key);
+      state.query = pseudo;
+      state.selected = null;
+      state.items = [];
+      state.error = '';
+      state.activeIndex = -1;
+      state.loading = true;
+      if (state.timer !== null) window.clearTimeout(state.timer);
+      input.value = pseudo;
+      updateDirectoryResults(root, key);
       input.focus();
+      void lookupPseudo(pseudo).then((result) => {
+        // The member may have started typing somebody else while this was in
+        // flight; their query wins over the row they pressed.
+        if (directoryState(key).query !== pseudo) return;
+        applyPseudoLookup(state, pseudo, result);
+        if (state.selected) input.value = pseudoLabel(state.selected.pseudo);
+        updateDirectoryResults(root, key);
+      });
     });
   });
 }
@@ -2759,6 +2987,9 @@ export function bindCommunity(
 
   root.querySelector<HTMLButtonElement>('[data-share-open]')?.addEventListener('click', () => {
     shareFormOpen = true;
+    // Share new is a blank form: a place named by an earlier route intent has
+    // nothing to do with the share the member is starting here.
+    sharePlacePrefill = '';
     notice = null;
     render();
     window.requestAnimationFrame(() => {
@@ -2771,6 +3002,7 @@ export function bindCommunity(
   root.querySelector<HTMLButtonElement>('[data-share-close]')?.addEventListener('click', () => {
     shareFormOpen = false;
     pendingFormReveal = null;
+    sharePlacePrefill = '';
     // A half-filled recipient lookup must not survive a cancelled share.
     directories.delete('share-place');
     render();
@@ -3792,13 +4024,16 @@ export function bindCommunity(
     }
     const values = new FormData(event.currentTarget as HTMLFormElement);
     const place = String(values.get('place') || '').trim();
-    const city = String(values.get('city') || '').trim();
-    const country = String(values.get('country') || '').trim();
-    const address = String(values.get('address') || '').trim();
     const note = String(values.get('personal_note') || '').trim();
-    const venue = matchVenue(place, city);
-    if (!venue && (!city || !country || !address)) {
-      notice = { kind: 'error', text: 'That food-and-drink destination is not in the list yet — add its address, city, and country to share it.' };
+    const venue = matchVenue(place);
+    // Only a place already on Detour can be sent. A name the catalogue does not
+    // know is not a share with a missing address any more — it is a place nobody
+    // has recommended, and recommending is how one arrives.
+    if (!venue) {
+      notice = {
+        kind: 'error',
+        text: 'Pick a food-and-drink destination from the list. To send somewhere that is not there yet, recommend it first.',
+      };
       render();
       return;
     }
@@ -3806,14 +4041,15 @@ export function bindCommunity(
     notice = null;
     render();
     try {
-      await pb.collection('community_shares').create(
-        venue
-          ? { venue: venue.id, recipient: selected.id, personal_note: note }
-          : { venue_name: place, address, city, country, recipient: selected.id, personal_note: note }
-      );
+      await pb.collection('community_shares').create({
+        venue: venue.id,
+        recipient: selected.id,
+        personal_note: note,
+      });
       directories.delete('share-place');
       // Sent: the panel returns to the deck, where the new share is listed.
       shareFormOpen = false;
+      sharePlacePrefill = '';
       notice = { kind: 'success', text: `Shared with ${pseudoLabel(selected.pseudo)}.` };
       communityLoaded = false;
       await loadCommunity(render);
@@ -3827,7 +4063,7 @@ export function bindCommunity(
 
   bindDirectories(root);
 
-  // A CTA that says Recommend or Share privately has to land on the form, not
+  // A CTA that says Recommend or Share has to land on the form, not
   // merely on the tab that holds it. The form is below the ledger, so the first
   // settled render after such a route scrolls to it and puts the cursor in it.
   // It waits for the ledger to finish loading, because that render replaces the

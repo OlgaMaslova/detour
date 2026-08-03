@@ -55,6 +55,13 @@ export interface PlaceChrome {
    * ladder only runs forward — saving a place you have been to is meaningless.
    */
   canSave: boolean;
+  /**
+   * Whether this reader may send this place to another member privately. The
+   * loosest gate of the three: any signed-in member, their own places included,
+   * because a place somebody recommended is the most natural thing for them to
+   * pass on to one person. It says nothing publicly and changes no figure.
+   */
+  canShare: boolean;
   /** Whether it is already on their list. Their own row; nobody else can see it. */
   saved: boolean;
   /** A toggle in flight, so the control can say so rather than sit inert. */
@@ -72,6 +79,7 @@ export interface PlaceChrome {
   accountHref: string;
   recommendHref(v: Venue): string;
   editRecommendationHref(v: Venue): string;
+  sharePlaceHref(v: Venue): string;
   brandMark: string;
   communityControl: string;
   footerTagline: string;
@@ -212,11 +220,15 @@ function endorsementSignal(v: Venue): EndorsementSignal {
  * past the notes to find the one thing the notes might have made them want to do.
  *
  * IN LADDER ORDER, STRONGEST FIRST. Recommending is the whole product and it
- * leads; the mark is corroboration and follows it; the save is private and comes
- * last, quietest of the three. The weights say the same thing the ladder does, so
- * a reader who only looks at the buttons still reads it correctly — and Been &
- * loved never reads as a substitute for writing, which is the one thing it must
- * never become.
+ * leads, alone, and is the only thing here wearing the primary weight. Everything
+ * else a reader can do — corroborate the notes, file it for later, send it to one
+ * person — collapses behind a single quiet "More", because four buttons abreast
+ * made the row a menu of equals and the strongest act had to compete with a
+ * private bookmark for the same glance.
+ *
+ * The collapse is also what keeps Been & loved honest. Its whole risk is reading
+ * as a substitute for writing; in a list under a fold it cannot, and the one
+ * button in the open is the one that asks for a note.
  *
  * Each control disappears once its answer is given. A pressed button restating a
  * settled fact offers it as though it were still a decision.
@@ -237,30 +249,91 @@ function placeActions(
           v.id
         )}" aria-label="${h.esc(`Recommend ${v.name}`)}">Recommend this place</a>`
       : '';
-  const endorse =
-    chrome.canEndorse && v.endorsedByCaller !== true
-      ? `<button type="button" class="secondary-button place-endorse-button" data-endorse-place="${h.esc(
-          v.id
-        )}" aria-label="${h.esc(`${ENDORSE_LABEL} — ${v.name}`)}">${h.esc(ENDORSE_LABEL)}</button>`
-      : '';
-  const save = saveControl(v, chrome, h);
-  if (!recommend && !endorse && !save) return '';
+  const more = moreActions(v, chrome, h);
+  if (!recommend && !more) return '';
   return `<div class="place-endorse-row">
     ${recommend}
-    ${endorse}
-    ${save}
+    ${more}
     <p class="place-endorsement-status" role="status" data-endorse-status></p>
+    ${
+      chrome.saveError
+        ? `<p class="place-save-status" role="alert">${h.esc(chrome.saveError)}</p>`
+        : ''
+    }
+  </div>`;
+}
+
+/**
+ * One control that has to read correctly in either housing — as a row inside the
+ * menu, or as a plain button in the open when it is the only one left.
+ */
+type PlaceAction = (inMenu: boolean) => string;
+
+/** What tells the two housings apart: a menu row is a menu row, not a button. */
+function actionAttrs(inMenu: boolean): string {
+  return inMenu ? ' role="menuitem" class="place-more-item"' : ' class="secondary-button"';
+}
+
+/**
+ * The three quiet acts, and how they are packaged.
+ *
+ * A dropdown holding one item is a joke at the reader's expense, and both marks
+ * vanish once given — so the menu appears from two items up and a lone survivor
+ * is rendered flat, as it was before any of this. That is why each control is a
+ * function of where it is being rendered rather than a fixed string: the same
+ * control has to read as a menu row in one place and a button in the other.
+ *
+ * "More" is deliberately incurious about its own contents. It was tempting to
+ * name them — "Add or share" — but the label would then have to stay true as the
+ * items disappear one by one, and a button reading "Add or share" over a menu
+ * holding only Share is worse than one that promised nothing.
+ *
+ * Share carries no "privately" of its own. Everything in Detour is private, the
+ * item sits between two controls nobody outside the circle can see, and the form
+ * it opens says who it is going to — so the word was doing no work the
+ * surroundings were not already doing.
+ */
+function moreActions(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
+  const endorse =
+    chrome.canEndorse && v.endorsedByCaller !== true
+      ? (inMenu: boolean) =>
+          `<button type="button"${actionAttrs(inMenu)} data-endorse-place="${h.esc(
+            v.id
+          )}" aria-label="${h.esc(`${ENDORSE_LABEL} — ${v.name}`)}">${h.esc(ENDORSE_LABEL)}</button>`
+      : null;
+  const save = saveAction(v, chrome, h);
+  const share = chrome.canShare
+    ? (inMenu: boolean) =>
+        `<a${actionAttrs(inMenu)} href="${h.esc(
+          chrome.sharePlaceHref(v)
+        )}" data-community-route="share-place" data-share-venue="${h.esc(
+          v.id
+        )}" aria-label="${h.esc(`Share ${v.name} with a member`)}">Share</a>`
+    : null;
+  const items = [endorse, save, share].filter((entry): entry is PlaceAction => entry !== null);
+  if (items.length === 0) return '';
+  if (items.length === 1) return items[0](false);
+  return `<div class="place-more" data-place-more>
+    <button type="button" class="secondary-button place-more-toggle" data-place-more-toggle
+      aria-haspopup="true" aria-expanded="false" aria-controls="place-more-items"${
+        chrome.saving ? ' disabled' : ''
+      }>${chrome.saving ? 'Saving…' : 'More'}<span aria-hidden="true">▾</span></button>
+    <div class="place-more-items" id="place-more-items" role="menu" aria-label="${h.esc(
+      `More for ${v.name}`
+    )}" hidden>
+      ${items.map((entry) => entry(true)).join('')}
+    </div>
   </div>`;
 }
 
 /**
  * Wanna go — the private rung, and deliberately the quiet one.
  *
- * The quietest control on the row, because it competes with the two beside it
- * and loses to both: writing tells the next reader something, the mark tells the
- * member who wrote the note that they were right, and this tells nobody
- * anything. Someone who has been should press the button that says so, not the
- * one that files the place for later.
+ * Last in the menu, because it loses to everything above it: writing tells the
+ * next reader something, the mark tells the member who wrote the note that they
+ * were right, a share tells one person directly, and this tells nobody anything.
+ * Someone who has been should press the item that says so, not the one that files
+ * the place for later.
  *
  * Nothing here states a count, and there is nothing to state. No other member can
  * learn that this place is on anybody's list, including that anybody's list has
@@ -270,28 +343,28 @@ function placeActions(
  * Once saved there is no control here at all, which is the same treatment Been &
  * loved gets above it and for the same reason: the decision is made, and a
  * button reading "On your Wanna go list" states a settled fact while offering it
- * as though it were still a question. Nothing on this page needs to report the
- * state either — it is private, so there is no figure to keep in step.
+ * as though it were still a question. The stamp above the row carries the state
+ * for both, which is what makes hiding them inside a menu safe.
  *
  * Removal lives on My detours → Wanna go, alongside the rest of the member's own
  * wishlist, which is where tidying a list belongs rather than on a public page.
  * Taking one off takes no confirmation when they get there: it is private and
  * reversible, and a confirmation dialogue on a bookmark is an insult.
+ *
+ * A refusal is reported by the row rather than beside the button, because the
+ * button may be inside a closed menu by the time the server answers — and an
+ * error nobody can see is not a report. In flight the trigger says "Saving…" for
+ * the same reason: the menu shuts on the click, so that is the only place left
+ * where the member can be told anything.
  */
-function saveControl(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
-  if (!chrome.canSave || chrome.saved) return '';
-  return `<div class="place-save-cell">
-    <button type="button" class="secondary-button place-save-button" data-save-place="${h.esc(
+function saveAction(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): PlaceAction | null {
+  if (!chrome.canSave || chrome.saved) return null;
+  return (inMenu: boolean) =>
+    `<button type="button"${actionAttrs(inMenu)} data-save-place="${h.esc(
       v.id
     )}" aria-label="${h.esc(`Wanna go — ${v.name}`)}"${
       chrome.saving ? ' disabled' : ''
-    }>${chrome.saving ? 'Saving…' : 'Wanna go'}</button>
-    ${
-      chrome.saveError
-        ? `<p class="place-save-status" role="alert">${h.esc(chrome.saveError)}</p>`
-        : ''
-    }
-  </div>`;
+    }>${chrome.saving ? 'Saving…' : 'Wanna go'}</button>`;
 }
 
 /** Position, address and the handoff to a maps app. */
