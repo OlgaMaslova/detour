@@ -1,4 +1,5 @@
 import { pb } from './pocketbase';
+import { citySlug, venueCitySlug, venuePlaceSlug } from './slugs';
 import type { CityBounds, CityMapSource } from './cities';
 import { knownOccasions } from './occasions';
 import type { Occasion } from './occasions';
@@ -58,6 +59,16 @@ export interface Venue {
    * Suppressed places are excluded from every public surface.
    */
   suppressed?: boolean;
+  /**
+   * Whether publication has made this place public — the set a visitor is served.
+   *
+   * Never a substitute for `visibleToCaller`, which is the caller's own list and
+   * the only thing any browsing surface may filter on. This is here for the one
+   * question that is not about the caller: whether a stranger opening a link to
+   * this place would be shown it, which is what decides whether a member who
+   * cannot reach it through their circle is shown it too.
+   */
+  published?: boolean;
   /**
    * Whether this place is on *this caller's* list: true only when a member they
    * can see stands behind it and no curator has suppressed it.
@@ -341,44 +352,14 @@ function readEndorsers(value: unknown): PlaceEndorser[] {
   return endorsers;
 }
 
-export function citySlug(name: string): string {
-  return name
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-/** Route slug of the city a venue is listed under (e.g. 'san-francisco'). */
-export function venueCitySlug(v: Venue): string {
-  return v.citySlug || citySlug(v.city);
-}
-
 /**
- * Readable slug identifying one place inside its city route, so every place
- * page has a shareable URL. Two places in the same city can normalise to the
- * same name slug (two 'Bar Basque'); the venue id disambiguates only those, and
- * a place whose name yields no slug at all falls back to the id outright.
+ * The place-to-URL slugs live in `./slugs`, which imports nothing: the preview
+ * Worker resolves `?d=` and `?p=` with the same three functions this module and
+ * main.ts use, and it cannot pull in the PocketBase client to get at them. They
+ * are re-exported here because every caller in the app already asks data.ts for
+ * them, and where a slug comes from is not worth a churn of imports.
  */
-export function venuePlaceSlug(v: Venue, all: Venue[]): string {
-  const base = citySlug(v.name);
-  if (!base) return v.id;
-  const city = venueCitySlug(v);
-  const sharing = all.filter(
-    (other) => other.id !== v.id && venueCitySlug(other) === city && citySlug(other.name) === base
-  );
-  if (!sharing.length) return base;
-  // Two places share this name in this city. The qualifier a member gave to tell
-  // them apart for a reader tells them apart in the URL too, so long as it is
-  // unique among the places it is distinguishing this one from. Falling back to
-  // the record id keeps every other clash addressable, just less legibly.
-  const qualifier = citySlug(v.neighborhood);
-  if (qualifier && !sharing.some((other) => citySlug(other.neighborhood) === qualifier)) {
-    return `${base}-${qualifier}`;
-  }
-  return `${base}-${v.id}`;
-}
+export { citySlug, venueCitySlug, venuePlaceSlug };
 
 /** The venue fields every read of the catalogue asks for, member or public. */
 const VENUE_FIELDS =
@@ -480,6 +461,12 @@ function venueFromRecord(record: VenueRecord, city: VenueCity): Venue | null {
     // catalogue load for backends that predate the move, but this is the authority.
     occasions: knownOccasions(record.occasions),
     suppressed: record.suppressed === true,
+    // Asked for by both reads, and until now dropped on the floor by this one.
+    // The member read carries no filter — it has to, since visibility is computed
+    // from recommenders rather than from this flag — so this is the only thing
+    // that says which of those rows a visitor would have been shown. main.ts needs
+    // that to open a shared link to a place outside the caller's own circle.
+    published: record.published === true,
   };
 }
 

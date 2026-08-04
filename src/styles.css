@@ -3087,6 +3087,10 @@ legend { color: var(--tape-text); }
 }
 .place-endorsement-status:empty { display: none; }
 .place-endorsement-status { margin: 0; color: var(--tape-rust); font-family: var(--tape-mono); font-size: 0.85rem; }
+/* The line carries refusals, so rust is its default. Copy link is the one thing
+   that reports success here, and it borrows the stamps' amber rather than
+   announcing a copied link in the colour of a failed request. */
+.place-endorsement-status[data-tone='ok'] { color: var(--tape-accent); }
 
 /* More — the three quiet acts, behind one control so Recommend keeps the row.
    Deliberately the masthead member menu's panel, down to the oxblood drop
@@ -3153,6 +3157,19 @@ legend { color: var(--tape-text); }
    cards themselves are the feed's, laid out by `.community-queue-cards`. */
 .community-endorsement-list,
 .community-saved-list { display: grid; gap: 0.7rem; }
+
+/* What a visitor gets where the notes would be. A ruled section like every other
+   one on the page — not a panel, not a banner: it is the last thing on a page
+   somebody was sent, answering the question that page raises. */
+.place-visitor-copy {
+  max-width: 44rem;
+  margin: 0;
+  color: var(--tape-text);
+  font-family: var(--tape-mono);
+  font-size: 14px;
+  line-height: 1.65;
+}
+.place-visitor-cta { justify-self: start; }
 
 .place-notes-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .place-note-controls { display: flex; gap: 0.45rem; }

@@ -13,5 +13,5 @@
     "noEmit": true,
     "strict": true
   },
-  "include": ["src", "pb_hooks/survey_forms.json"]
+  "include": ["src", "worker", "pb_hooks/survey_forms.json"]
 }

@@ -62,6 +62,14 @@ export interface PlaceChrome {
    * pass on to one person. It says nothing publicly and changes no figure.
    */
   canShare: boolean;
+  /**
+   * A member reading a place their circle does not reach — a link they were sent.
+   * The page states what publication made public and stops there: no figures, and
+   * no note, because the recommendation behind this place belongs to somebody they
+   * cannot see. Distinct from `!canExplore`, which is a visitor: this reader has an
+   * account, a nav, and somewhere to go next.
+   */
+  outsideCircle: boolean;
   /** Whether it is already on their list. Their own row; nobody else can see it. */
   saved: boolean;
   /** A toggle in flight, so the control can say so rather than sit inert. */
@@ -77,9 +85,17 @@ export interface PlaceChrome {
   memberNav: string;
   homeHref: string;
   accountHref: string;
+  /** The home page's invitation form, for the one reader who has no account. */
+  inviteRequestHref: string;
   recommendHref(v: Venue): string;
   editRecommendationHref(v: Venue): string;
   sharePlaceHref(v: Venue): string;
+  /**
+   * This page's own address, absolute, for handing to somebody outside Detour.
+   * Absolute because it is going into a chat rather than into this document, and
+   * built by main.ts because that is where `window` lives.
+   */
+  placeLinkUrl(v: Venue): string;
   brandMark: string;
   communityControl: string;
   footerTagline: string;
@@ -116,8 +132,29 @@ export interface PlaceHelpers {
  * a count: a member who can see two recommendations would learn from a
  * five-photo grid that three more exist beyond their circle. Every photo here
  * sits inside a note block the caller was already shown.
+ *
+ * MEMBERS ONLY, AND NOT MERELY GATED. A place page is public — it is what a
+ * member hands to somebody outside Detour with Copy link — and the anonymous
+ * note feed behind `h.notes` is the newest two dozen in the city, so before this
+ * rule a shared place showed a stranger member prose and pseudos whenever it
+ * happened to fall inside that window, and bare facts when it did not. Which of
+ * those a visitor got was decided by how recently somebody wrote about the place.
+ * Now they always get the facts: the cover, what the place is, where it is, and
+ * an invitation. What members wrote is for members.
  */
 function notesSection(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
+  if (!chrome.canExplore) return '';
+  // A member who reached this place from outside their circle. The notes are real
+  // and they are not theirs to read, so the section says which of those two facts
+  // applies rather than letting the ordinary empty state say the other: "no member
+  // has attached a note" would be false, and this reader is the one person likely
+  // to know it — they were sent the place by somebody who had read it.
+  if (chrome.outsideCircle) {
+    return `<section class="place-section place-notes" aria-labelledby="place-notes-title">
+      <h2 id="place-notes-title">What members wrote</h2>
+      <p class="place-empty">Nobody in your circle has recommended this place, so there is nothing here for you to read. Recommend it yourself and it goes on the list for everyone who can see you.</p>
+    </section>`;
+  }
   const notes = h.notes(v).filter((item) => {
     const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
     return Boolean(item.note?.trim() && (item.is_own || recommender));
@@ -275,7 +312,12 @@ function actionAttrs(inMenu: boolean): string {
 }
 
 /**
- * The three quiet acts, and how they are packaged.
+ * The quiet acts, and how they are packaged.
+ *
+ * In descending order of what they tell Detour: the mark corroborates the notes,
+ * the save says something to nobody but the member, the share says something to
+ * one member, and the link says nothing to anybody here at all — it hands the
+ * page to somebody outside, and Detour never learns that it happened.
  *
  * A dropdown holding one item is a joke at the reader's expense, and both marks
  * vanish once given — so the menu appears from two items up and a lone survivor
@@ -310,7 +352,17 @@ function moreActions(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
           v.id
         )}" aria-label="${h.esc(`Share ${v.name} with a member`)}">Share</a>`
     : null;
-  const items = [endorse, save, share].filter((entry): entry is PlaceAction => entry !== null);
+  // Last, and the only one that leaves Detour. A button rather than a link: the
+  // URL is not somewhere this reader is going, it is something they are taking.
+  const copyLink = chrome.canExplore
+    ? (inMenu: boolean) =>
+        `<button type="button"${actionAttrs(inMenu)} data-copy-place-link="${h.esc(
+          chrome.placeLinkUrl(v)
+        )}" aria-label="${h.esc(`Copy a link to ${v.name}`)}">Copy link</button>`
+    : null;
+  const items = [endorse, save, share, copyLink].filter(
+    (entry): entry is PlaceAction => entry !== null
+  );
   if (items.length === 0) return '';
   if (items.length === 1) return items[0](false);
   return `<div class="place-more" data-place-more>
@@ -401,6 +453,29 @@ function whereSection(v: Venue, h: PlaceHelpers): string {
         }
       </div>
     </div>
+  </section>`;
+}
+
+/**
+ * What a visitor gets instead of the notes: one sentence about how places get
+ * here, and a way in.
+ *
+ * This page is the only Detour surface a stranger can read, and it is read
+ * because a member sent it — so it is the one place where an invitation prompt is
+ * answering a question the reader already has. It says what the list is rather
+ * than selling it, and it makes no claim about how they arrived: a link travels,
+ * and "your friend sent you this" would be a guess about somebody who might have
+ * found it any number of ways.
+ *
+ * The form it points at is the one on the home page, unchanged. A second
+ * invitation form would be a second thing to keep honest.
+ */
+function visitorInvitation(chrome: PlaceChrome, h: PlaceHelpers): string {
+  if (chrome.canExplore) return '';
+  return `<section class="place-section place-visitor" aria-labelledby="place-visitor-title">
+    <h2 id="place-visitor-title">How this place got here</h2>
+    <p class="place-visitor-copy">A member put their name behind it and said why. That is the only way anything joins Detour — no ads, no paid listings, no anonymous stars. What they wrote is inside the circle.</p>
+    <a class="primary-button place-visitor-cta" href="${h.esc(chrome.inviteRequestHref)}">Ask for an invitation<span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>
   </section>`;
 }
 
@@ -496,6 +571,7 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
       }
       ${notesSection(v, chrome, h)}
       ${whereSection(v, h)}
+      ${visitorInvitation(chrome, h)}
     </article>
     <footer class="footer place-footer">
       <p>${chrome.footerTagline}</p>${chrome.footerLinks}

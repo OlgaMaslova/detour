@@ -4,6 +4,9 @@ compatibility_date = "2026-06-22"
 
 workers_dev = true
 
+# Only reached for the one URL shape below — see worker/index.ts.
+main = "worker/index.ts"
+
 routes = [
   { pattern = "takedetour.app", custom_domain = true },
   { pattern = "new.takedetour.app", custom_domain = true }
@@ -12,3 +15,11 @@ routes = [
 [assets]
 directory = "./public"
 not_found_handling = "single-page-application"
+binding = "ASSETS"
+# The script runs ahead of the assets for the bare root and nothing else: a place
+# link is `/?d=<city>&p=<place>`, and that is the only page whose preview card has
+# to be built per request. Every other path — /survey, /assets/*, the favicon, the
+# social card, the SPA fallback — is served straight from the asset layer and never
+# invokes the script. This also disables the Sec-Fetch-Mode: navigate preference
+# for `/`, so a person's browser and a link crawler are served the same document.
+run_worker_first = ["/"]

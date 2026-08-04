@@ -12,6 +12,7 @@ import {
   communityControl,
   communityPanel,
   ensureMemberFlags,
+  expireMemberSession,
   landingPanel,
   markDetoursHaveContent,
   memberPlacePrompt,
@@ -398,6 +399,59 @@ function destinationVenues(): Venue[] {
 }
 
 /**
+ * Every place publication has made public, whatever this caller's circle is.
+ *
+ * Not a second catalogue: the member read carries no filter — visibility is
+ * computed from who recommended each place, not from the flag — so the rows are
+ * already in memory with `visibleToCaller` false. This is the subset a visitor
+ * would have been served, and it is used for one thing only: opening a link to a
+ * place the caller cannot reach through their own circle.
+ */
+function publicVenues(): Venue[] {
+  return state.mode === 'live'
+    ? state.venues.filter((v) => v.published === true && v.suppressed !== true)
+    : [];
+}
+
+/**
+ * The place a link names when the caller's own list does not contain it.
+ *
+ * A shared place link is public — a stranger opening it reads the page — so a
+ * member following the same link must not be told the city is empty. That was the
+ * position before this: signing out showed more than signing in, and the one
+ * member who had actually been sent the link was the only reader refused it.
+ *
+ * The destination is built here rather than looked up, because a city whose only
+ * places are outside the caller's circle has no entry in `destinations()` at all —
+ * that list is the caller's own, and this place is not on it.
+ */
+function outsidePlaceRoute(): { destination: Destination; venue: Venue } | null {
+  if (!state.destination || !state.place) return null;
+  const open = publicVenues();
+  const inCity = open.filter((v) => venueRouteSlug(v) === state.destination);
+  if (!inCity.length) return null;
+  // The slug is resolved against the public set, which is the set the sharer's own
+  // link was minted from — and the id still works, for links older than slugs.
+  const venue =
+    inCity.find((v) => venuePlaceSlug(v, open) === state.place) ??
+    inCity.find((v) => v.id === state.place) ??
+    null;
+  if (!venue) return null;
+  return {
+    venue,
+    destination: {
+      name: venueRouteName(venue),
+      country: venue.country,
+      slug: venueRouteSlug(venue),
+      // One place, and no figure derived from anybody's recommendations: this
+      // destination exists for the length of one render.
+      count: 1,
+      recommendationCount: 0,
+    },
+  };
+}
+
+/**
  * The place the current route names, or null when the slug matches nothing in
  * the active destination (a stale link, or a place that has since moved
  * cities). Venue ids are accepted too, so links minted before readable place
@@ -531,6 +585,19 @@ function editRecommendationHref(v: Venue): string {
   const url = new URL(homeHref(), window.location.origin);
   url.searchParams.set('edit-recommendation', v.id);
   return `${url.pathname}${url.search}`;
+}
+
+/**
+ * This place's page as an absolute URL, for handing to somebody outside Detour.
+ *
+ * Deliberately the canonical place link and nothing more: no code, no sender, no
+ * marker saying it was shared. A token would have to be either forgeable — in
+ * which case a stranger could paste one and claim the Founder sent them — or
+ * stored, which makes a bookmark into an account. This is the same URL the member
+ * is already looking at, which is the honest thing to hand over.
+ */
+function placeLinkUrl(v: Venue): string {
+  return new URL(placeHref(v), window.location.origin).toString();
 }
 
 /**
@@ -1505,7 +1572,7 @@ function bindPlaceEndorsement(root: HTMLElement, v: Venue): void {
   button.addEventListener('click', () => {
     if (button.disabled) return;
     button.disabled = true;
-    if (status) status.textContent = '';
+    reportPlaceStatus(status, '');
     pb.send<{ endorsed?: boolean; total?: number }>(
       `/api/detour/places/${encodeURIComponent(v.id)}/endorsement`,
       { method: 'POST', requestKey: null }
@@ -1536,12 +1603,10 @@ function bindPlaceEndorsement(root: HTMLElement, v: Venue): void {
       })
       .catch((error) => {
         button.disabled = false;
-        if (status) {
-          status.textContent = readablePlaceError(
-            error,
-            'That could not be recorded just now. Try again in a moment.'
-          );
-        }
+        reportPlaceStatus(
+          status,
+          readablePlaceError(error, 'That could not be recorded just now. Try again in a moment.')
+        );
         // Nothing re-renders on this path, so an open menu would sit over the
         // sentence explaining what went wrong.
         closeDisclosureMenus(true);
@@ -1558,6 +1623,63 @@ function bindPlaceEndorsement(root: HTMLElement, v: Venue): void {
  * offers this reads, so the re-render below picks up the new answer wherever the
  * place appears.
  */
+/**
+ * The place row's one status line, and what colour it speaks in.
+ *
+ * It was built to carry refusals, so it is rust by default. "Link copied." in the
+ * colour of a failed request would read as one — hence the tone, which is dropped
+ * again when the line is cleared so a settled sentence cannot tint the next one.
+ */
+function reportPlaceStatus(
+  status: HTMLElement | null,
+  text: string,
+  tone: 'ok' | 'alert' = 'alert'
+): void {
+  if (!status) return;
+  status.textContent = text;
+  if (text) status.dataset.tone = tone;
+  else delete status.dataset.tone;
+}
+
+/**
+ * Copy link — the one control here that talks to nothing.
+ *
+ * No request, no record, no re-render: the URL is already in the attribute, which
+ * is not an optimisation but the requirement. Browsers only honour a clipboard
+ * write that begins in the click's own task, so nothing may be awaited first —
+ * the same constraint the invitation link works under in circle.ts.
+ *
+ * The row's status line reports it, as it does for the mark and the save, and the
+ * menu closes so that sentence is not behind an open panel. A refusal — no
+ * permission, an insecure context — prints the URL instead, because a member who
+ * cannot be handed the link should at least be able to read it.
+ */
+function bindPlaceLinkCopy(root: HTMLElement): void {
+  const button = root.querySelector<HTMLButtonElement>('[data-copy-place-link]');
+  if (!button) return;
+  const status = root.querySelector<HTMLElement>('[data-endorse-status]');
+  button.addEventListener('click', () => {
+    const link = button.dataset.copyPlaceLink || '';
+    if (!link) return;
+    const write = navigator.clipboard?.writeText(link);
+    if (!write) {
+      reportPlaceStatus(status, `Copying is unavailable here. The link is ${link}`);
+      closeDisclosureMenus(true);
+      return;
+    }
+    void write.then(
+      () => {
+        reportPlaceStatus(status, 'Link copied.', 'ok');
+        closeDisclosureMenus(true);
+      },
+      () => {
+        reportPlaceStatus(status, `That could not be copied. The link is ${link}`);
+        closeDisclosureMenus(true);
+      }
+    );
+  });
+}
+
 function bindPlaceSave(root: HTMLElement, v: Venue): void {
   const button = root.querySelector<HTMLButtonElement>('[data-save-place]');
   if (!button) return;
@@ -1583,11 +1705,36 @@ function readablePlaceError(error: unknown, fallback: string): string {
 /**
  * One place, one page. The markup lives in place.ts; this wires it to the
  * app's routing, chrome and shared venue formatting, then mounts the locator.
+ *
+ * `outsideCircle` is a member reading a place their circle does not reach — a
+ * shared link, followed. They get what publication made public and nothing more:
+ * the facts, and none of the figures or prose that belong to a circle they are not
+ * in. Every count on the record is stripped for the render rather than gated in
+ * the markup, so there is one place to look for what such a reader is shown, and
+ * nothing downstream has to remember to ask.
  */
-function renderPlace(root: HTMLElement, destination: Destination, v: Venue): void {
+function renderPlace(
+  root: HTMLElement,
+  destination: Destination,
+  venue: Venue,
+  outsideCircle = false
+): void {
   destroyMap();
   root.dataset.restyle = 'place';
   applyTapeTheme();
+  const v: Venue = outsideCircle
+    ? {
+        ...venue,
+        detouristCount: 0,
+        detouristTotal: 0,
+        circleCount: 0,
+        founderCount: 0,
+        foundingRecommended: false,
+        endorsements: [],
+        endorsementTotal: 0,
+        endorsedByCaller: false,
+      }
+    : venue;
   syncDocumentMeta(destination.name, false, v);
 
   const country = destinationCountry(destination);
@@ -1595,7 +1742,10 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
     destinationName: destination.name,
     destinationSlug: destination.slug,
     destinationHref: destinationHref(destination.slug),
-    countryName: destination.country,
+    // Named only when there is a country route to name: a place read from outside
+    // the caller's circle sits in a country their own list has no entry for, and a
+    // crumb linking to nothing is worse than one crumb fewer.
+    countryName: country ? destination.country : '',
     countrySlug: country?.slug ?? '',
     countryHref: country ? countryHref(country.slug) : exploreHref(),
     exploreHref: exploreHref(),
@@ -1604,15 +1754,21 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
     // said more than a mark can. `alreadyRecommended` inside place.ts asks the
     // same question of the same notes, so the button and the "Recommend this
     // place" call to action can never both claim this reader has not spoken.
+    // Not on a place from outside the caller's circle either: the mark is
+    // corroboration of what is written above it, and for that reader nothing is.
     canEndorse:
-      memberCanExplore() && !placeNotesForVenue(v).some((item) => item.is_own),
+      memberCanExplore() && !outsideCircle && !placeNotesForVenue(v).some((item) => item.is_own),
     // The same gate, one rung lower and with one more condition: the ladder runs
     // forward only, so a place this reader has already been to is not somewhere
-    // they can still intend to go.
+    // they can still intend to go. Offered from outside the circle, though — a
+    // wishlist is private, the server asks only that the place be published, and
+    // wanting to go somewhere a stranger could have shown you is not a claim about
+    // anybody's recommendation.
     canSave:
       memberCanExplore() &&
       v.endorsedByCaller !== true &&
       !placeNotesForVenue(v).some((item) => item.is_own),
+    outsideCircle,
     // No further conditions: a share is a private message about a place, so a
     // member may send one about anywhere they can see — including a place they
     // recommended themselves, which is the likeliest thing they would pass on.
@@ -1625,9 +1781,11 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
     memberNav: memberCanExplore() ? memberNavLinks('other') : '',
     homeHref: homeHref(),
     accountHref: accountHref(),
+    inviteRequestHref: `${homeHref()}${INVITE_REQUEST_HASH}`,
     recommendHref,
     editRecommendationHref,
     sharePlaceHref,
+    placeLinkUrl,
     brandMark: brandMark(),
     communityControl: communityControl(accountHref()),
     footerTagline: FOOTER_TAGLINE,
@@ -1637,7 +1795,18 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
   const helpers: PlaceHelpers = {
     esc,
     safeExternalHref,
-    cover: (venue) => venueCover(venue, 'place', placeHeroPhotoHref(venue)),
+    // The hero is a member's own photograph whenever there is one — and for a
+    // visitor, or a member outside this place's circle, there must not be. This
+    // page is public, and the same rule that keeps what members wrote off it keeps
+    // what they photographed off it: those readers get the place's own cover, or
+    // its monogram. The preview card the Worker builds follows the same rule, for
+    // the same reason.
+    cover: (venue) =>
+      venueCover(
+        venue,
+        'place',
+        memberCanExplore() && !outsideCircle ? placeHeroPhotoHref(venue) : ''
+      ),
     visitLinks: venueVisitLinks,
     directionsHref,
     occasionLabels: (venue) => venueOccasions(venue).map(occasionLabel),
@@ -1652,9 +1821,12 @@ function renderPlace(root: HTMLElement, destination: Destination, v: Venue): voi
   bindPlaceNoteCarousel(root);
   bindPlaceEndorsement(root, v);
   bindPlaceSave(root, v);
+  bindPlaceLinkCopy(root);
   // Member notes render here, so a direct place link has to load the circle
-  // feed itself rather than relying on the destination view having done it.
-  ensureNetworkDiscovery(() => render(root), destination.name);
+  // feed itself rather than relying on the destination view having done it. Not
+  // for a visitor: this page shows them no note and no member's photograph, so
+  // fetching either would be shipping prose to a browser forbidden to print it.
+  if (memberCanExplore()) ensureNetworkDiscovery(() => render(root), destination.name);
   // The Wanna go control cannot say whether this place is already on the list
   // until the list has been read. One request per session, shared with the tab
   // and the share inbox.
@@ -1977,9 +2149,61 @@ function revealInviteRequest(root: HTMLElement): void {
   root.querySelector<HTMLInputElement>('#invite-request-name')?.focus({ preventScroll: true });
 }
 
+/**
+ * Why the catalogue is missing, when it is.
+ *
+ * `state.mode` only says that a load failed, and the difference matters to the
+ * reader: a member whose session the server no longer accepts needs to sign in
+ * again, and nothing else they try will work until they do. Held beside the mode
+ * rather than inside it because it is an explanation, not a state.
+ */
+let catalogueFailure: 'auth' | 'general' | null = null;
+
+function noteCatalogueFailure(error: unknown): void {
+  const status =
+    error && typeof error === 'object' ? Number((error as { status?: unknown }).status) : 0;
+  catalogueFailure = status === 401 || status === 403 ? 'auth' : 'general';
+}
+
+/**
+ * A catalogue load that did not come back, and what to do about it.
+ *
+ * The member branch of the load asks `/api/detour/place-detourists` who this
+ * caller may see, and that request is deliberately not caught in data.ts: falling
+ * back to "every place a member ever published" would answer a caller entitled to
+ * a fraction of the list with all of it. So the load fails whole, and this decides
+ * what the reader gets instead.
+ *
+ * A refused token is the interesting case, and the reason it is handled here.
+ * Place pages are public — a member copies one into a chat and a stranger opens
+ * it — and a stranger's browser may well be holding a Detour session that has
+ * since died. Before this, that browser and only that browser could not read a
+ * page the whole internet can: the token still parsed, so the app took the member
+ * branch, the API refused it, and the load failed. Ending the dead session hands
+ * the reader to the public catalogue, which is what they are entitled to and what
+ * the link promised. It is a real sign-out — nothing is guessed and nothing
+ * private is served under a name the server would not confirm.
+ *
+ * Every other failure keeps the session and says so, because retrying is the
+ * answer to a request that merely did not arrive.
+ */
+function failCatalogue(root: HTMLElement, error: unknown, settle: () => void): void {
+  noteCatalogueFailure(error);
+  if (catalogueFailure === 'auth' && pb.authStore.isValid) {
+    // The store's own listener does the rest: it clears the venues and reloads the
+    // catalogue, which with no session is the public one.
+    expireMemberSession();
+    return;
+  }
+  state.mode = 'error';
+  state.venues = [];
+  settle();
+}
+
 async function refreshCatalogue(): Promise<Venue[]> {
   const { venues } = await loadLiveCatalogue();
   state.mode = 'live';
+  catalogueFailure = null;
   state.venues = venues;
   return venues;
 }
@@ -2436,6 +2660,68 @@ function renderCountry(root: HTMLElement): void {
     </footer>
   `;
   bindRouteLinks(root);
+  if (pendingFocus) {
+    const target = root.querySelector<HTMLElement>(pendingFocus);
+    pendingFocus = null;
+    target?.focus({ preventScroll: true });
+  }
+}
+
+/**
+ * The catalogue did not load, on a route that needs it.
+ *
+ * Says what happened, names the place the reader was going to, and offers the one
+ * thing that can help: asking again. A session the server has stopped accepting
+ * gets its own sentence, because retrying will never fix that one and no other
+ * screen in the app would tell them.
+ */
+function renderCatalogueFailure(root: HTMLElement): void {
+  destroyMap();
+  root.dataset.restyle = 'destination';
+  applyTapeTheme();
+  const label = destinationLabel();
+  document.title = label ? `${label} — Detour` : GLOBAL_META_TITLE;
+  root.innerHTML = `
+    <a class="skip-link" href="#catalogue-error-title">Skip to what went wrong</a>
+    ${mastheadMarkup()}
+    <div class="hero city-detail-hero">
+      <div class="hero-inner">
+        <p class="network-kicker">Not loaded</p>
+        <h1 id="catalogue-error-title" tabindex="-1">${esc(
+          label ? `${label} could not be loaded.` : 'The places could not be loaded.'
+        )}</h1>
+        <p class="tagline">${
+          catalogueFailure === 'auth'
+            ? 'Your session has expired, so the places you can see could not be worked out. Sign in again and the link you followed will open.'
+            : 'The list did not come back this time. The link you followed is fine — try again.'
+        }</p>
+      </div>
+    </div>
+    <section class="city-chooser" aria-label="Try again">
+      <div class="city-chooser-heading">
+        <h2>Try again</h2>
+        <p>${
+          catalogueFailure === 'auth'
+            ? `<a href="${esc(accountHref())}" data-community-route>Sign in again <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
+            : 'Nothing has been lost — this page is one request away from working.'
+        }</p>
+      </div>
+      <button type="button" class="primary-button" data-catalogue-retry>Reload the places</button>
+    </section>
+    <footer class="footer city-chooser-footer">
+      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
+      ${tapeThemeToggleMarkup()}
+    </footer>
+  `;
+  bindRouteLinks(root);
+  root.querySelector<HTMLButtonElement>('[data-catalogue-retry]')?.addEventListener('click', () => {
+    state.mode = 'loading';
+    catalogueFailure = null;
+    render(root);
+    refreshCatalogue()
+      .then(() => render(root))
+      .catch((error) => failCatalogue(root, error, () => render(root)));
+  });
   if (pendingFocus) {
     const target = root.querySelector<HTMLElement>(pendingFocus);
     pendingFocus = null;
@@ -2968,7 +3254,29 @@ function render(root: HTMLElement) {
     return;
   }
 
-  // A destination with no coverage yet is an invitation, not a dead end.
+  // A destination with no coverage yet is an invitation, not a dead end — but an
+  // empty catalogue is not the same fact as an empty city, and until this branch
+  // told them apart it said the second when it meant the first. A member opening a
+  // place link whose catalogue load had just failed was told the city had nothing
+  // in it, which is both wrong and unfixable-looking.
+  if (!destination && state.mode === 'error') {
+    renderCatalogueFailure(root);
+    return;
+  }
+
+  // A place link whose place is not on this caller's own list. Before the branches
+  // below, because both of them would answer a shared link with a page about the
+  // city — "not yet", or the city's list — when the reader asked for one place and
+  // that place is public. Members do not have to be inside a recommender's circle
+  // to be handed a link by them.
+  if (state.view === 'place' && state.place && !activePlace()) {
+    const outside = outsidePlaceRoute();
+    if (outside) {
+      renderPlace(root, outside.destination, outside.venue, true);
+      return;
+    }
+  }
+
   if (!destination) {
     const name = destinationLabel() || 'this destination';
     syncDocumentMeta(name);
@@ -3323,11 +3631,7 @@ if (root instanceof HTMLElement) {
     render(root);
     refreshCatalogue()
       .then(() => render(root))
-      .catch(() => {
-        state.mode = 'error';
-        state.venues = [];
-        render(root);
-      });
+      .catch((error) => failCatalogue(root, error, () => render(root)));
   }, false);
   applyRouteFromUrl(root);
   window.addEventListener('popstate', () => applyRouteFromUrl(root));
@@ -3335,9 +3639,5 @@ if (root instanceof HTMLElement) {
     .then(() => {
       applyRouteFromUrl(root);
     })
-    .catch(() => {
-      state.mode = 'error';
-      state.venues = [];
-      applyRouteFromUrl(root);
-    });
+    .catch((error) => failCatalogue(root, error, () => applyRouteFromUrl(root)));
 }

@@ -15,3 +15,5 @@ detour-prod-secrets.env
 LOCAL_CIRCLES.md
 .DS_Store
 wrangler.personal.toml
+# wrangler dev's local state: the simulated asset store and cache for worker/.
+.wrangler/

@@ -2324,6 +2324,27 @@ export function signOutMember(): void {
 }
 
 /**
+ * The same drop, when the server rather than the member decided it.
+ *
+ * A token the API refuses is not a session, and a browser holding one is a
+ * visitor that thinks it is a member — which is the worst of both: the masthead
+ * names them, and every member-scoped request behind it fails. Ending it here
+ * turns them into the visitor they already are, so the public surfaces work.
+ *
+ * Separate from `signOutMember` for one word of honesty: they did not sign out,
+ * and being told they did while a place page sits in front of them explains
+ * nothing about why their circle went missing.
+ */
+export function expireMemberSession(): void {
+  pb.authStore.clear();
+  resetCommunityState();
+  notice = {
+    kind: 'info',
+    text: 'Your session expired, so you have been signed out. Sign in again to see your circle.',
+  };
+}
+
+/**
  * Hand the share pickers the member's circle. Called on every render of a surface
  * that holds one, so the list appears as soon as the payload lands rather than on
  * the next thing the member happens to click.
