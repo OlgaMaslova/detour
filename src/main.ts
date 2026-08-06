@@ -1023,8 +1023,10 @@ function destroyLocatorMap(): void {
 /**
  * The selected place, pinned. Zoom controls, dragging and touch zoom are on —
  * a locator you cannot zoom out of tells you the street but not the district.
- * Scroll-wheel zoom stays off so the map never hijacks page scrolling, and
- * Leaflet's attribution is suppressed in favour of visible credit copy.
+ * Scroll-wheel zoom stays off so the map never hijacks page scrolling. OSM is
+ * credited in the map's own corner, like the city map — the caption line that
+ * used to sit under this map read as a section of the page rather than as tile
+ * small print.
  */
 function mountLocatorMap(root: HTMLElement, v: Venue): void {
   destroyLocatorMap();
@@ -1035,13 +1037,16 @@ function mountLocatorMap(root: HTMLElement, v: Venue): void {
     center: [v.lat, v.lng],
     zoom: 16,
     zoomControl: true,
-    attributionControl: false,
     scrollWheelZoom: false,
     boxZoom: false,
   });
   locatorMap = map;
 
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+  }).addTo(map);
   L.marker([v.lat, v.lng], {
     icon: L.divIcon({
       className: '',

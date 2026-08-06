@@ -352,6 +352,10 @@ function actionAttrs(inMenu: boolean): string {
  * item sits between two controls nobody outside the circle can see, and the form
  * it opens says who it is going to — so the word was doing no work the
  * surroundings were not already doing.
+ *
+ * It does name where it goes: "Share in Detour", because Copy link sits directly
+ * under it and that one leaves. Two rows both reading as sharing, one internal
+ * and one not, is a choice the reader cannot make from the labels alone.
  */
 function moreActions(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
   const endorse =
@@ -368,7 +372,7 @@ function moreActions(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
           chrome.sharePlaceHref(v)
         )}" data-community-route="share-place" data-share-venue="${h.esc(
           v.id
-        )}" aria-label="${h.esc(`Share ${v.name} with a member`)}">Share</a>`
+        )}" aria-label="${h.esc(`Share in Detour — ${v.name}`)}">Share in Detour</a>`
     : null;
   // Last, and the only one that leaves Detour. A button rather than a link: the
   // URL is not somewhere this reader is going, it is something they are taking.
@@ -447,10 +451,7 @@ function whereSection(v: Venue, h: PlaceHelpers): string {
     <div class="place-where-body">
       ${
         located
-          ? `<div class="place-map-wrap">
-              <div id="${PLACE_MAP_ID}" class="detail-locator-map place-map" role="group" aria-label="${h.esc(`Map of ${v.name}${v.address ? `, ${v.address}` : ''} — zoom controls inside`)}"></div>
-              <p class="detail-locator-credit">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors</p>
-            </div>`
+          ? `<div id="${PLACE_MAP_ID}" class="detail-locator-map place-map" role="group" aria-label="${h.esc(`Map of ${v.name}${v.address ? `, ${v.address}` : ''} — zoom controls inside`)}"></div>`
           : ''
       }
       <div class="place-where-facts">

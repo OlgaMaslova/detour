@@ -107,8 +107,10 @@ function clampCount(count: number | undefined): number {
  *   one founder, nobody you know Recommended by 1 founding member
  *   your inviter, who is founding Recommended by 1 Detourist in your circle
  *   you and a founder            Recommended by you and 1 founding member
- *   mixed, some hidden           Recommended by 6 Detourists, including you,
- *                                2 in your circle and 1 founding member
+ *   mixed, some hidden           Recommended by 6 Detourists
+ *
+ * That last line is the whole of it when anyone is hidden: the count, and no
+ * accounting of which part of it the reader may see.
  */
 export interface SignalCounts {
   /** Every distinct member who recommended this place, in any circle. */
@@ -156,9 +158,14 @@ function signalSentence({ total, circle, founders, own }: SignalCounts): string 
   }
   if (founders > 0) parts.push(plural(founders, 'founding member'));
 
-  const clauses = joinClauses(parts);
-  if (everyoneVisible) return `Recommended by ${clauses}`;
-  return `Recommended by ${plural(total, 'Detourist')}, including ${clauses}`;
+  // Some of the recommenders are outside the reader's reach. The figure alone is
+  // the whole of what they need: a breakdown of the visible slice ("2 Detourists,
+  // including 1 founding member") spends two lines telling them which fraction of
+  // a number they already read they are allowed to account for, which is a fact
+  // about our permission model rather than about the place. Where everything IS
+  // visible the clauses stay — there the phrase names people, not a remainder.
+  if (!everyoneVisible) return `Recommended by ${plural(total, 'Detourist')}`;
+  return `Recommended by ${joinClauses(parts)}`;
 }
 
 /**

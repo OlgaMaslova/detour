@@ -36,6 +36,11 @@
   --tape-anton: 'Anton', 'Arial Narrow', sans-serif;
   --tape-mono: 'Space Mono', 'Courier New', monospace;
   --tape-logo: 'Righteous', 'Arial Rounded MT Bold', sans-serif;
+  /* Reading voice, for member prose only. Space Mono sets the chrome — labels,
+     facts, buttons — but a paragraph somebody wrote is meant to be read rather
+     than scanned, and monospace at that length is slower and wider than it needs
+     to be. A system stack, so this costs no extra font request. */
+  --tape-prose: ui-sans-serif, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
 
   --radius-sm: 8px;
   --gutter: clamp(0.85rem, 2.5vw, 1.5rem);
@@ -1807,18 +1812,10 @@ legend { color: var(--tape-text); }
 .detail-visit-links a { gap: 0.4rem; }
 
 /* Locator bits, shared by the map preview (address) and the place page's own
-   "where it is" section (map + credit). */
+   "where it is" section. Both maps credit OSM in the tile corner via Leaflet's
+   own control, so there is no caption copy here to style. */
 .detail-locator { padding: clamp(1.1rem, 3vw, 1.65rem); }
 .detail-locator-map { height: clamp(200px, 30vh, 290px); margin-bottom: 0.55rem; }
-.detail-locator-credit {
-  margin: 0 0 0.75rem;
-  color: var(--tape-muted);
-  font-family: var(--tape-mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-.detail-locator-credit a { color: var(--tape-accent); }
 .detail-locator-address { margin: 0; color: var(--tape-text); font-family: var(--tape-mono); font-size: 0.95rem; }
 /* Occasions in the map preview: one line, its label set as an overline so it
    does not read as another button in the row below. */
@@ -3356,7 +3353,16 @@ legend { color: var(--tape-text); }
   margin: 0;
   scroll-snap-align: start;
 }
-.place-note p { color: var(--tape-text); font-family: var(--tape-mono); font-size: 14px; line-height: 1.65; }
+/* The one paragraph on the page set in the reading face — see --tape-prose. The
+   attribution footer below it stays mono, because that is chrome. */
+.place-note p {
+  color: var(--tape-text);
+  font-family: var(--tape-prose);
+  font-size: 1rem;
+  line-height: 1.6;
+  letter-spacing: 0.005em;
+  text-wrap: pretty;
+}
 /* The photo sits inside the note block, above its author's words — never
    collected into a grid of its own. Deliberately a small attachment rather than
    a hero: the note is the content here, and a full-width image would make a
@@ -3435,10 +3441,28 @@ legend { color: var(--tape-text); }
 }
 .place-note-edit:hover { color: var(--tape-accent); }
 .place-empty { margin: 0; color: var(--tape-muted); font-family: var(--tape-mono); font-size: 0.9rem; font-style: italic; }
-.place-where-body { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 1.2rem; align-items: start; }
-.place-map-wrap { display: grid; gap: 0.4rem; }
-.place-map { min-height: clamp(240px, 34vh, 340px); }
-.place-where-facts { display: grid; gap: 0.85rem; align-content: start; }
+/* The map is the section: two thirds of the row, with the address, city and the
+   handoff links packed into the last third rather than spread across half the
+   page. The facts are a handful of short lines — given equal width they left a
+   column of empty grid paper beside them. */
+.place-where-body { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 1.2rem; align-items: start; }
+/* height: auto is load-bearing — .detail-locator-map fixes a height for the map
+   preview, and an element with both dimensions set ignores aspect-ratio. Without
+   it this map stayed 290px tall no matter how wide its column got. */
+.place-map {
+  height: auto;
+  margin-bottom: 0;
+  aspect-ratio: 16 / 10;
+  min-height: clamp(260px, 40vh, 460px);
+}
+.place-where-facts { display: grid; gap: 0.7rem; align-content: start; }
+/* Narrower than the shared 7rem label column, because this one lives in a third
+   of the row and the address needs the space more than "ADDRESS" does. */
+.place-where-facts .detail-facts div { grid-template-columns: minmax(0, 4.6rem) minmax(0, 1fr); gap: 0.5rem; padding: 0.5rem 0; }
+/* Stacked and full width: three buttons wrapping inside a narrow column left a
+   ragged edge, and each one is a link out rather than a choice between peers. */
+.place-where-facts .place-visit-links { display: grid; gap: 0.4rem; }
+.place-where-facts .place-visit-links a { justify-content: space-between; }
 .place-visit-links { flex-wrap: wrap; }
 .place-awards { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
 .place-award { display: grid; gap: 0.15rem; }
@@ -5687,7 +5711,10 @@ legend { color: var(--tape-text); }
   .venue-map { min-height: clamp(330px, 52vh, 480px); }
   .detail-head { align-items: flex-start; }
   .detail h2 { max-width: 12ch; }
-  .detail-facts div { grid-template-columns: 1fr; gap: 0.18rem; }
+  .detail-facts div,
+  /* Beats the packed two-thirds layout's narrower label column — on a phone the
+     facts are one column wide like every other fact list. */
+  .place-where-facts .detail-facts div { grid-template-columns: 1fr; gap: 0.18rem; }
   .trusted-list { gap: 0.85rem; padding-block: 1.5rem 2rem; }
   .trusted-list-status-error { align-items: stretch; flex-direction: column; }
   .trusted-list-status-error button { width: 100%; }
