@@ -199,6 +199,50 @@ live redeploys as a debug loop.
   widens what every member can see about every other member — treat it as a
   product decision, not a refactor.
 
+## The signed-out visitor
+
+**The founding circle is a visitor's circle.** They have no invitation graph, so
+there is no relational clause to apply — what they get is the one tier that
+already reaches every member at any distance, and nothing else. Everything a
+member can browse is open to them: Explore, the country and city pages, the map,
+the feed, and the place pages with the notes and photographs on them.
+
+- **Scope, not a gate.** There is no client-side membership check on any browsing
+  surface, and adding one would be the bug. `visibleToCaller` is the single filter
+  (`allVenues` in main.ts), and it is derived from the server's answer for whoever
+  is asking. A surface that asks "is there a session?" before deciding what to
+  show has taken a second opinion about visibility.
+- **Three public routes, one rule.** `/api/detour/place-detourists` (which places
+  are on the list), `/api/detour/public-recommendations` (the notes), and the
+  anonymous branch of `/api/detour/network-discovery` all restrict a signed-out
+  caller with `founding_cap.js`'s `foundingMemberSql`. They must agree: a note
+  offered by one route about a place another route withheld opens onto a page
+  saying the place does not exist.
+- **The empty caller id must never reach `circle_scope.js`.** `graphMemberSql`
+  compares `m.invited_by = {:caller}`, and against `""` that matches every
+  unparented account — an anonymous caller would silently acquire a circle. The
+  visitor branches swap in `foundingMemberSql` and bind no caller at all.
+- **`scope` on the payload is load-bearing.** `place-detourists` answers a member
+  with `"circle"` and a visitor with `"founding"`, and each loader in data.ts
+  refuses the other. Neither may fall back to the `published` marker when the
+  route fails: that would answer a caller entitled to a fraction of the catalogue
+  with all of it. The load fails whole and the reader retries.
+- **Published is not a visitor's list.** It is the precondition for anyone outside
+  the recommenders' circles reading about a place at all, and it is still what
+  resolves a shared link to a place nobody in the reader's scope recommended (see
+  `outsidePlaceRoute`). That page states the facts and shows no note, for a
+  visitor and a member alike.
+- **What an account is still for.** Writing anything — recommending, Been & loved,
+  Wanna go, sharing — plus My detours and My Circle. Those two are not gated
+  previews, they are surfaces about the reader themselves, and a visitor is not in
+  them. `chrome.isMember` in place.ts is the one flag for this — it replaced a
+  `canExplore` that conflated browsing with acting, and nothing should conflate
+  them again.
+- **A visitor is never told they are in a circle.** Their `circle` counts are
+  always zero and their `in_graph` is never set, so the copy says "founding
+  member" and never "in your circle". `endorsementSignals` names them founding
+  members only, on the same terms a member is named the people they can see.
+
 ## The new-member flow
 
 Redeeming an invitation does not land on the account page. `?view=welcome`

@@ -447,10 +447,24 @@ routerAdd(
   $apis.requireAuth("members")
 );
 
-// Anonymous recommendation projection. The home-page sample is deliberately
-// stricter than city-scoped place notes: it shows at most three founding-circle
-// recommendations, one per city. The private source collections have no public
-// CRUD rules, so independently enforce visibility and fixture exclusions here.
+// The visitor's feed: every published recommendation the founding circle stands
+// behind, newest first. One rule, applied the same way whether the caller asked
+// for a city or for everything — the founding tier is a visitor's whole
+// visibility, exactly as /api/detour/place-detourists decides which places reach
+// them. The two must agree: a card here whose place the catalogue withheld would
+// open onto a page saying the place does not exist.
+//
+// It used to be two different rules — three founding-circle notes for the landing
+// preview, and every discovery-visible member's notes for a city — which meant a
+// visitor who clicked into a city read members the front page had never offered
+// them and the catalogue had not put on their list.
+//
+// The one-per-city ranking that shaped the old landing preview now lives on the
+// client, which is where it belongs: it is a rule about three slots on one
+// screen, not about who may be read.
+//
+// The private source collections have no public CRUD rules, so visibility and
+// fixture exclusions are independently enforced here.
 routerAdd("GET", "/api/detour/public-recommendations", (e) => {
   const founding = require(__hooks + "/founding_cap.js");
   const photos = require(__hooks + "/recommendation_photos.js");
@@ -484,9 +498,20 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
       venue_name: venueName,
       city: city,
       country: country,
+      // Carried so a visitor's card reads like a member's: the same renderer
+      // prints the place's street line and dates the byline from `created`, and
+      // without them the public feed would render the same component visibly
+      // poorer for no reason of policy.
+      address: String(row.address || "").trim(),
+      created: String(row.created || "").trim(),
       note: note,
       recommender_pseudo: recommenderPseudo,
       founding_member: Boolean(row.founding_member),
+      // No `in_graph`: it reports which of two visibility clauses matched, and a
+      // visitor has only one. Sending a constant false would be read by the
+      // client's Founders'-places filter as "outside your circle" and empty the
+      // whole feed — the filter exists to separate the founding tier from a
+      // member's own people, and a visitor has no own people to separate it from.
       venue_id: venueId,
       // The photo this member attached to this note, never the venue's cover.
       photo_url: photos.photoUrl(e.app, row),
@@ -514,6 +539,8 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
     venue_name: "",
     city: "",
     country: "",
+    address: "",
+    created: "",
     note: "",
     recommender_pseudo: "",
     founding_member: false,
@@ -529,6 +556,8 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
       "COALESCE(TRIM(v.name), '') AS venue_name, " +
       "COALESCE(TRIM(v.city), '') AS city, " +
       "COALESCE(TRIM(v.country), '') AS country, " +
+      "COALESCE(TRIM(v.address), '') AS address, " +
+      "COALESCE(r.created, '') AS created, " +
       "COALESCE(TRIM(r.note), '') AS note, " +
       "COALESCE(TRIM(m.pseudo), '') AS recommender_pseudo, " +
       "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
@@ -543,42 +572,24 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
       "WHERE w.status = 'published' " +
       "AND w.published_venue != '' " +
       "AND w.published_at != '' " +
+      "AND COALESCE(v.suppressed, FALSE) = FALSE " +
       "AND COALESCE(m.internal_member, FALSE) = FALSE " +
       "AND m.community_status = 'verified' " +
       "AND COALESCE(m.discovery_visible, FALSE) = TRUE " +
+      // The founding circle, and only the founding circle. This is the whole of
+      // a visitor's visibility rule and it is the same one place-detourists
+      // applies when it decides which places are on their list.
+      "AND " + founding.foundingMemberSql("m") + " " +
       "AND LOWER(TRIM(m.email)) NOT LIKE '%.invalid' " +
       "AND LOWER(TRIM(m.email)) != 'agent@detour.supernaut.to' " +
       "AND LENGTH(TRIM(r.note)) >= 24 " +
       "AND TRIM(m.pseudo) != '' ";
-    let sql;
-    if (city) {
-      // City-scoped notes continue to include every discovery-visible verified
-      // member; the founding-member restriction belongs only to the landing
-      // preview.
-      sql =
-        "SELECT " + projection + joinsAndFilters +
-        "AND LOWER(TRIM(v.city)) = LOWER({:city}) " +
-        "ORDER BY r.created DESC, r.id DESC LIMIT 24";
-    } else {
-      // The landing preview speaks only for the founding circle: the Founder
-      // and the members the Founder invited. Rank before limiting so a busy
-      // city can never occupy two of the three anonymous preview slots.
-      sql =
-        "WITH ranked AS (" +
-        "SELECT " + projection +
-        ", r.created AS recommendation_created, " +
-        "ROW_NUMBER() OVER (" +
-        "PARTITION BY LOWER(TRIM(v.city)), LOWER(TRIM(v.country)) " +
-        "ORDER BY r.created DESC, r.id DESC" +
-        ") AS city_rank " +
-        joinsAndFilters +
-        "AND " + founding.foundingMemberSql("m") + " " +
-        ") " +
-        "SELECT recommendation_id, venue_name, city, country, note, recommender_pseudo, " +
-        "founding_member, venue_id, photo_id, photo_file " +
-        "FROM ranked WHERE city_rank = 1 " +
-        "ORDER BY recommendation_created DESC, recommendation_id DESC LIMIT 3";
-    }
+    // Same cap as the member feed, so neither surface is the one that quietly
+    // stops at a different number of notes.
+    const sql =
+      "SELECT " + projection + joinsAndFilters +
+      (city ? "AND LOWER(TRIM(v.city)) = LOWER({:city}) " : "") +
+      "ORDER BY r.created DESC, r.id DESC LIMIT 100";
 
     const query = e.app.db().newQuery(sql);
     if (city) query.bind({ city: city });
@@ -691,10 +702,13 @@ routerAdd(
     }
 
     // Anonymous callers get the same recommendation shape the member feed
-    // renders, reduced to a public-safe sample: published places only, from
-    // real verified members who opted into discovery, meaningful notes,
-    // capped at 4. If nobody is discovery-visible yet, the Founder's own
-    // published recommendations stand in so the section is never empty.
+    // renders, reduced to what a visitor may read: published places recommended
+    // by the founding circle, from real verified members who opted into
+    // discovery, with meaningful notes. The founding clause is the same rule
+    // /api/detour/place-detourists and /api/detour/public-recommendations apply,
+    // so no public surface can offer a note about a place another public surface
+    // withheld. If nobody is discovery-visible yet, the Founder's own published
+    // recommendations stand in so the section is never empty.
     if (!e.auth || !e.auth.id) {
       function sampleRecommendations(visibilitySql) {
         const rows = arrayOf(new DynamicModel(recommendationRowShape()));
@@ -714,13 +728,15 @@ routerAdd(
               "AND LOWER(TRIM(m.email)) != 'agent@detour.supernaut.to' " +
               "AND LENGTH(TRIM(r.note)) >= 24 " +
               "AND TRIM(m.pseudo) != '' " +
-              "ORDER BY r.created DESC, r.id DESC LIMIT 4"
+              "ORDER BY r.created DESC, r.id DESC LIMIT 100"
           )
           .all(rows);
         return rows;
       }
 
-      let sampleRows = sampleRecommendations("COALESCE(m.discovery_visible, FALSE) = TRUE");
+      let sampleRows = sampleRecommendations(
+        "COALESCE(m.discovery_visible, FALSE) = TRUE AND " + founding.foundingMemberSql("m")
+      );
       if (!sampleRows.length) {
         sampleRows = sampleRecommendations(founding.rootFounderSql("m"));
       }
@@ -904,6 +920,20 @@ routerAdd(
 // that venue at all. The client derives what appears on its list from exactly
 // this payload, so this route is the visibility boundary for the whole catalogue.
 //
+// A SIGNED-OUT VISITOR IS ANSWERED TOO, AND THE FOUNDING CIRCLE IS THEIR CIRCLE.
+// They have no invitation graph, so there is no relational clause to apply — what
+// they get is the tier that already reaches every member at any distance, and
+// nothing else. That is the whole of the public catalogue: a place is on a
+// visitor's list because a founding member recommended it, derived here by the
+// same deduplicated pass that answers a member, so the two can never disagree
+// about what a founding recommendation is.
+//
+// The empty caller id may never reach circle_scope.js. `graphMemberSql` compares
+// `m.invited_by = {:caller}`, and against "" that matches every unparented
+// account in the table — an anonymous caller would silently acquire a circle. The
+// visitor branch therefore uses `foundingMemberSql` directly and binds no caller
+// at all, so there is no empty id for a predicate to misread.
+//
 // No member identity, prose, or timing leaves the server. Shares stay completely
 // private: sending a place to someone is never social proof and never moves a
 // count here, in either direction.
@@ -914,7 +944,8 @@ routerAdd(
     const foundingPolicy = require(__hooks + "/founding_cap.js");
     const scope = require(__hooks + "/circle_scope.js");
     const { normalizePlacePart } = require(__hooks + "/community_waitlist.js");
-    const callerId = e.auth.id;
+    const callerId = e.auth && e.auth.id ? e.auth.id : "";
+    const anonymous = !callerId;
     // Visibility has two clauses, and which one matched is part of the answer.
     // A recommender reached through the invitation graph is in the caller's
     // circle; a recommender reached through the founding tier is visible to
@@ -922,8 +953,17 @@ routerAdd(
     // forces the copy layer to guess, and the only word available to guess with
     // is "circle" — which is how a founding member's place came to be labelled as
     // being in the reader's circle.
-    const visible = scope.visibleRecommenderSql("m", "caller");
-    const inGraph = scope.graphMemberSql("m", "caller");
+    //
+    // For a visitor only the second clause exists, and `in_graph` is constant
+    // false: there is no graph, so no place may ever be described to them as
+    // being in their circle.
+    const visible = anonymous
+      ? foundingPolicy.foundingMemberSql("m")
+      : scope.visibleRecommenderSql("m", "caller");
+    const inGraph = anonymous ? "FALSE" : scope.graphMemberSql("m", "caller");
+    // Bound only when there is a caller to bind: the visitor's SQL carries no
+    // {:caller} placeholder.
+    const callerBinding = anonymous ? {} : { caller: callerId };
 
   // Distinct (venue, member) pairs from recommendation signals only. Waiting-
   // list entries resolve to their published venue first, then to the canonical
@@ -959,7 +999,7 @@ routerAdd(
         "WHERE LOWER(TRIM(m.email)) NOT LIKE '%.invalid'" +
         ") WHERE venue_id IS NOT NULL AND venue_id != '' AND member_id != ''"
     )
-    .bind({ caller: callerId })
+    .bind(callerBinding)
     .all(pairs);
 
   // Approved legacy contributions are one member's recommendation each,
@@ -992,7 +1032,7 @@ routerAdd(
         "WHERE c.status = 'approved' " +
         "AND LOWER(TRIM(m.email)) NOT LIKE '%.invalid'"
     )
-    .bind({ caller: callerId })
+    .bind(callerBinding)
     .all(contributions);
   const contributionRows = [];
   for (const row of contributions) {
@@ -1100,6 +1140,10 @@ routerAdd(
     // caller may see, each carrying the clause that matched. And the same
     // containment step — a place the caller cannot see contributes nothing, not
     // even a number.
+    //
+    // A visitor is named the founding members, and nobody else — the same tier
+    // that put the place on their list in the first place, so no mark on a public
+    // page names somebody the reader was not already reading.
     const endorsements = require(__hooks + "/place_endorsements.js")
       .endorsementSignals(e.app, callerId);
     for (const venueId in endorsements.totals) {
@@ -1109,12 +1153,14 @@ routerAdd(
       delete endorsements.own[venueId];
     }
 
-    // `scope` tells the client the payload is caller-scoped, so it can refuse to
-    // fall back to a global publication marker when this route is unavailable.
+    // `scope` tells the client which rule produced the payload, so it can refuse
+    // to fall back to a global publication marker when this route is unavailable.
     // Degrading to "show everything a server ever published" would turn one
-    // failed request into a catalogue-wide visibility breach.
+    // failed request into a catalogue-wide visibility breach. `founding` is the
+    // visitor's answer and `circle` the member's; a client that asked as one and
+    // was answered as the other must reject the payload rather than render it.
     return e.json(200, {
-      scope: "circle",
+      scope: anonymous ? "founding" : "circle",
       counts: counts,
       circle: circle,
       founders: founders,
@@ -1122,8 +1168,9 @@ routerAdd(
       founding: founding,
       endorsements: endorsements,
     });
-  },
-  $apis.requireAuth("members")
+  }
+  // No auth middleware: a signed-out visitor is answered with the founding
+  // circle's places, which is the public catalogue.
 );
 
 routerAdd(

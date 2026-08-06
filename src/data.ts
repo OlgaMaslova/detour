@@ -60,13 +60,16 @@ export interface Venue {
    */
   suppressed?: boolean;
   /**
-   * Whether publication has made this place public — the set a visitor is served.
+   * Whether publication has made this place public — the precondition for anyone
+   * outside its recommenders' circles reading about it at all.
    *
    * Never a substitute for `visibleToCaller`, which is the caller's own list and
-   * the only thing any browsing surface may filter on. This is here for the one
-   * question that is not about the caller: whether a stranger opening a link to
-   * this place would be shown it, which is what decides whether a member who
-   * cannot reach it through their circle is shown it too.
+   * the only thing any browsing surface may filter on. Not a visitor's list
+   * either: a visitor sees the places the founding circle recommends, which is a
+   * subset of this. It is here for the one question that is not about the caller —
+   * whether a stranger opening a link to this place would be shown it, which is
+   * what decides whether a reader who cannot reach it through their own scope is
+   * shown it too.
    */
   published?: boolean;
   /**
@@ -471,28 +474,115 @@ function venueFromRecord(record: VenueRecord, city: VenueCity): Venue | null {
 }
 
 /**
- * The published places, with no session.
+ * The caller-scoped signal payload: who each place reaches, and how many of them.
+ * `/api/detour/place-detourists` answers a member with `scope: "circle"` and a
+ * visitor with `scope: "founding"`, and the marker is load-bearing — see the
+ * refusals in both loaders below.
+ */
+interface PlaceSignalPayload {
+  scope?: string;
+  counts?: Record<string, unknown>;
+  circle?: Record<string, unknown>;
+  founders?: Record<string, unknown>;
+  totals?: Record<string, unknown>;
+  founding?: Record<string, unknown>;
+  endorsements?: {
+    totals?: Record<string, unknown>;
+    names?: Record<string, unknown>;
+    own?: Record<string, unknown>;
+  };
+}
+
+/**
+ * Attach the caller's scoped signal to each candidate: how many members they can
+ * see recommended it, whether any of those was a founding member, and the place's
+ * total across every circle. Then derive visibility from it.
  *
- * A visitor has no circle, so there is no scoped list to compute: what they get is
- * the places publication has already made public, which is what the landing's own
- * recommendation cards are drawn from. That is the whole reason this exists — a card
- * that names a place has to open it, and resolving a place needs its record.
+ * Shared by both loaders because the derivation must not fork. A place is on your
+ * list because a member you can see recommended it — nothing else puts it there,
+ * not the server's publication marker, not the existence of a catalogue row, not a
+ * share someone sent you. A visitor differs only in who "a member you can see"
+ * means: the founding circle, and nobody else. That difference is entirely the
+ * server's to make, and it is already made by the time the payload arrives.
  *
- * `published` is the boundary and it is the honest one: publication only ever happens
- * behind a real member recommendation (see pb_hooks/community_waitlist.js). A curator
- * takedown wins over it, here as everywhere.
+ * Recomputed on every load rather than remembered against the venue, so a member
+ * who joins your circle tomorrow brings their places with them and no card
+ * silently stops updating.
  *
- * Nothing per-caller is attached: no counts, no marks, no notes. Those are circle
- * facts, and `/api/detour/place-detourists` is not answerable without a session — so
- * a visitor's place page states what the place is and what the public feed says about
- * it, and nothing about who else stands behind it.
+ * One carve-out: `suppressed` always wins. A curator takedown hides a place from
+ * everyone, in every circle, even though the recommendation behind it still stands.
+ */
+function attachPlaceSignals(venues: Iterable<Venue>, signals: PlaceSignalPayload): void {
+  const signalCounts = signals.counts ?? {};
+  const signalCircle = signals.circle ?? {};
+  const signalFounders = signals.founders ?? {};
+  const signalTotals = signals.totals ?? {};
+  const signalFounding = signals.founding ?? {};
+  // Absent on a backend that predates Been & loved. No marks is the honest
+  // reading of that, and the surfaces render nothing rather than a zero.
+  const endorsementTotals = signals.endorsements?.totals ?? {};
+  const endorsementNames = signals.endorsements?.names ?? {};
+  const endorsementOwn = signals.endorsements?.own ?? {};
+
+  for (const venue of venues) {
+    const count = positiveInteger(signalCounts[venue.id]);
+    if (count !== null) venue.detouristCount = count;
+    // Split by the reason each recommender is in reach. Kept as two separate
+    // figures all the way to the copy, so no surface has to infer "in your circle"
+    // from "visible to you" — those are different claims and only one of them is
+    // about a relationship. A visitor's `circle` is always empty, which is what
+    // stops a public page describing a founding member as someone they know.
+    venue.circleCount = positiveInteger(signalCircle[venue.id]) ?? 0;
+    venue.founderCount = positiveInteger(signalFounders[venue.id]) ?? 0;
+    // The total is clamped to at least the scoped count. The server derives both
+    // from one deduplicated pass so they cannot disagree, but a total lower than
+    // the number of notes a member can actually read would be visibly wrong, and
+    // silently wrong is worse than absent.
+    const total = positiveInteger(signalTotals[venue.id]);
+    if (total !== null) venue.detouristTotal = Math.max(total, venue.detouristCount ?? 0);
+    if (signalFounding[venue.id] === true) venue.foundingRecommended = true;
+
+    // Been & loved, on the same terms: a global count, and only the names this
+    // caller may see. Clamped to at least the number of names, so the line can
+    // never name more people than the figure beside it admits to.
+    const endorsers = readEndorsers(endorsementNames[venue.id]);
+    const endorsed = positiveInteger(endorsementTotals[venue.id]) ?? 0;
+    if (endorsers.length) venue.endorsements = endorsers;
+    // Never fewer than the names beside it: a line that names three people under
+    // the figure 2 is visibly wrong, and silently wrong is worse than absent.
+    const endorsedTotal = Math.max(endorsed, endorsers.length);
+    if (endorsedTotal > 0) venue.endorsementTotal = endorsedTotal;
+    if (endorsementOwn[venue.id] === true) venue.endorsedByCaller = true;
+
+    venue.visibleToCaller = venue.suppressed ? false : (venue.detouristCount ?? 0) > 0;
+  }
+}
+
+/**
+ * The catalogue a signed-out visitor is served: the places the founding circle
+ * recommends.
  *
- * This is not a way into the list: browsing surfaces stay members-only, gated on
- * `memberCanExplore` in main.ts, and a visitor still sees no destination lists, no
- * Explore and no feed.
+ * A visitor has no invitation graph, so there is no relational list to compute —
+ * but there is still a list, and it is the one tier that already reaches every
+ * member at any distance. The founding circle is a visitor's circle. That is what
+ * makes the whole app browsable without a session: Explore, the city pages, the
+ * map, the feed and the place pages all read `visibleToCaller` and none of them
+ * needs to know whether a session produced it.
+ *
+ * Two boundaries, and both are enforced by the server. `published` filters the
+ * venue read, so nothing publication has not made public is even a candidate. Then
+ * `/api/detour/place-detourists` decides which of those candidates a founding
+ * member actually stands behind, and a candidate with none is dropped by
+ * `attachPlaceSignals` exactly as it is for a member.
+ *
+ * The signal request is deliberately not caught, for the same reason the member
+ * path does not catch it: falling back to "everything the server ever published"
+ * would answer a visitor entitled to the founding circle's places with the whole
+ * catalogue. A rejection here fails the load, the app enters its error state, and
+ * the reader retries.
  */
 async function loadPublicCatalogue(): Promise<LiveCatalogue> {
-  const [venueRecords, cityRecords] = await Promise.all([
+  const [venueRecords, cityRecords, signals] = await Promise.all([
     pb.collection('venues').getFullList<VenueRecord>({
       filter: 'published = true && suppressed != true',
       fields: VENUE_FIELDS,
@@ -505,7 +595,15 @@ async function loadPublicCatalogue(): Promise<LiveCatalogue> {
       .collection('cities')
       .getFullList<CityRecord>({ sort: 'name', requestKey: null })
       .catch(() => [] as CityRecord[]),
+    pb.send<PlaceSignalPayload>('/api/detour/place-detourists', { requestKey: null }),
   ]);
+
+  // A payload that came back scoped to somebody's circle was answered for a
+  // session this caller does not have. Refuse it rather than render a list
+  // derived from a scope nobody asked for.
+  if (signals?.scope !== 'founding') {
+    throw new Error('The place-visibility route did not answer with a founding-scoped payload.');
+  }
 
   const citiesByName = citiesFromRecords(cityRecords);
   const venues: Venue[] = [];
@@ -523,13 +621,10 @@ async function loadPublicCatalogue(): Promise<LiveCatalogue> {
     if (!citiesByName.has(cityName.toLowerCase())) citiesByName.set(cityName.toLowerCase(), city);
     const venue = venueFromRecord(record, city);
     if (!venue) continue;
-    // Published and not suppressed is the whole of the visitor's visibility rule.
-    // It is set here rather than left undefined because `allVenues` in main.ts
-    // filters on it, and a place the server has already made public must not need a
-    // circle to be seen.
-    venue.visibleToCaller = true;
     venues.push(venue);
   }
+
+  attachPlaceSignals(venues, signals);
 
   const cities = [...citiesByName.values()].sort((a, b) => a.name.localeCompare(b.name));
   return { cities, venues };
@@ -546,10 +641,9 @@ async function loadPublicCatalogue(): Promise<LiveCatalogue> {
  * which of them you can actually see, and a candidate with no visible
  * recommender is dropped entirely below.
  *
- * A signed-out visitor has no circle, so there is no scoped list to compute for
- * them: they get the published places instead, via `loadPublicCatalogue`. Their
- * landing speaks for the founding circle through its own public route, and the cards
- * it renders resolve to those places — which is what the catalogue is for here.
+ * A signed-out visitor has no invitation graph, so their scoped list is computed
+ * from the one tier that reaches everybody: see `loadPublicCatalogue`. Same route,
+ * same derivation, different scope.
  */
 export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
   if (!pb.authStore.isValid || !pb.authStore.record) {
@@ -592,37 +686,16 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     // to a caller entitled to a fraction of it, turning one failed request into a
     // catalogue-wide visibility breach. A rejection here fails the whole load, the
     // app enters its error state, and the member retries.
-    pb.send<{
-      scope?: string;
-      counts?: Record<string, unknown>;
-      circle?: Record<string, unknown>;
-      founders?: Record<string, unknown>;
-      totals?: Record<string, unknown>;
-      founding?: Record<string, unknown>;
-      endorsements?: {
-        totals?: Record<string, unknown>;
-        names?: Record<string, unknown>;
-        own?: Record<string, unknown>;
-      };
-    }>('/api/detour/place-detourists', { requestKey: null }),
+    pb.send<PlaceSignalPayload>('/api/detour/place-detourists', { requestKey: null }),
   ]);
 
   // A payload without the scope marker came from a backend that predates
-  // circle-scoped visibility and would be answering globally. Refuse it rather
-  // than render another circle's places.
+  // circle-scoped visibility and would be answering globally. `founding` is the
+  // visitor's answer and would be a fraction of this caller's list. Refuse either
+  // rather than render a scope nobody asked for.
   if (detouristSignals?.scope !== 'circle') {
     throw new Error('The place-visibility route did not answer with a circle-scoped payload.');
   }
-  const signalCounts = detouristSignals.counts ?? {};
-  const signalCircle = detouristSignals.circle ?? {};
-  const signalFounders = detouristSignals.founders ?? {};
-  const signalTotals = detouristSignals.totals ?? {};
-  const signalFounding = detouristSignals.founding ?? {};
-  // Absent on a backend that predates Been & loved. No marks is the honest
-  // reading of that, and the surfaces render nothing rather than a zero.
-  const endorsementTotals = detouristSignals.endorsements?.totals ?? {};
-  const endorsementNames = detouristSignals.endorsements?.names ?? {};
-  const endorsementOwn = detouristSignals.endorsements?.own ?? {};
 
   const citiesByName = citiesFromRecords(cityRecords);
 
@@ -706,58 +779,9 @@ export async function loadLiveCatalogue(): Promise<LiveCatalogue> {
     venueByIdentity.set(identityKey(venue.name, venue.city), venue);
   }
 
-  // Attach the caller's scoped signal to each candidate: how many members they
-  // can see recommended it, whether any of those was a founding member, and the
-  // place's total across every circle.
-  //
-  // The total is clamped to at least the scoped count. The server derives both
-  // from one deduplicated pass so they cannot disagree, but a total lower than
-  // the number of notes a member can actually read would be visibly wrong, and
-  // silently wrong is worse than absent.
-  for (const venue of venuesById.values()) {
-    const count = positiveInteger(signalCounts[venue.id]);
-    if (count !== null) venue.detouristCount = count;
-    // Split by the reason each recommender is in reach. Kept as two separate
-    // figures all the way to the copy, so no surface has to infer "in your circle"
-    // from "visible to you" — those are different claims and only one of them is
-    // about a relationship.
-    venue.circleCount = positiveInteger(signalCircle[venue.id]) ?? 0;
-    venue.founderCount = positiveInteger(signalFounders[venue.id]) ?? 0;
-    const total = positiveInteger(signalTotals[venue.id]);
-    if (total !== null) venue.detouristTotal = Math.max(total, venue.detouristCount ?? 0);
-    if (signalFounding[venue.id] === true) venue.foundingRecommended = true;
-
-    // Been & loved, on the same terms: a global count, and only the names this
-    // caller may see. Clamped to at least the number of names, so the line can
-    // never name more people than the figure beside it admits to.
-    const endorsers = readEndorsers(endorsementNames[venue.id]);
-    const endorsed = positiveInteger(endorsementTotals[venue.id]) ?? 0;
-    if (endorsers.length) venue.endorsements = endorsers;
-    // Never fewer than the names beside it: a line that names three people under
-    // the figure 2 is visibly wrong, and silently wrong is worse than absent.
-    const endorsedTotal = Math.max(endorsed, endorsers.length);
-    if (endorsedTotal > 0) venue.endorsementTotal = endorsedTotal;
-    if (endorsementOwn[venue.id] === true) venue.endorsedByCaller = true;
-  }
-
-  // Visibility, derived — per caller, at read time, never stored.
-  //
-  // A place is on your list because a member you can see recommended it. Nothing
-  // else puts it there: not the server's publication marker, not the existence of
-  // a catalogue row, not a share someone sent you. That makes two states
-  // unrepresentable — a place with no recommender behind it, and a place whose
-  // only recommenders are outside your circle.
-  //
-  // Recomputed on every load rather than remembered against the venue, so a
-  // member who joins your circle tomorrow brings their places with them and no
-  // card silently stops updating.
-  //
-  // One carve-out: `suppressed` always wins. A curator takedown hides a place
-  // from everyone, in every circle, even though the recommendation behind it
-  // still stands.
-  for (const venue of venuesById.values()) {
-    venue.visibleToCaller = venue.suppressed ? false : (venue.detouristCount ?? 0) > 0;
-  }
+  // Signals, then visibility — the same derivation a visitor gets, differing only
+  // in which payload the server answered with.
+  attachPlaceSignals(venuesById.values(), detouristSignals);
 
   const cities = [...citiesByName.values()].sort((a, b) => a.name.localeCompare(b.name));
   const venues = [...venuesById.values()]

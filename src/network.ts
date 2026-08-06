@@ -43,11 +43,20 @@ export interface DiscoveryRecommendation {
   photo_url?: string;
 }
 
+/**
+ * One founding-circle recommendation, as a signed-out visitor is served it.
+ *
+ * Deliberately without `in_graph`: that field reports which of two visibility
+ * clauses put a recommender in reach, and a visitor has only one. See
+ * `fromOwnCircle` and `publicFeedMarkup` — the Founders' places switch is a
+ * member's control and has nothing to act on here.
+ */
 interface PublicRecommendation {
   id?: string;
   venue_name: string;
   city: string;
   country?: string;
+  address?: string;
   note: string;
   recommender_pseudo: string;
   founding_member?: boolean;
@@ -287,6 +296,7 @@ function cleanPublicRecommendation(value: unknown): PublicRecommendation | null 
     venue_name: venueName,
     city,
     country: cleanText(item.country),
+    address: cleanText(item.address),
     note,
     recommender_pseudo: recommenderPseudo,
     founding_member: item.founding_member === true,
@@ -1238,9 +1248,34 @@ export function communityStripMarkup(
   </section>`;
 }
 
-// The anonymous sample section: same card renderer as the member feed. The
-// server supplies at most three founding-circle recommendations, one per city.
-function publicRecommendationSampleMarkup(resolvePlace?: NetworkPlaceResolver): string {
+/**
+ * The three-card sample on the invitation page: one founding-circle note per
+ * city, newest first.
+ *
+ * One per city, and the ranking happens here rather than on the server because it
+ * is a rule about three slots on one screen — not about who may be read. The route
+ * now answers with the visitor's whole feed, and a busy city would otherwise take
+ * two of the three slots and make the app look like it covers one place.
+ */
+function publicSample(): PublicRecommendation[] {
+  const seenCities = new Set<string>();
+  const sample: PublicRecommendation[] = [];
+  for (const item of publicRecommendationFeed().recommendations) {
+    const key = `${item.city}::${item.country ?? ''}`.toLowerCase();
+    if (seenCities.has(key)) continue;
+    seenCities.add(key);
+    sample.push(item);
+    if (sample.length >= PUBLIC_RECOMMENDATION_PREVIEW_LIMIT) break;
+  }
+  return sample;
+}
+
+// The anonymous sample section: same card renderer as the member feed, over the
+// founding-circle recommendations a visitor is served.
+function publicRecommendationSampleMarkup(
+  feedHref: string,
+  resolvePlace?: NetworkPlaceResolver
+): string {
   const feed = publicRecommendationFeed();
   const heading = `<div class="network-public-sample-heading">
     <div><p class="network-membership-label">From the circle</p><h2 id="network-public-recommendations-title">What the circle recommends.</h2></div>
@@ -1263,13 +1298,107 @@ function publicRecommendationSampleMarkup(resolvePlace?: NetworkPlaceResolver): 
     </section>`;
   }
 
-  const sample = feed.recommendations.slice(0, PUBLIC_RECOMMENDATION_PREVIEW_LIMIT);
+  const sample = publicSample();
   return `<section class="network-public-sample" aria-labelledby="network-public-recommendations-title">
     ${heading}
     ${sample.length
-      ? `<div class="network-public-list">${sample.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div><p class="network-public-sample-note">This sample stays small: only real, published member recommendations appear here.</p>`
+      ? `<div class="network-public-list">${sample.map((item) => recommendationMarkup(item, resolvePlace)).join('')}</div>
+        <p class="network-public-sample-note">Only real, published member recommendations appear here. <a href="${esc(
+          feedHref
+        )}" data-feed>See everything the founding circle recommends<span class="nav-arrow" aria-hidden="true">&#x2192;</span></a></p>`
       : '<div class="network-public-state"><p>No public recommendation sample is available right now. You can still request an invitation or sign in.</p></div>'}
   </section>`;
+}
+
+/**
+ * The visitor's feed: every place the founding circle recommends, one card each.
+ *
+ * The same grouped renderer the member feed uses, over the same shape — a visitor
+ * is not shown a lesser version of a card, because the difference between them is
+ * whose recommendations they may read, not how well those recommendations are
+ * printed.
+ *
+ * No Founders' places switch and no Recommend/Share actions. The switch separates
+ * the founding tier from a member's own people and a visitor has no own people; the
+ * actions need an account, and the invitation is offered once at the foot of the
+ * page rather than twice per card.
+ */
+function publicFeedMarkup(
+  accountHref: string,
+  inviteRequestHref: string,
+  resolvePlace?: NetworkPlaceResolver
+): string {
+  const feed = publicRecommendationFeed();
+
+  if (feed.status === 'loading' || feed.status === 'idle') {
+    return `<div class="network-state network-state-loading" role="status">
+      <span class="network-loading-mark" aria-hidden="true"></span>
+      <div><h2>Gathering the founding circle</h2><p>Loading the places Detour's founding members recommend.</p></div>
+    </div>`;
+  }
+
+  if (feed.status === 'error') {
+    return `<div class="network-state network-state-error" role="alert">
+      <div><h2>The founding circle could not be loaded</h2><p>${esc(
+        feed.error || 'Please try again. No recommendations have been shown.'
+      )}</p></div>
+      <button type="button" class="secondary-button network-retry" data-public-recommendations-retry>Try again</button>
+    </div>`;
+  }
+
+  const grouped = groupRecommendations(
+    feed.recommendations.map((item) => ({ ...item })),
+    resolvePlace
+  );
+  const previewLimit = recommendationColumns * 2;
+  const latest = recommendationsExpanded ? grouped : grouped.slice(0, previewLimit);
+  const hiddenCount = grouped.length - latest.length;
+
+  return `<div class="network-member-content">
+    <section class="network-stream" aria-label="Places the founding circle recommends">
+      <div class="network-section-heading network-section-toolbar">
+        <p class="network-recency-status">${grouped.length} ${
+          grouped.length === 1 ? 'place' : 'places'
+        }<span>From the founding circle</span></p>
+        <div class="network-layout-picker" role="group" aria-label="Cards per row">
+          ${([2, 3] as const)
+            .map(
+              (columns) =>
+                `<button type="button" data-network-columns="${columns}" aria-label="${columns} cards per row" aria-pressed="${
+                  recommendationColumns === columns ? 'true' : 'false'
+                }"><span class="network-layout-icon network-layout-icon-${columns}" aria-hidden="true">${Array.from(
+                  { length: columns * columns },
+                  () => '<i></i>'
+                ).join('')}</span></button>`
+            )
+            .join('')}
+        </div>
+        <div class="network-section-actions">
+          <a class="network-primary-link network-recommend-cta" href="${esc(
+            inviteRequestHref
+          )}">Ask for an invitation<span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>
+          <a class="secondary-button network-share-cta" href="${esc(
+            accountHref
+          )}" data-community-route>Sign in<span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
+        </div>
+      </div>
+      ${
+        latest.length
+          ? `<div class="network-entry-list network-recommendation-grid network-recommendation-grid-${recommendationColumns}">${latest
+              .map((group) => groupedRecommendationCardMarkup(group.items, resolvePlace, { markRecent: true }))
+              .join('')}</div>${
+              hiddenCount > 0
+                ? `<button type="button" class="secondary-button network-retry network-show-more" data-network-show-more>Show ${hiddenCount} more ${
+                    hiddenCount === 1 ? 'place' : 'places'
+                  }</button>`
+                : recommendationsExpanded && grouped.length > previewLimit
+                  ? '<button type="button" class="secondary-button network-retry network-show-more" data-network-show-more>Show fewer</button>'
+                  : ''
+            }`
+          : `<div class="network-empty"><h3>No places yet</h3><p>Detour's founding members are still writing the first recommendations. Ask for an invitation and yours could be one of them.</p></div>`
+      }
+    </section>
+  </div>`;
 }
 
 /**
@@ -1283,10 +1412,24 @@ function publicRecommendationSampleMarkup(resolvePlace?: NetworkPlaceResolver): 
  */
 export function networkDiscoveryMarkup(
   accountHref: string,
-  resolvePlace?: NetworkPlaceResolver
+  resolvePlace?: NetworkPlaceResolver,
+  visitor: { feedHref: string; inviteRequestHref: string; surface: 'home' | 'feed' } | null = null
 ): string {
   const record = memberRecord();
   if (!record) {
+    // The visitor's feed. Same route a member's feed sits on, and the same
+    // question answered — what is new — over the founding circle rather than a
+    // circle they do not have yet.
+    if (visitor?.surface === 'feed') {
+      return `<section class="network-home" aria-labelledby="network-home-title">
+        <div class="network-home-heading">
+          <p class="network-kicker">The founding circle</p>
+          <h1 id="network-home-title">Places Detour's founding members recommend.</h1>
+          <p>Every place here is one a member put their name behind and said why. Join, and you see what the people you invite recommend too.</p>
+        </div>
+        ${publicFeedMarkup(accountHref, visitor.inviteRequestHref, resolvePlace)}
+      </section>`;
+    }
     return `<section class="network-invitation" aria-labelledby="network-home-title">
       <div class="network-invitation-copy">
         <p class="network-kicker">An invite-only circle shaped by member taste</p>
@@ -1294,7 +1437,7 @@ export function networkDiscoveryMarkup(
         <p class="network-invitation-lead">This isn't a restaurant directory. Every place here is one a member put their name behind and said why — no ads, no paid listings, no anonymous stars. Add one of yours — someone needs it.</p>
         <p class="network-invitation-lead">Members publish straight to the circle: no approval queue, no editors, no minimum. We trust you.</p>
       </div>
-      ${publicRecommendationSampleMarkup(resolvePlace)}
+      ${publicRecommendationSampleMarkup(visitor?.feedHref ?? '', resolvePlace)}
       <aside class="network-invitation-action" data-invite-request-section aria-label="Founding membership and member sign-in">
         ${inviteRequestFormMarkup(accountHref)}
       </aside>

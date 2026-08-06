@@ -2986,14 +2986,6 @@ legend { color: var(--tape-text); }
 }
 .destination-search input[type='search'] { flex: 1 1 16rem; min-height: 48px; }
 .network-search-controls input[type='search'] { flex: 1 1 17rem; }
-.discovery-gate a.network-primary-link,
-.discovery-gate a.network-primary-link:visited,
-.discovery-gate a.network-primary-link:hover {
-  color: var(--tape-ink);
-  background: var(--tape-orange);
-  border-color: var(--tape-chrome);
-}
-
 /* ============================================================
    PLACE PAGE — one place, its own route.
    The sleeve notes to the cassette: display title, the photo as a printed

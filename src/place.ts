@@ -41,7 +41,18 @@ export interface PlaceChrome {
   countrySlug: string;
   countryHref: string;
   exploreHref: string;
-  canExplore: boolean;
+  /**
+   * Whether this reader has an account. The gate on everything that writes, and
+   * on the invitation offered to whoever does not.
+   *
+   * It replaced a `canExplore` that answered two questions at once — may this
+   * reader browse, and may they act. Those stopped being the same question when
+   * the catalogue opened to visitors: browsing is now everybody's, so the
+   * breadcrumb and Copy link are unconditional, and this flag is only about
+   * acting. A single flag would have handed a visitor a Recommend button that
+   * cannot work.
+   */
+  isMember: boolean;
   /**
    * Whether this reader may mark this place as been & loved: a verified member,
    * looking at a place that is not their own. A member who has written about it
@@ -63,11 +74,12 @@ export interface PlaceChrome {
    */
   canShare: boolean;
   /**
-   * A member reading a place their circle does not reach — a link they were sent.
+   * A reader whose own scope does not reach this place — a link they were sent.
    * The page states what publication made public and stops there: no figures, and
    * no note, because the recommendation behind this place belongs to somebody they
-   * cannot see. Distinct from `!canExplore`, which is a visitor: this reader has an
-   * account, a nav, and somewhere to go next.
+   * cannot see. True for a member outside the recommenders' circles and for a
+   * visitor on a place no founding member has recommended, and the copy names
+   * which of the two is reading.
    */
   outsideCircle: boolean;
   /** Whether it is already on their list. Their own row; nobody else can see it. */
@@ -133,26 +145,32 @@ export interface PlaceHelpers {
  * five-photo grid that three more exist beyond their circle. Every photo here
  * sits inside a note block the caller was already shown.
  *
- * MEMBERS ONLY, AND NOT MERELY GATED. A place page is public — it is what a
- * member hands to somebody outside Detour with Copy link — and the anonymous
- * note feed behind `h.notes` is the newest two dozen in the city, so before this
- * rule a shared place showed a stranger member prose and pseudos whenever it
- * happened to fall inside that window, and bare facts when it did not. Which of
- * those a visitor got was decided by how recently somebody wrote about the place.
- * Now they always get the facts: the cover, what the place is, where it is, and
- * an invitation. What members wrote is for members.
+ * SCOPED, NOT GATED — and the difference is the whole of it. This section used to
+ * be withheld from anyone without a session, because the feed behind `h.notes`
+ * was the newest two dozen notes in the city from any member, so a shared place
+ * showed a stranger member prose whenever it happened to fall inside that window
+ * and bare facts when it did not. Which of those a visitor got was decided by how
+ * recently somebody wrote about the place, which is no rule at all.
+ *
+ * The rule now is the one the rest of the app runs on: a reader is shown the
+ * notes their own scope reaches, and a visitor's scope is the founding circle.
+ * The server settles it — see /api/detour/public-recommendations — so nothing
+ * here has to ask who is reading before printing a sentence.
  */
 function notesSection(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
-  if (!chrome.canExplore) return '';
-  // A member who reached this place from outside their circle. The notes are real
-  // and they are not theirs to read, so the section says which of those two facts
-  // applies rather than letting the ordinary empty state say the other: "no member
-  // has attached a note" would be false, and this reader is the one person likely
-  // to know it — they were sent the place by somebody who had read it.
+  // A reader who reached this place from outside their own scope. The notes are
+  // real and they are not theirs to read, so the section says which of those two
+  // facts applies rather than letting the ordinary empty state say the other: "no
+  // member has attached a note" would be false, and this reader is the one person
+  // likely to know it — they were sent the place by somebody who had read it.
   if (chrome.outsideCircle) {
     return `<section class="place-section place-notes" aria-labelledby="place-notes-title">
       <h2 id="place-notes-title">What members wrote</h2>
-      <p class="place-empty">Nobody in your circle has recommended this place, so there is nothing here for you to read. Recommend it yourself and it goes on the list for everyone who can see you.</p>
+      <p class="place-empty">${
+        chrome.isMember
+          ? 'Nobody in your circle has recommended this place, so there is nothing here for you to read. Recommend it yourself and it goes on the list for everyone who can see you.'
+          : 'This place was recommended by a member outside the founding circle, so what they wrote is inside Detour rather than out here.'
+      }</p>
     </section>`;
   }
   const notes = h.notes(v).filter((item) => {
@@ -279,7 +297,7 @@ function placeActions(
   // Never offered on a place the reader has already written about: their note is
   // there, and the edit link inside it is how they change it.
   const recommend =
-    chrome.canExplore && !alreadyRecommended
+    chrome.isMember && !alreadyRecommended
       ? `<a class="primary-button place-recommend-button" href="${h.esc(
           chrome.recommendHref(v)
         )}" data-community-route="recommend-place" data-recommend-venue="${h.esc(
@@ -354,12 +372,12 @@ function moreActions(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
     : null;
   // Last, and the only one that leaves Detour. A button rather than a link: the
   // URL is not somewhere this reader is going, it is something they are taking.
-  const copyLink = chrome.canExplore
-    ? (inMenu: boolean) =>
-        `<button type="button"${actionAttrs(inMenu)} data-copy-place-link="${h.esc(
-          chrome.placeLinkUrl(v)
-        )}" aria-label="${h.esc(`Copy a link to ${v.name}`)}">Copy link</button>`
-    : null;
+  // Offered to a visitor too — the page they are on is already public, and the
+  // one act that costs nobody anything is passing it on.
+  const copyLink = (inMenu: boolean) =>
+    `<button type="button"${actionAttrs(inMenu)} data-copy-place-link="${h.esc(
+      chrome.placeLinkUrl(v)
+    )}" aria-label="${h.esc(`Copy a link to ${v.name}`)}">Copy link</button>`;
   const items = [endorse, save, share, copyLink].filter(
     (entry): entry is PlaceAction => entry !== null
   );
@@ -460,21 +478,24 @@ function whereSection(v: Venue, h: PlaceHelpers): string {
  * What a visitor gets instead of the notes: one sentence about how places get
  * here, and a way in.
  *
- * This page is the only Detour surface a stranger can read, and it is read
- * because a member sent it — so it is the one place where an invitation prompt is
- * answering a question the reader already has. It says what the list is rather
- * than selling it, and it makes no claim about how they arrived: a link travels,
- * and "your friend sent you this" would be a guess about somebody who might have
- * found it any number of ways.
+ * It says what the list is rather than selling it, and it makes no claim about
+ * how they arrived: a link travels, and "your friend sent you this" would be a
+ * guess about somebody who might have found it any number of ways.
+ *
+ * It no longer offers the notes as the reason to join, because the notes are
+ * above it: a visitor reads what the founding circle wrote. What an account buys
+ * is the part that cannot be shown to a stranger — the people you invite, the
+ * people they invite, and a list that grows into your own rather than staying
+ * fifty people's.
  *
  * The form it points at is the one on the home page, unchanged. A second
  * invitation form would be a second thing to keep honest.
  */
 function visitorInvitation(chrome: PlaceChrome, h: PlaceHelpers): string {
-  if (chrome.canExplore) return '';
+  if (chrome.isMember) return '';
   return `<section class="place-section place-visitor" aria-labelledby="place-visitor-title">
     <h2 id="place-visitor-title">How this place got here</h2>
-    <p class="place-visitor-copy">A member put their name behind it and said why. That is the only way anything joins Detour — no ads, no paid listings, no anonymous stars. What they wrote is inside the circle.</p>
+    <p class="place-visitor-copy">A member put their name behind it and said why. That is the only way anything joins Detour — no ads, no paid listings, no anonymous stars. You are reading Detour's founding members; join, and you read the people you invite too.</p>
     <a class="primary-button place-visitor-cta" href="${h.esc(chrome.inviteRequestHref)}">Ask for an invitation<span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>
   </section>`;
 }
@@ -507,13 +528,9 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
       ${chrome.communityControl}
     </header>
     <nav class="place-back-row explore-breadcrumb" aria-label="Breadcrumb">
+      <a href="${h.esc(chrome.exploreHref)}" data-explore>Explore</a>
       ${
-        chrome.canExplore
-          ? `<a href="${h.esc(chrome.exploreHref)}" data-explore>Explore</a>`
-          : `<a href="${h.esc(chrome.homeHref)}" data-home>Home</a>`
-      }
-      ${
-        chrome.canExplore && chrome.countryName
+        chrome.countryName
           ? `<span aria-hidden="true">/</span><a href="${h.esc(chrome.countryHref)}" data-country="${h.esc(
               chrome.countrySlug
             )}">${h.esc(chrome.countryName)}</a>`

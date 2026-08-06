@@ -291,11 +291,11 @@ const SHORT_LIST_DESTINATION_MAX = 6;
  * data.ts) — so this filter is the single gate and never a second opinion about
  * who may see what.
  *
- * A signed-out visitor has no circle, so there is no scoped list to derive: the
- * server's published places are their list, marked visible by
- * `loadPublicCatalogue`. That is what lets a card on their landing open the place it
- * names. Browsing is still members-only, and that gate is `memberCanExplore` rather
- * than an empty catalogue.
+ * A signed-out visitor has no invitation graph, so the founding circle is their
+ * scope: `loadPublicCatalogue` derives their list from the same server payload, by
+ * the same rule, and marks the same flag. Every browsing surface reads this one
+ * function and none of them asks whether a session produced it — which is what
+ * makes the app browsable without one.
  */
 function allVenues(): Venue[] {
   return state.mode === 'live' ? state.venues.filter((v) => v.visibleToCaller === true) : [];
@@ -1749,7 +1749,10 @@ function renderPlace(
     countrySlug: country?.slug ?? '',
     countryHref: country ? countryHref(country.slug) : exploreHref(),
     exploreHref: exploreHref(),
-    canExplore: memberCanExplore(),
+    // Acting, not browsing. A visitor reaches Explore, the city and the country
+    // the same way a member does — what differs is which places are in them, and
+    // the server settled that before this render started.
+    isMember: memberCanExplore(),
     // Never on your own place: a member who has written a note here has already
     // said more than a mark can. `alreadyRecommended` inside place.ts asks the
     // same question of the same notes, so the button and the "Recommend this
@@ -1777,8 +1780,9 @@ function renderPlace(
     saving: savingPlace(v.id),
     saveError: savePlaceFailure(v.id),
     // The same nav the shared masthead renders, so Explore and My Circle travel
-    // together here too.
-    memberNav: memberCanExplore() ? memberNavLinks('other') : '',
+    // together here too — and a visitor gets their two entries rather than a
+    // page with no way onward but the wordmark.
+    memberNav: navLinks('other'),
     homeHref: homeHref(),
     accountHref: accountHref(),
     inviteRequestHref: `${homeHref()}${INVITE_REQUEST_HASH}`,
@@ -1795,18 +1799,12 @@ function renderPlace(
   const helpers: PlaceHelpers = {
     esc,
     safeExternalHref,
-    // The hero is a member's own photograph whenever there is one — and for a
-    // visitor, or a member outside this place's circle, there must not be. This
-    // page is public, and the same rule that keeps what members wrote off it keeps
-    // what they photographed off it: those readers get the place's own cover, or
-    // its monogram. The preview card the Worker builds follows the same rule, for
-    // the same reason.
-    cover: (venue) =>
-      venueCover(
-        venue,
-        'place',
-        memberCanExplore() && !outsideCircle ? placeHeroPhotoHref(venue) : ''
-      ),
+    // The hero is a member's own photograph whenever there is one, and it follows
+    // the notes exactly: a photo belongs to the recommendation it was attached to,
+    // so a reader shown the words is shown the picture. A reader outside this
+    // place's scope is shown neither and gets the place's own cover, or its
+    // monogram. The preview card the Worker builds follows the same rule.
+    cover: (venue) => venueCover(venue, 'place', outsideCircle ? '' : placeHeroPhotoHref(venue)),
     visitLinks: venueVisitLinks,
     directionsHref,
     occasionLabels: (venue) => venueOccasions(venue).map(occasionLabel),
@@ -1822,11 +1820,11 @@ function renderPlace(
   bindPlaceEndorsement(root, v);
   bindPlaceSave(root, v);
   bindPlaceLinkCopy(root);
-  // Member notes render here, so a direct place link has to load the circle
-  // feed itself rather than relying on the destination view having done it. Not
-  // for a visitor: this page shows them no note and no member's photograph, so
-  // fetching either would be shipping prose to a browser forbidden to print it.
-  if (memberCanExplore()) ensureNetworkDiscovery(() => render(root), destination.name);
+  // Notes render here, so a direct place link has to load the feed itself rather
+  // than relying on the destination view having done it. A visitor loads it too:
+  // the route they are served is scoped to the founding circle, so the prose that
+  // arrives is prose they are entitled to print.
+  ensureNetworkDiscovery(() => render(root), destination.name);
   // The Wanna go control cannot say whether this place is already on the list
   // until the list has been read. One request per session, shared with the tab
   // and the share inbox.
@@ -2245,7 +2243,7 @@ function renderAccount(root: HTMLElement): void {
         <a class="account-brand" href="${esc(homeHref())}" data-return-discovery>${brandMark()}<span class="brand-word">Detour</span></a>
         ${
           memberCanExplore()
-            ? `<nav class="account-nav" aria-label="Member navigation">${memberNavLinks('other')}</nav>`
+            ? `<nav class="account-nav" aria-label="Member navigation">${navLinks('other')}</nav>`
             : ''
         }
         ${communityControl(accountHref(), true)}
@@ -2349,40 +2347,49 @@ function mastheadMarkup(active: NavView = 'other'): string {
   // up on the brand row rather than travel down with them.
   return `<header class="network-masthead">
     ${brand}
-    ${
-      memberCanExplore()
-        ? `<nav class="network-primary-nav" aria-label="Primary navigation">${memberNavLinks(active)}</nav>`
-        : ''
-    }
+    <nav class="network-primary-nav" aria-label="Primary navigation">${navLinks(active)}</nav>
     ${communityControl(accountHref())}
   </header>`;
 }
 
 /**
- * **My detours · Feed · Explore · My Circle** — the member-only ways into the app,
- * most-likely-to-be-useful first.
+ * The primary nav, for whoever is reading.
  *
- * My detours leads because it is the landing: their own record, which is never
- * empty once they have done one thing, and one thing to answer above it. The feed
- * follows rather than leads for the reason in docs/landing-spec.md — it promises
- * something new every time it loads, and at this supply that promise mostly
- * fails.
+ * **My detours · Feed · Explore · My Circle** for a member, most-likely-to-be-
+ * useful first. My detours leads because it is the landing: their own record,
+ * which is never empty once they have done one thing, and one thing to answer
+ * above it. The feed follows rather than leads for the reason in
+ * docs/landing-spec.md — it promises something new every time it loads, and at
+ * this supply that promise mostly fails.
+ *
+ * A visitor gets the middle two, **Feed · Explore** — the surfaces that hold
+ * places — with the wordmark home to the invitation. The two they do not get are
+ * the two that are about them rather than about places: My detours is a record
+ * they have not started, and My Circle is a graph they are not in. Neither would
+ * be a locked door worth showing.
+ *
+ * Nothing here is a second opinion about visibility. Explore and the feed read
+ * the same `visibleToCaller` every other surface does, and for a visitor the
+ * server has already scoped that to the founding circle — so opening the nav to
+ * them adds routes, never places.
  *
  * The spec's eventual nav is three items, with Explore folded into Feed as a city
  * filter and a map toggle. That merge is a piece of work in its own right and has
  * not been done; until it is, Explore keeps its own entry rather than becoming
  * unreachable.
  */
-function memberNavLinks(active: NavView): string {
+function navLinks(active: NavView): string {
   const link = (view: 'home' | 'feed' | 'explore' | 'circle', href: string, label: string): string =>
     `<a class="network-explore-link${active === view ? ' is-current' : ''}" href="${esc(href)}" data-${
       view === 'home' ? 'home' : view
     }${active === view ? ' aria-current="page"' : ''}>${label}</a>`;
-  return `${link('home', homeHref(), 'My detours')}${link('feed', feedHref(), 'Feed')}${link(
-    'explore',
-    exploreHref(),
-    'Explore'
-  )}${link('circle', circleHref(), 'My Circle')}`;
+  const feedAndExplore = `${link('feed', feedHref(), 'Feed')}${link('explore', exploreHref(), 'Explore')}`;
+  if (!memberCanExplore()) return feedAndExplore;
+  return `${link('home', homeHref(), 'My detours')}${feedAndExplore}${link(
+    'circle',
+    circleHref(),
+    'My Circle'
+  )}`;
 }
 
 function memberCanExplore(): boolean {
@@ -2414,10 +2421,17 @@ function exploreSearchMarkup(): string {
         : destinations().length === 0
           ? '<p class="network-search-status" role="status">There are no published destinations at the moment.</p>'
           : '';
+  // A visitor is not offered the recommendation form: it needs an account, and a
+  // link that leads to a sign-in wall is a worse answer than the one thing they
+  // can actually do.
   const noResult = state.exploreQuery
     ? `<div class="explore-no-result" role="status" tabindex="-1">
         <p><strong>No published city or place matches “${esc(state.exploreQuery)}.”</strong> Detour grows wherever members recommend something worth the trip.</p>
-        <a href="${esc(accountHref())}" data-community-route="recommend-place">Recommend a place <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
+        ${
+          memberCanExplore()
+            ? `<a href="${esc(accountHref())}" data-community-route="recommend-place">Recommend a place <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
+            : `<a href="${esc(`${homeHref()}${INVITE_REQUEST_HASH}`)}">Ask for an invitation <span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>`
+        }
       </div>`
     : '';
   return `<form class="destination-search explore-search" data-explore-search role="search" aria-label="Search cities and places">
@@ -2526,7 +2540,11 @@ function renderExplore(root: HTMLElement): void {
       <header class="explore-hero">
         <p class="network-kicker">Everywhere Detour reaches you</p>
         <h1 id="explore-title" tabindex="-1">Find your next city.</h1>
-        <p>Search a place directly, browse every city on your list by country, or start with the destinations your circle and the founding members recommend most.</p>
+        <p>Search a place directly, browse every city on your list by country, or start with the destinations ${
+          memberCanExplore()
+            ? 'your circle and the founding members recommend most'
+            : "Detour's founding members recommend most"
+        }.</p>
         ${exploreSearchMarkup()}
       </header>
       ${
@@ -2607,22 +2625,11 @@ function renderCircle(root: HTMLElement): void {
 function renderCountry(root: HTMLElement): void {
   const country = destinationCountryBySlug(state.country);
   if (!country) {
-    state.view = memberCanExplore() ? 'explore' : 'home';
+    state.view = 'explore';
     state.country = null;
     updateRoute(state.view, null, 'replace');
     state.exploreQuery = '';
-    if (memberCanExplore()) renderExplore(root);
-    else renderHome(root);
-    return;
-  }
-  if (!memberCanExplore()) {
-    renderDiscoveryGate(
-      root,
-      'country-title',
-      country.name,
-      `Explore ${country.name} with the circle.`,
-      `Sign in or join Detour to browse ${country.destinations.length === 1 ? 'its city' : 'its cities'} and member-recommended places.`
-    );
+    renderExplore(root);
     return;
   }
   destroyMap();
@@ -2722,57 +2729,6 @@ function renderCatalogueFailure(root: HTMLElement): void {
       .then(() => render(root))
       .catch((error) => failCatalogue(root, error, () => render(root)));
   });
-  if (pendingFocus) {
-    const target = root.querySelector<HTMLElement>(pendingFocus);
-    pendingFocus = null;
-    target?.focus({ preventScroll: true });
-  }
-}
-
-function renderDiscoveryGate(
-  root: HTMLElement,
-  titleId: string,
-  label: string,
-  title: string,
-  copy: string
-): void {
-  destroyMap();
-  root.dataset.restyle = 'destination';
-  applyTapeTheme();
-  document.title = `${label} — Members — Detour`;
-  document
-    .querySelector<HTMLMetaElement>('meta[name="description"]')
-    ?.setAttribute('content', `Join Detour to explore member-recommended food-and-drink destinations in ${label}.`);
-  root.innerHTML = `
-    <a class="skip-link" href="#${esc(titleId)}">Skip to membership</a>
-    ${mastheadMarkup()}
-    <nav class="explore-breadcrumb destination-breadcrumb" aria-label="Breadcrumb">
-      <a href="${esc(homeHref())}" data-home>Home</a>
-      <span aria-hidden="true">/</span>
-      <span aria-current="page">${esc(label)}</span>
-    </nav>
-    <div class="hero city-detail-hero discovery-gate-hero">
-      <div class="hero-inner">
-        <p class="network-kicker">Member discovery</p>
-        <h1 id="${esc(titleId)}" tabindex="-1">${esc(title)}</h1>
-        <p class="tagline">${esc(copy)}</p>
-      </div>
-    </div>
-    <section class="city-chooser discovery-gate" aria-label="Join Detour">
-      <div class="city-chooser-heading">
-        <h2>Continue with Detour</h2>
-        <p>Membership keeps the full city and country directories inside the circle.</p>
-      </div>
-      <a class="network-primary-link" href="${esc(accountHref())}" data-community-route>
-        Sign in or join <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span>
-      </a>
-    </section>
-    <footer class="footer">
-      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
-      ${tapeThemeToggleMarkup()}
-    </footer>
-  `;
-  bindRouteLinks(root);
   if (pendingFocus) {
     const target = root.querySelector<HTMLElement>(pendingFocus);
     pendingFocus = null;
@@ -3087,17 +3043,32 @@ function answerSlotMarkup(): string {
  * Unchanged in every way but its address. It is honest about being second: what
  * is new is worth a look when there is something new, and the landing is what a
  * member opens on when there is not.
+ *
+ * Also the visitor's two screens, which share this shell because they share its
+ * one request: `?` is the invitation page with a three-card sample on it, and
+ * `?view=feed` is the founding circle's places in full. `networkDiscoveryMarkup`
+ * picks between them from `surface` — both read the same loaded feed, so moving
+ * between them costs nothing.
  */
 function renderHome(root: HTMLElement): void {
   destroyMap();
   root.dataset.restyle = 'home';
   applyTapeTheme();
   syncDocumentMeta(null);
+  const onFeed = state.view === 'feed';
+  // `home` marks My detours current for a member and the invitation page for a
+  // visitor; anything else reaching this shell — including a route still waiting
+  // on the catalogue — is the feed.
+  const activeNav: NavView = state.view === 'home' ? 'home' : 'feed';
 
   root.innerHTML = `
     <a class="skip-link" href="#network-home-title">Skip to circle discovery</a>
-    ${mastheadMarkup(memberCanExplore() ? 'feed' : 'home')}
-    ${networkDiscoveryMarkup(accountHref(), resolveNetworkPlace)}
+    ${mastheadMarkup(activeNav)}
+    ${networkDiscoveryMarkup(accountHref(), resolveNetworkPlace, {
+      feedHref: feedHref(),
+      inviteRequestHref: `${homeHref()}${INVITE_REQUEST_HASH}`,
+      surface: onFeed ? 'feed' : 'home',
+    })}
     <footer class="footer network-footer">
       <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
       ${tapeThemeToggleMarkup()}
@@ -3214,7 +3185,11 @@ function render(root: HTMLElement) {
     return;
   }
 
-  if (!memberCanExplore() && (state.view === 'explore' || state.view === 'circle' || state.view === 'feed')) {
+  // My Circle is the one route a visitor genuinely has nothing behind: it draws
+  // the caller's own invitation graph, and they have none. Explore and the feed
+  // are open — a visitor's catalogue is the founding circle's places, scoped by
+  // the server, so there is nothing left for a client-side gate to protect.
+  if (!memberCanExplore() && state.view === 'circle') {
     state.view = 'home';
     state.country = null;
     state.exploreQuery = '';
@@ -3293,7 +3268,11 @@ function render(root: HTMLElement) {
       <section class="city-chooser" aria-label="No coverage yet">
         <div class="city-chooser-heading">
           <h2>Be the first</h2>
-          <p>A meaningful recommendation from a verified member puts a place on the list. <a href="${esc(accountHref())}" data-community-route>Recommend a place in ${esc(name)} <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a></p>
+          <p>A meaningful recommendation from a verified member puts a place on the list. ${
+            memberCanExplore()
+              ? `<a href="${esc(accountHref())}" data-community-route>Recommend a place in ${esc(name)} <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
+              : `<a href="${esc(`${homeHref()}${INVITE_REQUEST_HASH}`)}">Ask for an invitation <span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>`
+          }</p>
         </div>
         <p class="city-chooser-status"><a href="${esc(exploreHref())}" data-explore><span class="nav-arrow nav-arrow-back" aria-hidden="true">←</span> Back to Explore</a></p>
       </section>
@@ -3324,17 +3303,6 @@ function render(root: HTMLElement) {
     updateRoute('destination', state.destination, 'replace');
   }
 
-  if (!memberCanExplore()) {
-    renderDiscoveryGate(
-      root,
-      'destination-title',
-      destination.name,
-      `${destination.name} is inside the circle.`,
-      `Sign in or join Detour to browse every member-recommended place in ${destination.name}.`
-    );
-    return;
-  }
-
   syncDocumentMeta(destination.name);
   const list = filteredVenues();
   const hasMap = mappableVenues(destinationVenues()).length > 0;
@@ -3350,7 +3318,9 @@ function render(root: HTMLElement) {
     : occasionBrowsing
       ? `${destination.name}, for the plan you have.`
       : `${destination.name}, recommended by Detour members.`;
-  const destinationTagline = 'Discover somewhere new, then recommend the places you love.';
+  const destinationTagline = memberCanExplore()
+    ? 'Discover somewhere new, then recommend the places you love.'
+    : "Every place here is one of Detour's founding members' own, with what they wrote about it.";
   const country = destinationCountry(destination);
   const mapView = state.cityView === 'map' && hasMap;
   const destinationContent = `${discoveryBar(list, hasMap, mapView)}
@@ -3365,13 +3335,9 @@ function render(root: HTMLElement) {
     <a class="skip-link" href="${mapView ? '#venue-map' : '#selection-results'}">Skip to discovery</a>
     ${mastheadMarkup()}
     <nav class="explore-breadcrumb destination-breadcrumb" aria-label="Breadcrumb">
+      <a href="${esc(exploreHref())}" data-explore>Explore</a>
       ${
-        memberCanExplore()
-          ? `<a href="${esc(exploreHref())}" data-explore>Explore</a>`
-          : `<a href="${esc(homeHref())}" data-home>Home</a>`
-      }
-      ${
-        country && memberCanExplore()
+        country
           ? `<span aria-hidden="true">/</span><a href="${esc(countryHref(country.slug))}" data-country="${esc(country.slug)}">${esc(country.name)}</a>`
           : ''
       }

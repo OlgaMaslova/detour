@@ -26,8 +26,10 @@
  *     is never worth a blank page.
  *
  * What it will not do: quote a member. The card is built from the place's own
- * facts, because a page a stranger can open is not the place for anybody's words
- * or pseudonym — the same rule `notesSection` follows in src/place.ts.
+ * facts, and that survives the catalogue opening to signed-out visitors — a
+ * visitor reads the founding circle's notes on the page, but a preview card is
+ * pushed to people who never asked for it and are never shown the scope it came
+ * from. The page decides what a reader may see; a card decides what travels.
  */
 
 import { citySlug, venuePlaceSlug } from '../src/slugs';
@@ -121,9 +123,16 @@ function text(value: unknown): string {
 }
 
 /**
- * The published catalogue, read through the same public route the signed-out app
- * uses. Cached at the edge by URL, so a place link going round a group chat costs
- * one origin request between them rather than one each.
+ * Every published place, read through the same public venue query the app makes.
+ *
+ * Deliberately the publication boundary rather than a visitor's own list, which is
+ * narrower: a link to a place outside the founding circle still has to resolve to
+ * the place it names, exactly as `outsidePlaceRoute` in main.ts resolves it. The
+ * card states facts about a published place and quotes nobody, so nothing scoped
+ * is at stake here.
+ *
+ * Cached at the edge by URL, so a place link going round a group chat costs one
+ * origin request between them rather than one each.
  */
 async function loadCatalogue(): Promise<PreviewPlace[] | null> {
   const filter = encodeURIComponent('published = true && suppressed != true');

@@ -179,6 +179,13 @@ function clearEndorsement(app, memberId, entryId) {
  * stay that way round: naming a member the caller cannot see would let them
  * learn that member exists, which is the invitation graph by another route.
  *
+ * An empty `callerId` is a signed-out visitor, and the founding circle is their
+ * whole visibility rule — the same tier that decided which places they can see at
+ * all. The graph predicate is not merely skipped for them, it must never be
+ * reached: `graphMemberSql` compares `m.invited_by` against the bound caller, and
+ * against "" that matches every unparented account. So the visitor branch swaps
+ * the predicate and binds nothing.
+ *
  * The caller is responsible for pruning venues they cannot see (see the
  * containment step in the place-detourists route). A total for a place the
  * caller has no access to would state the size and shape of a catalogue they are
@@ -186,6 +193,14 @@ function clearEndorsement(app, memberId, entryId) {
  */
 function endorsementSignals(app, callerId) {
   const scope = require(__hooks + "/circle_scope.js");
+  const founding = require(__hooks + "/founding_cap.js");
+  const caller = String(callerId || "").trim();
+  const anonymous = !caller;
+  const visibleSql = anonymous
+    ? founding.foundingMemberSql("m")
+    : scope.visibleRecommenderSql("m", "caller");
+  const inGraphSql = anonymous ? "FALSE" : scope.graphMemberSql("m", "caller");
+  const callerBinding = anonymous ? {} : { caller: caller };
   const totals = {};
   const names = {};
   const own = {};
@@ -210,8 +225,8 @@ function endorsementSignals(app, callerId) {
           // Visibility is selected as a column rather than applied as a filter,
           // because one pass has to produce two different numbers: the global
           // total, and the names this caller is allowed to read.
-          "CASE WHEN " + scope.visibleRecommenderSql("m", "caller") + " THEN TRUE ELSE FALSE END AS visible_to_caller, " +
-          "CASE WHEN " + scope.graphMemberSql("m", "caller") + " THEN TRUE ELSE FALSE END AS in_graph, " +
+          "CASE WHEN " + visibleSql + " THEN TRUE ELSE FALSE END AS visible_to_caller, " +
+          "CASE WHEN " + inGraphSql + " THEN TRUE ELSE FALSE END AS in_graph, " +
           "e.created " +
           "FROM community_place_endorsements e " +
           "JOIN community_waitlist_entries w ON w.id = e.waitlist " +
@@ -219,7 +234,7 @@ function endorsementSignals(app, callerId) {
           "WHERE " + realMemberSql("m") + " " +
           "ORDER BY e.created ASC, e.id ASC"
       )
-      .bind({ caller: callerId })
+      .bind(callerBinding)
       .all(rows);
   } catch (error) {
     // A read failure here must degrade to "no marks recorded", never to an
@@ -236,7 +251,7 @@ function endorsementSignals(app, callerId) {
     const venueId = String(row.venue_id || "");
     if (!venueId || !row.member_id) continue;
     totals[venueId] = (totals[venueId] || 0) + 1;
-    if (row.member_id === callerId) own[venueId] = true;
+    if (caller && row.member_id === caller) own[venueId] = true;
     if (!row.visible_to_caller) continue;
     // Members have one name on Detour and it is the pseudo; display_name is
     // only a fallback for accounts that predate the consolidation. A member with
@@ -250,7 +265,7 @@ function endorsementSignals(app, callerId) {
       // graph counts as circle: the graph clause is the stronger claim, and it
       // is the one the reader can act on.
       in_graph: Boolean(row.in_graph),
-      is_own: row.member_id === callerId,
+      is_own: Boolean(caller) && row.member_id === caller,
     });
   }
 
