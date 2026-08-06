@@ -3292,15 +3292,7 @@ legend { color: var(--tape-text); }
 
 /* What a visitor gets where the notes would be. A ruled section like every other
    one on the page — not a panel, not a banner: it is the last thing on a page
-   somebody was sent, answering the question that page raises. */
-.place-visitor-copy {
-  max-width: 44rem;
-  margin: 0;
-  color: var(--tape-text);
-  font-family: var(--tape-mono);
-  font-size: 14px;
-  line-height: 1.65;
-}
+   somebody was sent, and now it is only the two ways in. */
 .place-visitor-cta { justify-self: start; }
 /* The same two-way choice the home page offers, sized for a section that is one
    column of a place page rather than a full-width band. */

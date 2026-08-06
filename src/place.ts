@@ -476,27 +476,29 @@ function whereSection(v: Venue, h: PlaceHelpers): string {
 }
 
 /**
- * What a visitor gets instead of the notes: one sentence about how places get
- * here, and a way in.
+ * What a visitor gets instead of the notes: the two ways in, and nothing above
+ * them.
  *
- * It says what the list is rather than selling it, and it makes no claim about
- * how they arrived: a link travels, and "your friend sent you this" would be a
- * guess about somebody who might have found it any number of ways.
+ * It used to open with a heading and a paragraph explaining that a member put
+ * their name behind this place and that nothing else gets in. By the time a
+ * visitor reaches this section they have read the note, the name and the founding
+ * badge attached to it — the paragraph restated in the abstract what the page had
+ * just shown concretely, which is the shape of a pitch rather than a fact.
  *
- * It no longer offers the notes as the reason to join, because the notes are
- * above it: a visitor reads what the founding circle wrote. What an account buys
- * is the part that cannot be shown to a stranger — the people you invite, the
- * people they invite, and a list that grows into your own rather than staying
- * fifty people's.
+ * The two options carry their own copy, and it is the copy only an account can
+ * cash: the people you invite, the seats, what reaches whom. That is what a
+ * stranger cannot be shown, and it is enough said.
+ *
+ * Labelled rather than headed, since there is no longer a heading to point at. A
+ * visually hidden one would be a heading kept for the outline's sake, saying
+ * something no reader was meant to read.
  *
  * The form it points at is the one on the home page, unchanged. A second
  * invitation form would be a second thing to keep honest.
  */
 function visitorInvitation(chrome: PlaceChrome, h: PlaceHelpers): string {
   if (chrome.isMember) return '';
-  return `<section class="place-section place-visitor" aria-labelledby="place-visitor-title">
-    <h2 id="place-visitor-title">How this place got here</h2>
-    <p class="place-visitor-copy">A member put their name behind it and said why. That is the only way anything joins Detour — no ads, no paid listings, no anonymous stars. You are reading Detour's founding members; join, and you read the people you invite too.</p>
+  return `<section class="place-section place-visitor" aria-label="Join Detour">
     <div class="place-visitor-actions">
       <div class="place-visitor-option">
         <a class="primary-button place-visitor-cta" href="${h.esc(
