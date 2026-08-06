@@ -11,11 +11,16 @@
  *   3. the feed             where their own card is now waiting
  *
  * The account is not one of those screens. Every value the server requires on a
- * public signup — email, password, invitation code, pseudo, home city — is asked
- * for together on the invitation card, which creates the account and signs the
- * member in before this route opens. Splitting them over two screens only meant
- * one form could not be submitted without the other's answers; see the join
- * handler in src/community.ts.
+ * public signup — email, password, pseudo, home city, and an invitation code when
+ * there is one — is asked for together on whichever signup card the member used,
+ * which creates the account and signs them in before this route opens. Splitting
+ * them over two screens only meant one form could not be submitted without the
+ * other's answers; see `submitSignup` in src/community.ts.
+ *
+ * Both doors land here, and this route neither knows nor cares which one was
+ * used. A member who started their own circle is asked the same question as one
+ * who joined somebody's, because the question is about a place they love and that
+ * is not a fact about how they got in.
  *
  * The place step is the ordinary recommendation path, not a private copy of it:
  * the same `community_recommendations` create, the same place-identity question

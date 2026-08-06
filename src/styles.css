@@ -1838,18 +1838,23 @@ legend { color: var(--tape-text); }
 .network-home,
 .network-invitation { width: min(100%, 1080px); margin-inline: auto; padding: clamp(2rem, 6vw, 4.75rem) 0 0; }
 .network-home { padding-top: clamp(1.5rem, 4vw, 3rem); }
+/* One column. The founding-seat request moved to a route of its own, so the
+   sample is this page's content and it gets the whole width rather than holding a
+   gap open beside it for a form nobody has asked for. */
 .network-invitation {
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(20rem, 0.92fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
-    'intro intro'
-    'sample invite';
+    'intro'
+    'choice'
+    'sample';
   align-items: start;
   gap: clamp(1.5rem, 4vw, 3.25rem) clamp(1.5rem, 5vw, 4rem);
   padding-bottom: clamp(2rem, 6vw, 4.75rem);
   border-bottom: none;
 }
 .network-invitation-copy { grid-area: intro; max-width: 58rem; }
+.network-invitation .network-visitor-choice { grid-area: choice; }
 
 /* member home hero: no violet panel, plain type on the graph paper */
 .network-home-heading {
@@ -2306,10 +2311,76 @@ legend { color: var(--tape-text); }
 .network-empty h3 { margin: 0; font-size: 1.25rem; }
 .network-empty p { max-width: 58ch; margin: 0.45rem 0 0; color: var(--tape-muted); }
 
+/* ---- the two ways in ----
+   Side by side and the same width, because they are two different offers rather
+   than two grades of one. The open door leads on weight alone — a filled button
+   against an outlined one — which says which is immediate without saying the
+   other is lesser. Each carries its own sentence: a button pair with no
+   explanation would make the founder ask read as the upgrade. */
+.network-visitor-choice {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  padding: clamp(1rem, 3vw, 1.5rem) 0 0;
+  border-top: 1px solid var(--tape-hairline-strong);
+}
+.network-visitor-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(1rem, 3vw, 2rem);
+  align-items: start;
+}
+.network-visitor-option { display: grid; gap: 0.6rem; justify-items: start; }
+.network-visitor-option p {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 13.5px;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+.network-visitor-option .primary-button,
+.network-visitor-option .secondary-button { text-decoration: none; }
+/* Inside the feed the pair is the page's closing move rather than a band between
+   sections, so it takes the room a footer would. */
+.network-member-content > .network-visitor-choice { margin-top: clamp(1.5rem, 4vw, 2.75rem); }
+
 /* ---- the anonymous three-place preview ----
    It reads as a physical card deck: same card proportions, overlapped and
    lightly fanned, with every exposed card able to rise to the front on hover
-   or keyboard focus. */
+   or keyboard focus.
+
+   THE FAN RUNS ACROSS, NOT DOWN. It used to spill downward — each card offset a
+   full card-height below the last, 88rem of page for three places — because it
+   was a narrow column with the founding-membership form beside it. That form is
+   its own page now and the deck has the whole width, so the three cards deal out
+   left to right like a hand held up: one screen, no scrolling, and the reader
+   sees all three at once rather than discovering the third by scrolling past the
+   first two.
+
+   ONE FLUID RULE, NOT THREE BREAKPOINTS. The card and the gap between cards are
+   both clamped against `vw`, so the deck resolves itself at every width from a
+   laptop down to a tablet in portrait — and because the card stops shrinking
+   before the spread does, the overlap tightens as the screen narrows. That is the
+   three treatments, arrived at by arithmetic rather than by three sets of numbers
+   that would have to be kept in step by hand:
+
+     laptop  ≥1410px  card 22rem, gap 18.5rem — barely touching, dealt out flat
+     tablet ↔ 1024px  card ~19rem, gap ~13.5rem — leaning on each other
+     tablet ↕  768px  card 15rem, gap ~10rem   — overlapped like a held hand
+
+   The numbers are chosen so the fanned span — the two outer cards' spread plus the
+   half-width each gains from its rotation — stays inside the container at every
+   width from 1680px down to 621px, where the phone stack takes over. The tightest
+   it ever gets is 16px of clearance at that floor.
+
+   Breakpoints could not have done this cleanly: `.network-invitation` is capped at
+   1080px while the viewport is not, so a fan sized in fixed rem either overflowed
+   a 1041px tablet or left a 1440px laptop half empty.
+
+   The phone stack is deliberately untouched and still lives in the 620px block: a
+   fan needs width to read as one, and below that there is none to give. */
 .network-public-sample {
   grid-area: sample;
   display: grid;
@@ -2327,31 +2398,59 @@ legend { color: var(--tape-text); }
   padding-bottom: 0.9rem;
   border-bottom: 1px solid var(--tape-hairline-strong);
 }
+/* One child now that the overline is gone, so the flex row is only holding the
+   rule beneath the headline. The measure stays: a display face set the full width
+   of a 1080px page is a banner, not a heading. */
 .network-public-sample-heading > div { max-width: 28rem; }
-.network-public-sample-heading .network-membership-label { margin: 0 0 0.35rem; }
-.network-public-sample-heading > p { max-width: 29ch; margin: 0; text-wrap: pretty; }
 .network-public-list {
+  /* The card's width, and how far the outer two are dealt from the middle. The
+     card bottoms out at 15rem while the spread keeps shrinking, which is what
+     turns a flat row into an overlapping hand as the screen narrows. */
+  --deck-card: clamp(15rem, 30vw, 22rem);
+  --deck-spread: clamp(7.5rem, 21vw, 18.5rem);
+  /* Tall enough for a cover, a title, four clamped lines and a byline even at the
+     narrowest card, where the width-derived figure would come up short. */
+  --deck-height: max(24rem, calc(var(--deck-card) * 1.36));
   isolation: isolate;
   display: grid;
   gap: 1rem;
-  min-height: 88rem;
+  /* One card tall plus the slack the rotations need at the corners. The cards are
+     stacked in a single grid cell and positioned by transform, so this is the
+     deck's whole height however many are dealt. */
+  min-height: calc(var(--deck-height) + 3.5rem);
   place-items: start center;
-  padding: 1.4rem 2.6rem 2.5rem;
+  padding: 1.6rem clamp(0.75rem, 2vw, 1.5rem) 2.5rem;
   perspective: 1200px;
 }
 .network-public-list .network-entry {
   grid-area: 1 / 1;
-  height: 32.5rem;
-  width: min(100%, 24rem);
+  height: var(--deck-height);
+  width: min(100%, var(--deck-card));
+  /* Bottom-centre, so a rotation swings the card's top corner out and its foot
+     stays planted — the way a card pivots in a hand. */
   transform-origin: 50% 92%;
   transition:
     box-shadow 140ms ease,
     border-color 140ms ease;
 }
-.network-public-list .network-entry:nth-child(1) { z-index: 1; transform: translate(2rem, -0.75rem) rotate(4deg); }
-.network-public-list .network-entry:nth-child(2) { z-index: 2; transform: translate(-2rem, 80%) rotate(-6deg); }
-.network-public-list .network-entry:nth-child(3) { z-index: 3; transform: translate(1rem, 160%) rotate(3deg); }
-.network-public-list .network-entry:focus-within { z-index: 5; }
+/* Dealt left to right. The middle card sits a shade low and nearly upright so the
+   two beside it read as leaning against it rather than as three tilted the same
+   way. Rotations stay small: at this pivot every degree throws the top corner
+   about half a rem further out, and that overhang is what the container has to
+   have room for. */
+.network-public-list .network-entry:nth-child(1) {
+  z-index: 1;
+  transform: translate(calc(var(--deck-spread) * -1), 0.4rem) rotate(-4deg);
+}
+.network-public-list .network-entry:nth-child(2) { z-index: 2; transform: translate(0, 1.1rem) rotate(1deg); }
+.network-public-list .network-entry:nth-child(3) {
+  z-index: 3;
+  transform: translate(var(--deck-spread), 0.2rem) rotate(4deg);
+}
+/* Both, and hover was missing: the section above promises every exposed card can
+   rise to the front, and until now only the keyboard could do it. */
+.network-public-list .network-entry:focus-within,
+.network-public-list .network-entry:hover { z-index: 5; }
 .network-public-list .network-entry:hover {
   border-color: var(--tape-accent-strong);
   box-shadow: 14px 14px 0 var(--tape-rust);
@@ -2372,9 +2471,26 @@ legend { color: var(--tape-text); }
 .network-public-state.is-unavailable { align-items: flex-start; justify-content: space-between; }
 .network-public-state .network-loading-mark { width: 2rem; height: 2rem; border-width: 0.45rem; }
 
-/* ---- the invitation column ---- */
+/* ---- the founding-seat request ----
+   Its own page now (`?view=founding`), so the panel is no longer a column beside
+   anything: it is the one thing on the screen, and it takes a readable measure
+   rather than the full width of a 1080px page. */
+.founding-page {
+  width: min(100%, 46rem);
+  margin: 0 auto;
+  padding: clamp(1.25rem, 4vw, 2.5rem) 0 3rem;
+  display: grid;
+  gap: clamp(1rem, 3vw, 1.75rem);
+}
+.founding-alternative {
+  margin: 0;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 13.5px;
+  line-height: 1.7;
+  text-wrap: pretty;
+}
 .network-invitation-action {
-  grid-area: invite;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -3162,6 +3278,26 @@ legend { color: var(--tape-text); }
   line-height: 1.65;
 }
 .place-visitor-cta { justify-self: start; }
+/* The same two-way choice the home page offers, sized for a section that is one
+   column of a place page rather than a full-width band. */
+.place-visitor-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(0.9rem, 3vw, 2rem);
+  align-items: start;
+}
+.place-visitor-option { display: grid; gap: 0.55rem; justify-items: start; }
+.place-visitor-option p {
+  max-width: 40ch;
+  margin: 0;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+.place-visitor-cta,
+.place-visitor-cta-secondary { text-decoration: none; }
 
 .place-notes-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .place-note-controls { display: flex; gap: 0.45rem; }
@@ -5437,12 +5573,6 @@ legend { color: var(--tape-text); }
      the drop to one column happens at the 620px phone breakpoint. */
   .network-recommendation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .network-layout-picker { display: none; }
-  .network-invitation {
-    grid-template-columns: 1fr;
-    grid-template-areas: 'intro' 'sample' 'invite';
-    align-items: start;
-  }
-  .network-invitation-action { min-height: 0; }
   .explore-featured-grid,
   .explore-destination-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -5455,9 +5585,7 @@ legend { color: var(--tape-text); }
 }
 
 @media (max-width: 760px) {
-  .network-invitation-action { min-height: 13rem; }
   .network-public-sample-heading { align-items: flex-start; flex-direction: column; }
-  .network-public-sample-heading > p { max-width: 48ch; }
   .network-public-state.is-unavailable { flex-direction: column; }
 }
 
@@ -5486,6 +5614,15 @@ legend { color: var(--tape-text); }
      just enough to keep the two apart; the desktop ramp is untouched. */
   h1 { line-height: 1.06; }
   .network-recommendation-grid { grid-template-columns: 1fr; }
+  /* One column, and the buttons go full width: a pair of half-width buttons on a
+     phone is two small targets where one good one belongs. Order is unchanged, so
+     the open door is still read first. */
+  .network-visitor-choice-grid,
+  .place-visitor-actions { grid-template-columns: 1fr; }
+  .network-visitor-option .primary-button,
+  .network-visitor-option .secondary-button,
+  .place-visitor-cta,
+  .place-visitor-cta-secondary { width: 100%; justify-content: center; }
   .signal-badge-plate .signal-tooltip {
     right: auto;
     left: 0;
@@ -5516,6 +5653,10 @@ legend { color: var(--tape-text); }
   .trusted-list-status-error { align-items: stretch; flex-direction: column; }
   .trusted-list-status-error button { width: 100%; }
   .card-member-note { padding-inline: 1rem; }
+  /* The phone deck, and the one place the fan does not apply: three cards abreast
+     in 360px would be three slivers. Each card takes the width and the stack runs
+     down the page, which is why this overrides the height and every transform
+     rather than only the spread. Untouched when the wider layout went horizontal. */
   .network-public-list { min-height: 84rem; padding-inline: 1rem; }
   .network-public-list .network-entry { width: calc(100% - 1.5rem); height: 31rem; }
   .network-public-list .network-entry:nth-child(1) { transform: translate(0.65rem, -0.35rem) rotate(3deg); }

@@ -97,8 +97,8 @@ export interface PlaceChrome {
   memberNav: string;
   homeHref: string;
   accountHref: string;
-  /** The home page's invitation form, for the one reader who has no account. */
-  inviteRequestHref: string;
+  /** The founding-seat request page, for a reader who wants one of fifty. */
+  foundingHref: string;
   recommendHref(v: Venue): string;
   editRecommendationHref(v: Venue): string;
   sharePlaceHref(v: Venue): string;
@@ -496,7 +496,20 @@ function visitorInvitation(chrome: PlaceChrome, h: PlaceHelpers): string {
   return `<section class="place-section place-visitor" aria-labelledby="place-visitor-title">
     <h2 id="place-visitor-title">How this place got here</h2>
     <p class="place-visitor-copy">A member put their name behind it and said why. That is the only way anything joins Detour — no ads, no paid listings, no anonymous stars. You are reading Detour's founding members; join, and you read the people you invite too.</p>
-    <a class="primary-button place-visitor-cta" href="${h.esc(chrome.inviteRequestHref)}">Ask for an invitation<span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>
+    <div class="place-visitor-actions">
+      <div class="place-visitor-option">
+        <a class="primary-button place-visitor-cta" href="${h.esc(
+          chrome.accountHref
+        )}" data-community-route="sign-up">Start your circle<span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>
+        <p>Sign up and you are in — no code, no queue. Everything you write reaches the people you invite.</p>
+      </div>
+      <div class="place-visitor-option">
+        <a class="secondary-button place-visitor-cta-secondary" href="${h.esc(
+          chrome.foundingHref
+        )}" data-founding>Ask to become a founder<span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>
+        <p>One of fifty seats, free for life, whose places reach every member. We read every request and reply personally.</p>
+      </div>
+    </div>
   </section>`;
 }
 

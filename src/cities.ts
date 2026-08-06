@@ -28,4 +28,4 @@ export interface CityMapSource {
 
 export const GLOBAL_META_TITLE = 'Detour — Places your network would actually recommend';
 export const GLOBAL_META_DESCRIPTION =
-  'An invite-only food-and-drink circle built on recommendations from people whose taste you trust. No ads, paid listings, or anonymous stars.';
+  'A food-and-drink circle built on recommendations from people whose taste you trust. No ads, paid listings, or anonymous stars.';

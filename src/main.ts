@@ -18,6 +18,7 @@ import {
   memberPlacePrompt,
   openEditRecommendation,
   openMemberArea,
+  openSignUp,
   openRecommendPlace,
   openSharePlace,
   shouldShowLandingFeedCta,
@@ -52,8 +53,10 @@ import {
   bindNetworkDiscovery,
   communityStripMarkup,
   coverPhotoHref,
+  bindInviteRequestForm,
   ensureNetworkDiscovery,
   groupedRecommendationCardMarkup,
+  inviteRequestFormMarkup,
   markRecommendationPhotoFailed,
   networkDiscoveryMarkup,
   networkPlaceNotes,
@@ -90,6 +93,16 @@ type AppView =
   | 'explore'
   | 'circle'
   | 'how'
+  /**
+   * Asking for a founding seat: the request form, on a page of its own.
+   *
+   * It used to sit at the foot of the invitation page, permanently, which made
+   * the landing argue for one of fifty seats before anybody had said they wanted
+   * one — and left the two ways in reading as a ladder rather than a choice. A
+   * route means the ask is somewhere a visitor goes on purpose, and somewhere the
+   * team can link to directly.
+   */
+  | 'founding'
   | 'country'
   | 'destination'
   | 'place'
@@ -517,6 +530,10 @@ function routeHref(
     url.searchParams.set('view', 'how');
     url.searchParams.delete('invite');
   }
+  else if (view === 'founding') {
+    url.searchParams.set('view', 'founding');
+    url.searchParams.delete('invite');
+  }
   else {
     url.searchParams.delete('view');
     url.searchParams.delete('invite');
@@ -552,6 +569,10 @@ function howHref(): string {
   return routeHref('how', null);
 }
 
+function foundingHref(): string {
+  return routeHref('founding', null);
+}
+
 function countryHref(slug: string): string {
   return routeHref('country', null, null, slug);
 }
@@ -561,7 +582,7 @@ function accountHref(): string {
 }
 
 /** The invite form has no page of its own: it is a section of the home page. */
-const INVITE_REQUEST_HASH = '#network-membership-title';
+
 
 /** Canonical URL of one place's own page. */
 function placeHref(v: Venue): string {
@@ -735,6 +756,26 @@ function showHowItWorks(root: HTMLElement): void {
   render(root);
 }
 
+/**
+ * The founding-seat request, on its own route.
+ *
+ * Focus lands on the heading rather than the first field: this page is an offer
+ * before it is a form, and dropping a cursor into a name box skips past the four
+ * things a founding seat actually gives you.
+ */
+function showFoundingRequest(root: HTMLElement): void {
+  if (state.destination !== null) resetDestinationState();
+  state.view = 'founding';
+  state.destination = null;
+  state.country = null;
+  state.pendingDestination = null;
+  state.place = null;
+  state.exploreQuery = '';
+  updateRoute('founding', null, 'push');
+  pendingFocus = '#network-membership-title';
+  render(root);
+}
+
 function showCircle(root: HTMLElement): void {
   if (state.destination !== null) resetDestinationState();
   state.view = 'circle';
@@ -818,6 +859,8 @@ function applyRouteFromUrl(root: HTMLElement): void {
           ? 'circle'
           : url.searchParams.get('view') === 'how'
             ? 'how'
+          : url.searchParams.get('view') === 'founding'
+            ? 'founding'
       : 'home';
   // Legacy ?city= links resolve to the same destination.
   const requested = isSurveyRoute
@@ -872,6 +915,8 @@ function applyRouteFromUrl(root: HTMLElement): void {
         ? 'account'
         : nextView === 'how'
           ? 'how'
+        : nextView === 'founding'
+          ? 'founding'
         : nextView === 'welcome'
           ? 'welcome'
         : requested
@@ -1785,7 +1830,7 @@ function renderPlace(
     memberNav: navLinks('other'),
     homeHref: homeHref(),
     accountHref: accountHref(),
-    inviteRequestHref: `${homeHref()}${INVITE_REQUEST_HASH}`,
+    foundingHref: foundingHref(),
     recommendHref,
     editRecommendationHref,
     sharePlaceHref,
@@ -2040,6 +2085,16 @@ function bindRouteLinks(root: HTMLElement): void {
         else render(root);
         return;
       }
+      // `sign-up` is not a member-area tab — the account page has no tabs for a
+      // visitor — so it sets the signed-out card instead and always re-renders,
+      // because a visitor already on this page would otherwise press "Start your
+      // circle" and watch the sign-in form not change.
+      if (target === 'sign-up') {
+        openSignUp();
+        if (state.view !== 'account') showAccount(root);
+        else render(root);
+        return;
+      }
       const openedTab = target ? openMemberArea(target) : false;
       if (state.view !== 'account') showAccount(root);
       else if (openedTab) render(root);
@@ -2135,16 +2190,13 @@ function bindRouteLinks(root: HTMLElement): void {
       showHome(root);
     });
   });
-}
-
-// The invite form sits well below the fold on home, so a visitor who asked for
-// it by name is taken to it and left with the cursor in the first field. A
-// member has no invite form on their home page, which is why this can miss.
-function revealInviteRequest(root: HTMLElement): void {
-  const section = root.querySelector<HTMLElement>('[data-invite-request-section]');
-  if (!section) return;
-  section.scrollIntoView({ block: 'start', behavior: 'auto' });
-  root.querySelector<HTMLInputElement>('#invite-request-name')?.focus({ preventScroll: true });
+  root.querySelectorAll<HTMLAnchorElement>('[data-founding]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      showFoundingRequest(root);
+    });
+  });
 }
 
 /**
@@ -2430,7 +2482,7 @@ function exploreSearchMarkup(): string {
         ${
           memberCanExplore()
             ? `<a href="${esc(accountHref())}" data-community-route="recommend-place">Recommend a place <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
-            : `<a href="${esc(`${homeHref()}${INVITE_REQUEST_HASH}`)}">Ask for an invitation <span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>`
+            : `<a href="${esc(foundingHref())}" data-founding>Ask to become a founder <span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>`
         }
       </div>`
     : '';
@@ -2823,9 +2875,17 @@ const FOOTER_TAGLINE = 'Recommended by members. Ready for your next detour.';
  * so it belongs where somebody goes looking for it rather than in a nav slot
  * competing with Explore.
  */
+/**
+ * The two pages that explain Detour rather than show it, on every footer.
+ *
+ * Founding membership belongs here now that it has a route: it left the landing,
+ * and a page reachable only from one pair of buttons on one screen is a page most
+ * readers never learn exists.
+ */
 function footerLinksMarkup(): string {
   return `<nav class="footer-links" aria-label="About Detour">
     <a href="${esc(howHref())}" data-how>How Detour works</a>
+    <a href="${esc(foundingHref())}" data-founding>Founding membership</a>
   </nav>`;
 }
 
@@ -2839,6 +2899,65 @@ function footerLinksMarkup(): string {
  * page. The visibility section in particular mirrors circle_scope.js; if the reach
  * of the graph ever changes, this copy changes with it.
  */
+/**
+ * Ask to become a founding member — the request form, and nothing competing with
+ * it.
+ *
+ * A page rather than a panel on the landing. The ask is four questions and a list
+ * of what a seat gives you, and standing that permanently under the invitation
+ * page made it argue for one of fifty seats before anybody had said they wanted
+ * one — which is exactly the ladder the two-button choice exists to avoid. Here it
+ * is somewhere a visitor arrives on purpose.
+ *
+ * Reachable signed in as well as out, and deliberately so: an ordinary member who
+ * wants to put their hand up for a seat has the same thing to say as a visitor,
+ * and a members-only redirect would be the app telling them the answer before
+ * reading the question. `inviteRequestFormMarkup` decides what to show once a
+ * request has been sent.
+ */
+function renderFoundingRequest(root: HTMLElement): void {
+  destroyMap();
+  root.dataset.restyle = 'founding';
+  applyTapeTheme();
+  document.title = 'Ask to become a founding member — Detour';
+  document
+    .querySelector<HTMLMetaElement>('meta[name="description"]')
+    ?.setAttribute(
+      'content',
+      'Fifty founding seats on Detour, free for life, whose recommendations reach every member. Tell us about one place you would recommend, and why.'
+    );
+  root.innerHTML = `
+    <a class="skip-link" href="#network-membership-title">Skip to the request</a>
+    ${mastheadMarkup('other')}
+    <main class="founding-page">
+      <nav class="explore-breadcrumb" aria-label="Breadcrumb">
+        <a href="${esc(homeHref())}" data-home>Home</a>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">Founding membership</span>
+      </nav>
+      <div class="network-invitation-action" data-invite-request-section>
+        ${inviteRequestFormMarkup(accountHref())}
+      </div>
+      <p class="founding-alternative">Not after a seat? <a href="${esc(
+        accountHref()
+      )}" data-community-route="sign-up">Start your circle instead</a> — sign up and you are in, with no queue and no request to read.</p>
+    </main>
+    <footer class="footer explore-footer">
+      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
+      ${tapeThemeToggleMarkup()}
+    </footer>
+  `;
+  bindRouteLinks(root);
+  // The form only — this page renders no feed, so binding it through
+  // `bindNetworkDiscovery` would fetch recommendations nothing here displays.
+  bindInviteRequestForm(root, () => render(root));
+  if (pendingFocus) {
+    const target = root.querySelector<HTMLElement>(pendingFocus);
+    pendingFocus = null;
+    target?.focus({ preventScroll: true });
+  }
+}
+
 function renderHowItWorks(root: HTMLElement): void {
   destroyMap();
   root.dataset.restyle = 'how';
@@ -3066,7 +3185,7 @@ function renderHome(root: HTMLElement): void {
     ${mastheadMarkup(activeNav)}
     ${networkDiscoveryMarkup(accountHref(), resolveNetworkPlace, {
       feedHref: feedHref(),
-      inviteRequestHref: `${homeHref()}${INVITE_REQUEST_HASH}`,
+      foundingHref: foundingHref(),
       surface: onFeed ? 'feed' : 'home',
     })}
     <footer class="footer network-footer">
@@ -3101,15 +3220,6 @@ function renderHome(root: HTMLElement): void {
     const target = root.querySelector<HTMLElement>(pendingFocus);
     pendingFocus = null;
     target?.focus({ preventScroll: true });
-  }
-  // A link to the invite form, shared or bookmarked, reaches home before the
-  // section it names exists, so the browser cannot honour the fragment itself.
-  // Honour it here, then drop it: kept, it would send every later visit to home
-  // down the page too.
-  if (window.location.hash === INVITE_REQUEST_HASH) {
-    const url = new URL(window.location.href);
-    history.replaceState(null, '', `${url.pathname}${url.search}`);
-    revealInviteRequest(root);
   }
 }
 
@@ -3182,6 +3292,13 @@ function render(root: HTMLElement) {
   // deciding whether to join, and it names no member and no place.
   if (state.view === 'how') {
     renderHowItWorks(root);
+    return;
+  }
+
+  // The same reason, and one more: an ordinary member asking for a founding seat
+  // has the same thing to say as a visitor, so this page is not gated either.
+  if (state.view === 'founding') {
+    renderFoundingRequest(root);
     return;
   }
 
@@ -3271,7 +3388,7 @@ function render(root: HTMLElement) {
           <p>A meaningful recommendation from a verified member puts a place on the list. ${
             memberCanExplore()
               ? `<a href="${esc(accountHref())}" data-community-route>Recommend a place in ${esc(name)} <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
-              : `<a href="${esc(`${homeHref()}${INVITE_REQUEST_HASH}`)}">Ask for an invitation <span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>`
+              : `<a href="${esc(foundingHref())}" data-founding>Ask to become a founder <span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>`
           }</p>
         </div>
         <p class="city-chooser-status"><a href="${esc(exploreHref())}" data-explore><span class="nav-arrow nav-arrow-back" aria-hidden="true">←</span> Back to Explore</a></p>

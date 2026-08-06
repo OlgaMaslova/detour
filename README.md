@@ -1,8 +1,12 @@
 # Detour — operator runbook
 
-Detour is an invite-only circle of members who recommend places to each other.
+Detour is a network of member circles who recommend places to each other. Anyone
+can sign up and start a circle; an invitation is what puts somebody inside yours.
 A place is public on Detour **only** because a verified member recommended it;
 there is no guide catalogue, no awards, and no editorial lane.
+
+Signed-out visitors browse the whole app — Explore, cities, the map, the feed, the
+place pages — scoped to the places the founding circle recommends.
 
 This repository holds both halves of production:
 
@@ -57,8 +61,8 @@ curl -fsS https://api.takedetour.app/api/detour/ready
     file. This replaced the entire previous migration history (~90 files of
     guide catalogue, itinerary model, and provenance tables that were
     seeded, amended, then swept away); its header explains why.
-  - `1768100100_seed_founding_member.js` — the one founding account, so an
-    invite-only app has a way in. Password comes from
+  - `1768100100_seed_founding_member.js` — the one founding account, so the
+    founding circle has a first member. Password comes from
     `DETOUR_FOUNDER_PASSWORD`, or is generated and printed once to the deploy
     log.
   - `1768100200_seed_launch_selection.js` — the launch selection: five cities
@@ -101,7 +105,7 @@ platform-provisioned or otherwise unmanaged collections in the database.
 
 | Collection | What it holds |
 |---|---|
-| `members` | the invite-only circle (auth collection); readable only by the member it belongs to. A public signup carries pseudo, email, password, home city, and an invitation code — the two-screen join in `src/onboarding.ts` sends all five together |
+| `members` | every account (auth collection); readable only by the member it belongs to. A public signup carries pseudo, email, password and home city, plus an invitation code when there is one — `submitSignup` in `src/community.ts` sends them together. No code means the member starts their own circle: `invited_by` stays empty |
 | `invites` | issued invitation codes and who claimed them |
 | `invite_requests` | requests to join, from the public form |
 | `cities` | the destinations places route under, and how each presents |

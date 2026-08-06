@@ -10,7 +10,7 @@
 const SUBJECT = 'An invitation to Detour';
 
 /** One sentence of context above the link: an invitation with no words is a bare URL. */
-const MESSAGE = "I'd like to invite you to Detour — a small, invite-only circle sharing the places we actually love. This link is yours:";
+const MESSAGE = "I'd like to invite you to Detour — a small circle sharing the places we actually love. This link puts you in mine:";
 
 function esc(value: unknown): string {
   return String(value ?? '')

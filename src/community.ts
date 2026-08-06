@@ -32,7 +32,18 @@ import {
 } from './saved';
 import type { RecordModel } from 'pocketbase';
 
-type CommunityMode = 'sign-in' | 'join';
+/**
+ * The three doors into Detour.
+ *
+ * `sign-in` for an account that exists. `sign-up` is the open one — no code, no
+ * queue, and it starts a circle rather than joining one. `join` spends an
+ * invitation and puts the new member inside the issuer's circle.
+ *
+ * The two signup doors differ in exactly one field, and it is the one that
+ * matters: the invitation code, which is the graph edge. Everything else about
+ * the account is identical, which is why one submit path serves both.
+ */
+type CommunityMode = 'sign-in' | 'sign-up' | 'join';
 /**
  * The member area's own tabs. My detours is NOT among them: it is the signed-in
  * landing now (docs/landing-spec.md), so listing it here too would give one
@@ -971,41 +982,71 @@ function directoryMarkup(key: string, label: string): string {
   </div>`;
 }
 
+/**
+ * The account fields both signup doors ask for, in the same order and with the
+ * same rules. Written once so the open form and the invitation card cannot drift
+ * into asking for a pseudo two different ways.
+ */
+function accountFieldsMarkup(): string {
+  return `<label>Email address<input name="email" type="email" value="${esc(joinDraft.email)}" autocomplete="email" required ${submitting ? 'disabled' : ''}></label>
+    <label>Password<input name="password" type="password" autocomplete="new-password" minlength="8" required ${submitting ? 'disabled' : ''}></label>
+    <p class="community-form-note">Eight characters or more. This is how you sign in from now on.</p>
+    <label>Your pseudo<input name="pseudo" value="${esc(joinDraft.pseudo)}" autocomplete="off" spellcheck="false" minlength="3" maxlength="30"
+      pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens"
+      required placeholder="anna-lisboa" ${submitting ? 'disabled' : ''}></label>
+    <label>Where you live<input name="home_city" value="${esc(joinDraft.city)}" autocomplete="address-level2" minlength="2" maxlength="120"
+      required placeholder="San Francisco" ${submitting ? 'disabled' : ''}></label>
+    <p class="community-form-note">Your pseudo is your name on Detour. Your city is where the circle sees you recommending from.</p>`;
+}
+
 function signedOutPanel(): string {
   const isJoin = mode === 'join';
+  const isSignUp = mode === 'sign-up';
+  const heading = isJoin
+    ? 'Join with your personal invitation.'
+    : isSignUp
+      ? 'Start your circle.'
+      : 'Return to your Detour.';
+  const lead = isJoin
+    ? 'Everything your account needs, on one card. Then the first place you would send someone to.'
+    : isSignUp
+      ? 'Four things, no invitation, no waiting. You start with the founding members’ places, and the circle you build from there is your own.'
+      : 'Sign in to your member account.';
+  const tab = (value: CommunityMode, label: string): string =>
+    `<button class="community-tab ${mode === value ? 'is-active' : ''}" type="button" role="tab" aria-selected="${
+      mode === value
+    }" data-community-mode="${value}">${label}</button>`;
   return `<section class="community-panel community-panel-auth" aria-label="Detour membership">
     <div class="community-panel-intro">
       <p class="community-kicker">The detourist circle</p>
-      <h2>${isJoin ? 'Join with your personal invitation.' : 'Return to your Detour.'}</h2>
-      <p>${isJoin ? 'Everything your account needs, on one card. Then the first place you would send someone to.' : 'Sign in to your member account.'}</p>
+      <h2>${heading}</h2>
+      <p>${lead}</p>
     </div>
     <div class="community-form-wrap">
       <div class="community-tabs" role="tablist" aria-label="Membership options">
-        <button class="community-tab ${!isJoin ? 'is-active' : ''}" type="button" role="tab" aria-selected="${!isJoin}" data-community-mode="sign-in">Sign in</button>
-        <button class="community-tab ${isJoin ? 'is-active' : ''}" type="button" role="tab" aria-selected="${isJoin}" data-community-mode="join">Use an invitation</button>
+        ${tab('sign-in', 'Sign in')}${tab('sign-up', 'Start your circle')}${tab('join', 'Use an invitation')}
       </div>
       ${noticeMarkup()}
       ${
         isJoin
           ? `<form class="community-form" data-community-join>
-              <label>Email address<input name="email" type="email" value="${esc(joinDraft.email)}" autocomplete="email" required ${submitting ? 'disabled' : ''}></label>
-              <label>Password<input name="password" type="password" autocomplete="new-password" minlength="8" required ${submitting ? 'disabled' : ''}></label>
-              <p class="community-form-note">Eight characters or more. This is how you sign in from now on.</p>
-              <label>Your pseudo<input name="pseudo" value="${esc(joinDraft.pseudo)}" autocomplete="off" spellcheck="false" minlength="3" maxlength="30"
-                pattern="@?[a-zA-Z0-9][a-zA-Z0-9-]{1,28}[a-zA-Z0-9]" title="3-30 characters: letters, digits, and hyphens"
-                required placeholder="anna-lisboa" ${submitting ? 'disabled' : ''}></label>
-              <label>Where you live<input name="home_city" value="${esc(joinDraft.city)}" autocomplete="address-level2" minlength="2" maxlength="120"
-                required placeholder="San Francisco" ${submitting ? 'disabled' : ''}></label>
-              <p class="community-form-note">Your pseudo is your name on Detour. Your city is where the circle sees you recommending from.</p>
+              ${accountFieldsMarkup()}
               <label>Invitation code<input name="invite_code" value="${esc(invitationCodePrefill)}" autocomplete="off" spellcheck="false" maxlength="80" placeholder="DTR-…" required ${submitting ? 'disabled' : ''}></label>
               <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Joining…' : 'Join Detour'}</button>
+              <p class="community-form-note">Next: the first place you would send someone to.</p>
+            </form>`
+          : isSignUp
+            ? `<form class="community-form" data-community-sign-up>
+              ${accountFieldsMarkup()}
+              <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Creating your account…' : 'Start your circle'}</button>
+              <p class="community-form-note">You read Detour's founding members from the start. Everything you write reaches the people you invite — nobody else.</p>
               <p class="community-form-note">Next: the first place you would send someone to.</p>
             </form>`
           : `<form class="community-form" data-community-sign-in>
               <label>Email address<input name="email" type="email" autocomplete="email" required></label>
               <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
               <button class="primary-button" type="submit" ${submitting ? 'disabled' : ''}>${submitting ? 'Signing in…' : 'Sign in'}</button>
-              <p class="community-form-note">New here? A personal invitation is all you need to join.</p>
+              <p class="community-form-note">New here? Start your circle, or use an invitation if somebody sent you one.</p>
             </form>`
       }
     </div>
@@ -1633,7 +1674,7 @@ function invitesPanel(): string {
   const seatsGone = foundingSeatsRemaining === 0;
   return `<section class="community-tab-panel community-invitation-panel" id="member-panel-invitations" role="tabpanel" aria-labelledby="member-tab-invitations" tabindex="0">
     <div class="community-invite-actions">
-      <p class="community-invite-explainer">Detour grows by personal invitation only — create a personal invitation link and send it to someone you trust so they can join as a member.</p>
+      <p class="community-invite-explainer">Your circle grows by personal invitation — create a link and send it to someone you trust. Whoever redeems it joins inside your circle, which is what an open signup cannot do for itself.</p>
       ${
         canGrantFounding
           ? `<label class="community-switch community-invite-founding">
@@ -2316,6 +2357,21 @@ export function openMemberArea(tab: string): boolean {
   return true;
 }
 
+/**
+ * Open the account page on the open-signup card, for the "Start your circle"
+ * calls to action a visitor meets around the app.
+ *
+ * A no-op for somebody already signed in: the signed-out panel is not what they
+ * would be looking at, and setting a mode behind a page they cannot see would
+ * decide which card greets them the next time they sign out.
+ */
+export function openSignUp(): void {
+  if (member()) return;
+  mode = 'sign-up';
+  clearInvitationRoute();
+  notice = null;
+}
+
 /** Drop the session. Callers re-render; the masthead falls back to "Members". */
 export function signOutMember(): void {
   pb.authStore.clear();
@@ -2956,21 +3012,26 @@ export function bindCommunity(
   }
   root.querySelectorAll<HTMLButtonElement>('[data-community-mode]').forEach((button) => {
     button.addEventListener('click', () => {
-      mode = button.dataset.communityMode === 'join' ? 'join' : 'sign-in';
-      if (mode === 'sign-in') clearInvitationRoute();
+      const requested = button.dataset.communityMode;
+      mode = requested === 'join' ? 'join' : requested === 'sign-up' ? 'sign-up' : 'sign-in';
+      // Leaving the invitation card drops the code with it. A code left prefilled
+      // behind the open form would be spent by a member who chose not to use it.
+      if (mode !== 'join') clearInvitationRoute();
       notice = null;
       render();
     });
   });
 
-  // The invitation card's five answers survive the render that a refusal causes —
+  // Both signup cards keep their answers through the render a refusal causes —
   // see `joinDraft`. The password is put back by hand rather than through the
   // markup, so it is never written into a value attribute.
-  const joinForm = root.querySelector<HTMLFormElement>('[data-community-join]');
-  if (joinForm) {
-    const passwordField = joinForm.querySelector<HTMLInputElement>('input[name="password"]');
+  const signupForm = root.querySelector<HTMLFormElement>(
+    '[data-community-join], [data-community-sign-up]'
+  );
+  if (signupForm) {
+    const passwordField = signupForm.querySelector<HTMLInputElement>('input[name="password"]');
     if (passwordField && joinDraft.password) passwordField.value = joinDraft.password;
-    joinForm.querySelectorAll<HTMLInputElement>('input').forEach((field) => {
+    signupForm.querySelectorAll<HTMLInputElement>('input').forEach((field) => {
       field.addEventListener('input', () => {
         if (field.name === 'email') joinDraft.email = field.value;
         else if (field.name === 'password') joinDraft.password = field.value;
@@ -3371,15 +3432,24 @@ export function bindCommunity(
     });
   });
 
-  // The invitation card is the whole account: the server requires a pseudo and a
+  // Either signup card is the whole account: the server requires a pseudo and a
   // home city on every public signup, and asking for them here rather than on a
   // second screen means one form holds everything one create call needs. What
   // src/onboarding.ts is left with is the part that is not the account — the first
   // place — which is why this hands over a session rather than a set of answers.
-  root.querySelector<HTMLFormElement>('[data-community-join]')?.addEventListener('submit', async (event) => {
+  //
+  // ONE HANDLER FOR BOTH DOORS. The open card and the invitation card differ by a
+  // single field, and it is the graph edge: with a code the new member lands
+  // inside the issuer's circle, without one they start their own. Everything else
+  // — the validation, the create call, the sign-in that follows, the recovery when
+  // one of those fails — is identical, and a second copy of it would be the place
+  // the two quietly stopped agreeing about what a pseudo is.
+  const submitSignup = async (event: SubmitEvent): Promise<void> => {
     event.preventDefault();
     if (submitting) return;
-    const values = new FormData(event.currentTarget as HTMLFormElement);
+    const form = event.currentTarget as HTMLFormElement;
+    const withInvitation = form.hasAttribute('data-community-join');
+    const values = new FormData(form);
     const email = String(values.get('email') || '').trim();
     const password = String(values.get('password') || '');
     const inviteCode = String(values.get('invite_code') || '').trim().toUpperCase();
@@ -3389,9 +3459,14 @@ export function bindCommunity(
     joinDraft.password = password;
     joinDraft.pseudo = pseudo;
     joinDraft.city = city;
-    invitationCodePrefill = inviteCode;
-    if (!email || !inviteCode) {
-      notice = { kind: 'error', text: 'Your email address and your invitation code are both needed.' };
+    if (withInvitation) invitationCodePrefill = inviteCode;
+    if (!email || (withInvitation && !inviteCode)) {
+      notice = {
+        kind: 'error',
+        text: withInvitation
+          ? 'Your email address and your invitation code are both needed.'
+          : 'Your email address is needed.',
+      };
       render();
       return;
     }
@@ -3434,18 +3509,22 @@ export function bindCommunity(
         password,
         passwordConfirm: password,
         home_city: city,
-        invite_code: inviteCode,
+        // Absent on the open card, and the server reads that absence as "start a
+        // circle" rather than as a missing field.
+        invite_code: withInvitation ? inviteCode : '',
       });
     } catch (error) {
       // The invitation is spent here, so an invalid or already-claimed code
-      // surfaces here too. Saying which of the five values the server refused is
-      // the whole of the recovery: every one of them can be corrected in place.
+      // surfaces here too. Saying which of the values the server refused is the
+      // whole of the recovery: every one of them can be corrected in place.
       submitting = false;
       notice = {
         kind: 'error',
         text: readableError(
           error,
-          'That invitation could not be accepted. Check the code on your invitation and try again.'
+          withInvitation
+            ? 'That invitation could not be accepted. Check the code on your invitation and try again.'
+            : 'That account could not be created. Check the details above and try again.'
         ),
       };
       render();
@@ -3455,8 +3534,8 @@ export function bindCommunity(
       await pb.collection('members').authWithPassword(email, password);
     } catch {
       // The account exists; only the session does not. The sign-in tab is the
-      // shortest way to one, and the invitation has been spent, so there is
-      // nothing left on this card to come back to.
+      // shortest way to one, and an invitation given here has been spent, so
+      // there is nothing left on this card to come back to.
       submitting = false;
       mode = 'sign-in';
       resetJoinDraft();
@@ -3474,7 +3553,12 @@ export function bindCommunity(
     notice = null;
     resetCommunityState();
     onJoined();
-  });
+  };
+
+  root.querySelector<HTMLFormElement>('[data-community-join]')?.addEventListener('submit', submitSignup);
+  root
+    .querySelector<HTMLFormElement>('[data-community-sign-up]')
+    ?.addEventListener('submit', submitSignup);
 
   root.querySelector<HTMLFormElement>('[data-community-sign-in]')?.addEventListener('submit', async (event) => {
     event.preventDefault();

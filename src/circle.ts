@@ -7,11 +7,15 @@ import type { DiscoveryRecommendation, NetworkPlaceResolver } from './network';
 /**
  * My Circle — the invitation graph the signed-in member belongs to.
  *
- * Detour only grows by personal invitation, so this is the trust structure of
- * the app made legible: who brought you in, who you brought in, and who is one
+ * A circle only ever grows by personal invitation, so this is the trust structure
+ * of the app made legible: who brought you in, who you brought in, and who is one
  * invitation further out with the connecting member named on the row. Only
  * relational rows appear — anything that reads the same for every member says
  * nothing about the caller's own circle and has no place here.
+ *
+ * A member who signed up on the open door has no inviter, so their page opens on
+ * an empty graph and the invitations they hold. That is the honest picture: they
+ * started a circle rather than joining one, and it is theirs to fill.
  *
  * All of it comes from one server projection (`/api/detour/circle`), which
  * decides what is visible. Nothing here re-derives membership from collection

@@ -1633,9 +1633,35 @@ routerAdd(
   $apis.requireAuth("members")
 );
 
-// A public member account is valid only when it redeems an unused, server-
-// generated invitation. `redeemed_invite` has a partial unique index, so a
-// simultaneous second redemption cannot create another member account.
+// A public member account arrives one of two ways, and the code decides which.
+//
+// WITH A CODE: the invitation is redeemed here. It must be unused and
+// server-generated, and `redeemed_invite` has a partial unique index, so a
+// simultaneous second redemption cannot create another member account. The new
+// member's `invited_by` is the issuer, which IS the graph edge — see
+// circle_scope.js.
+//
+// WITHOUT ONE: an open signup, the "start your circle" path. No invitation is
+// spent, `invited_by` and `redeemed_invite` stay empty, and the account is
+// verified like any other. What it is NOT is a way into somebody else's circle:
+// with no edge, this member's own graph is themselves and the people they go on
+// to invite, and everything they write reaches exactly that set. What they read
+// is the founding circle plus their own people — the same list a signed-out
+// visitor sees, now with somewhere to add to it.
+//
+// The two paths must not diverge on anything else. Pseudo, home city, display
+// name, the cleared code and the verified status are settled once, below, so an
+// open account can never be a second-class one in some field nobody looked at.
+//
+// An empty `invited_by` is already a represented state — the Founder has one —
+// and `graphMemberSql`'s COALESCE guard on the sibling branch is what stops two
+// parentless members reading as each other's siblings. That guard is now
+// load-bearing for every open signup rather than for one seeded account, so it
+// must not be "simplified" away.
+//
+// Founding seats are unreachable this way: `foundingSeatIdsSql` joins through
+// `redeemed_invite` and requires the Founder as issuer, so an open account can
+// never occupy one however early it arrives.
 onRecordCreateRequest((e) => {
   // The members auth collection intentionally has no created autodate field.
   // Stamp every account in the create hook so both public invite redemption
@@ -1659,19 +1685,20 @@ onRecordCreateRequest((e) => {
   e.record.set("internal_member", false);
 
   const inviteCode = e.record.getString("invite_code").trim().toUpperCase();
-  if (!inviteCode) {
-    throw new BadRequestError("A valid invitation code is required to join Detour.");
-  }
 
-  let invite;
-  try {
-    invite = e.app.findFirstRecordByFilter(
-      "invites",
-      "code = {:code} && claimed_by = ''",
-      { code: inviteCode }
-    );
-  } catch {
-    throw new BadRequestError("This invitation code is invalid or has already been used.");
+  // An invitation, when one was given. Resolved before anything is written, so a
+  // bad code fails the create rather than half-building an account.
+  let invite = null;
+  if (inviteCode) {
+    try {
+      invite = e.app.findFirstRecordByFilter(
+        "invites",
+        "code = {:code} && claimed_by = ''",
+        { code: inviteCode }
+      );
+    } catch {
+      throw new BadRequestError("This invitation code is invalid or has already been used.");
+    }
   }
 
   const { assertPseudoAvailable, normalizeHomeCity, normalizeMemberPseudo } = require(
@@ -1683,8 +1710,12 @@ onRecordCreateRequest((e) => {
   // without one. Superuser-created fixtures returned above and are exempt.
   e.record.set("home_city", normalizeHomeCity(e.record.getString("home_city")));
 
-  const issuerId = invite.getString("issued_by");
-  const issuer = e.app.findRecordById("members", issuerId);
+  // The edge, or the absence of one. An open signup starts a circle rather than
+  // joining a circle, and both are written explicitly so neither can inherit a
+  // stray value from the create payload.
+  const issuerId = invite ? invite.getString("issued_by") : "";
+  e.record.set("invited_by", issuerId);
+  e.record.set("redeemed_invite", invite ? invite.id : "");
 
   e.record.set("pseudo", pseudo);
   // The pseudo is a member's one name on Detour. The schema's required
@@ -1692,8 +1723,6 @@ onRecordCreateRequest((e) => {
   // superuser-created accounts keep working; public signup no longer sends it.
   e.record.set("display_name", pseudo);
   e.record.set("invite_code", "");
-  e.record.set("invited_by", issuerId);
-  e.record.set("redeemed_invite", invite.id);
   e.record.set("community_status", "verified");
   // Founding membership is not granted here and is not stored: it is derived
   // from invited_by and the redeemed invitation's grants_founding — the Founder's
@@ -1745,9 +1774,12 @@ onRecordAfterCreateSuccess((e) => {
     }
   }
 
-  // Only invitation-backed public signups are reported. Reserved internal
-  // fixtures and superuser-created records remain quiet.
-  if (inviteId && !e.record.getBool("internal_member")) {
+  // Every public signup is reported, invitation-backed or open, and the notice
+  // says which — an account that started its own circle is a different event from
+  // one that joined somebody's, and the ops mailbox is where that difference is
+  // noticed. Reserved internal fixtures and superuser-created records remain
+  // quiet: those returned before any of this ran.
+  if (!e.record.getBool("internal_member")) {
     try {
       const displayName = e.record.getString("display_name").trim();
       const pseudo = e.record.getString("pseudo").trim();
@@ -1755,8 +1787,12 @@ onRecordAfterCreateSuccess((e) => {
         (displayName || "A new member") + (pseudo ? " (@" + pseudo + ")" : "");
 
       require(__hooks + "/mailer.js").notifyOps(e.app, {
-        subject: "New Detour member",
-        text: memberLabel + " joined Detour.",
+        subject: inviteId ? "New Detour member" : "New Detour member (open signup)",
+        text:
+          memberLabel +
+          (inviteId
+            ? " joined Detour on an invitation."
+            : " signed up without an invitation and is starting their own circle."),
       });
     } catch (error) {
       try {

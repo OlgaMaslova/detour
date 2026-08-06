@@ -431,7 +431,47 @@ function inviteRequestFieldError(field: InviteRequestField, element: HTMLInputEl
   return '';
 }
 
-function inviteRequestFormMarkup(accountHref: string): string {
+/**
+ * The two ways in, side by side, wherever a visitor is standing.
+ *
+ * They are not two grades of the same thing and the copy must not let them read
+ * that way. **Start your circle** is an account, immediately, on nobody's
+ * approval — you read the founding members from the first minute and everything
+ * you write reaches the people you go on to invite. **Ask to become a founder** is
+ * a request the Detour team reads and answers, for one of fifty seats whose
+ * places reach every member there will ever be.
+ *
+ * So the second is not "the better version of the first" — it is a different
+ * offer, with a wait attached and a real chance of a no. Putting them in one place
+ * with a sentence each is what stops a visitor concluding that the open door is
+ * the consolation prize, which is what a lone "request an invitation" implied to
+ * everybody who was never going to be one of fifty.
+ *
+ * The founder button is a link to `?view=founding`, never a form. That page is the
+ * only place the request is asked for — see `renderFoundingRequest` in main.ts —
+ * and one invitation form in one place is what keeps it honest.
+ */
+function visitorChoiceMarkup(accountHref: string, foundingHref: string): string {
+  return `<section class="network-visitor-choice" aria-labelledby="network-visitor-choice-title">
+    <h2 id="network-visitor-choice-title" class="visually-hidden">Ways to join Detour</h2>
+    <div class="network-visitor-choice-grid">
+      <div class="network-visitor-option">
+        <a class="primary-button network-visitor-primary" href="${esc(
+          accountHref
+        )}" data-community-route="sign-up">Start your circle<span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>
+        <p>Sign up and you are in — no queue. You read Detour's founding members from the first minute, and the circle you build by inviting people is your own.</p>
+      </div>
+      <div class="network-visitor-option">
+        <a class="secondary-button network-visitor-secondary" href="${esc(
+          foundingHref
+        )}" data-founding>Ask to become a founder<span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>
+        <p>One of fifty seats, free for life, whose places reach every member of Detour. Tell us about a place you'd recommend; we read every request and reply personally.</p>
+      </div>
+    </div>
+  </section>`;
+}
+
+export function inviteRequestFormMarkup(accountHref: string): string {
   if (inviteRequestState.status === 'success') {
     return `<div class="network-invite-success" data-invite-request-success role="status" aria-live="polite" tabindex="-1">
       <p class="network-membership-label">Request received</p>
@@ -1277,8 +1317,11 @@ function publicRecommendationSampleMarkup(
   resolvePlace?: NetworkPlaceResolver
 ): string {
   const feed = publicRecommendationFeed();
+  // No overline. The heading says whose recommendations these are in its own
+  // words, and a stamp above it repeating "from the circle" was labelling a
+  // sentence that had already introduced itself.
   const heading = `<div class="network-public-sample-heading">
-    <div><p class="network-membership-label">From the circle</p><h2 id="network-public-recommendations-title">What the circle recommends.</h2></div>
+    <div><h2 id="network-public-recommendations-title">What the circle recommends.</h2></div>
   </div>`;
 
   if (feed.status === 'loading' || feed.status === 'idle') {
@@ -1320,12 +1363,12 @@ function publicRecommendationSampleMarkup(
  *
  * No Founders' places switch and no Recommend/Share actions. The switch separates
  * the founding tier from a member's own people and a visitor has no own people; the
- * actions need an account, and the invitation is offered once at the foot of the
- * page rather than twice per card.
+ * actions need an account, and the two ways to get one are offered once at the
+ * foot of the page rather than twice per card.
  */
 function publicFeedMarkup(
   accountHref: string,
-  inviteRequestHref: string,
+  foundingHref: string,
   resolvePlace?: NetworkPlaceResolver
 ): string {
   const feed = publicRecommendationFeed();
@@ -1375,8 +1418,8 @@ function publicFeedMarkup(
         </div>
         <div class="network-section-actions">
           <a class="network-primary-link network-recommend-cta" href="${esc(
-            inviteRequestHref
-          )}">Ask for an invitation<span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>
+            accountHref
+          )}" data-community-route="sign-up">Start your circle<span class="nav-arrow" aria-hidden="true">&#x2192;</span></a>
           <a class="secondary-button network-share-cta" href="${esc(
             accountHref
           )}" data-community-route>Sign in<span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>
@@ -1395,9 +1438,10 @@ function publicFeedMarkup(
                   ? '<button type="button" class="secondary-button network-retry network-show-more" data-network-show-more>Show fewer</button>'
                   : ''
             }`
-          : `<div class="network-empty"><h3>No places yet</h3><p>Detour's founding members are still writing the first recommendations. Ask for an invitation and yours could be one of them.</p></div>`
+          : `<div class="network-empty"><h3>No places yet</h3><p>Detour's founding members are still writing the first recommendations. Start your circle and yours could be one of them.</p></div>`
       }
     </section>
+    ${visitorChoiceMarkup(accountHref, foundingHref)}
   </div>`;
 }
 
@@ -1413,7 +1457,7 @@ function publicFeedMarkup(
 export function networkDiscoveryMarkup(
   accountHref: string,
   resolvePlace?: NetworkPlaceResolver,
-  visitor: { feedHref: string; inviteRequestHref: string; surface: 'home' | 'feed' } | null = null
+  visitor: { feedHref: string; foundingHref: string; surface: 'home' | 'feed' } | null = null
 ): string {
   const record = memberRecord();
   if (!record) {
@@ -1427,20 +1471,22 @@ export function networkDiscoveryMarkup(
           <h1 id="network-home-title">Places Detour's founding members recommend.</h1>
           <p>Every place here is one a member put their name behind and said why. Join, and you see what the people you invite recommend too.</p>
         </div>
-        ${publicFeedMarkup(accountHref, visitor.inviteRequestHref, resolvePlace)}
+        ${publicFeedMarkup(accountHref, visitor.foundingHref, resolvePlace)}
       </section>`;
     }
+    // The invitation page carries the choice and the sample, and nothing else.
+    // The founding-seat request is a route of its own — see `renderFoundingRequest`
+    // in main.ts — because a form for one of fifty seats standing permanently
+    // under the landing argued for the seat before anybody had asked about it.
     return `<section class="network-invitation" aria-labelledby="network-home-title">
       <div class="network-invitation-copy">
-        <p class="network-kicker">An invite-only circle shaped by member taste</p>
+        <p class="network-kicker">A circle shaped by member taste, one invitation at a time</p>
         <h1 id="network-home-title">Detours from people you trust.</h1>
         <p class="network-invitation-lead">This isn't a restaurant directory. Every place here is one a member put their name behind and said why — no ads, no paid listings, no anonymous stars. Add one of yours — someone needs it.</p>
         <p class="network-invitation-lead">Members publish straight to the circle: no approval queue, no editors, no minimum. We trust you.</p>
       </div>
+      ${visitor ? visitorChoiceMarkup(accountHref, visitor.foundingHref) : ''}
       ${publicRecommendationSampleMarkup(visitor?.feedHref ?? '', resolvePlace)}
-      <aside class="network-invitation-action" data-invite-request-section aria-label="Founding membership and member sign-in">
-        ${inviteRequestFormMarkup(accountHref)}
-      </aside>
     </section>`;
   }
 
@@ -1529,9 +1575,14 @@ function showReplyFeedback(form: HTMLFormElement, state: ReplyState, message: st
   }
 }
 
-export function bindNetworkDiscovery(root: HTMLElement, render: () => void): void {
-  ensureNetworkDiscovery(render);
-
+/**
+ * The founding-seat request form, wherever it is mounted.
+ *
+ * Its own function because the form now lives on a route of its own, which has no
+ * feed on it — binding it through `bindNetworkDiscovery` would have fetched the
+ * public recommendations for a page that renders none.
+ */
+export function bindInviteRequestForm(root: HTMLElement, render: () => void): void {
   const inviteForm = root.querySelector<HTMLFormElement>('[data-invite-request-form]');
   if (inviteForm) {
     const fields: InviteRequestField[] = ['name', 'email', 'city', 'why'];
@@ -1631,6 +1682,11 @@ export function bindNetworkDiscovery(root: HTMLElement, render: () => void): voi
       }
     });
   }
+}
+
+export function bindNetworkDiscovery(root: HTMLElement, render: () => void): void {
+  ensureNetworkDiscovery(render);
+  bindInviteRequestForm(root, render);
 
   root.querySelector<HTMLButtonElement>('[data-public-recommendations-retry]')?.addEventListener('click', () => {
     const feed = publicRecommendationFeed();

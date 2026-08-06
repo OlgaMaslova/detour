@@ -238,10 +238,58 @@ the feed, and the place pages with the notes and photographs on them.
   them. `chrome.isMember` in place.ts is the one flag for this — it replaced a
   `canExplore` that conflated browsing with acting, and nothing should conflate
   them again.
+- **A visitor is one signup away from an account, not one invitation away.** See
+  "Two doors" below; every visitor surface carries `visitorChoiceMarkup`.
 - **A visitor is never told they are in a circle.** Their `circle` counts are
   always zero and their `in_graph` is never set, so the copy says "founding
   member" and never "in your circle". `endorsementSignals` names them founding
   members only, on the same terms a member is named the people they can see.
+
+## Two doors, and what separates them
+
+Detour no longer grows only by invitation. **An account can be created with no
+code at all** — the "Start your circle" path — and the difference between the two
+doors is exactly one field: `invited_by`, which is the graph edge.
+
+- **An open signup joins nobody's circle; it starts one.** `invited_by` and
+  `redeemed_invite` stay empty, `community_status` is `verified` like any other
+  account, and the member holds the ordinary ten invitations. What they read is
+  the founding circle plus their own people. What they write reaches their own
+  people and nobody else. There is no third membership tier and no reduced
+  account — resist adding one, because the reach is already bounded by the graph
+  and a second status would have to be honoured by every read path separately.
+- **One submit path serves both cards** (`submitSignup` in src/community.ts) and
+  one create hook serves both payloads (the `members` create hook in
+  `pb_hooks/main.pb.js`). They differ only where the code is read. Two copies is
+  how the two would quietly stop agreeing about what a pseudo is.
+- **An empty `invited_by` is a represented state and the graph already handles
+  it** — the Founder has one. `graphMemberSql`'s COALESCE guard on the sibling
+  branch is what stops two parentless members reading as each other's siblings,
+  and it is now load-bearing for every open signup rather than for one seeded
+  account. Do not "simplify" it away.
+- **Founding seats stay unreachable this way.** `foundingSeatIdsSql` joins through
+  `redeemed_invite` and requires the Founder as issuer, so an open account can
+  never take one however early it arrives. Founding membership is still asked for,
+  read, and answered by hand.
+- **The two offers are presented side by side, never as a ladder.**
+  `visitorChoiceMarkup` in src/network.ts is the one component: Start your circle
+  (immediate, no approval) and Ask to become a founder (fifty seats, a wait, a
+  real chance of a no), each with a sentence. A lone "request an invitation" told
+  everybody who was never going to be one of fifty that there was no way in.
+- **The founding-seat request is a page of its own** (`?view=founding`,
+  `renderFoundingRequest`), not a panel on the landing. It is four questions and a
+  list of what a seat gives you, and standing that permanently under the
+  invitation page made it argue for one of fifty seats before anybody had said
+  they wanted one. Every "Ask to become a founder" control is a link to that
+  route; there is exactly one invite form in the app and it lives there. It is
+  ungated on purpose — an ordinary member putting their hand up has the same thing
+  to say as a visitor. It binds through `bindInviteRequestForm` rather than
+  `bindNetworkDiscovery`, so a page with no feed on it fetches no feed.
+- **"Invite-only" is no longer true and must not be written.** The copy says a
+  circle grows by personal invitation, which is still exactly right about circles.
+- **This removes the only gate on public account creation.** Rate limiting is a
+  PocketBase setting rather than something in this repo; if abuse appears, that is
+  the first place to look, not a new field on `members`.
 
 ## The new-member flow
 
