@@ -2967,7 +2967,7 @@ function renderHowItWorks(root: HTMLElement): void {
     .querySelector<HTMLMetaElement>('meta[name="description"]')
     ?.setAttribute(
       'content',
-      'How Detour works: invitation-only membership, what your circle is, why founding members reach everyone, and how a place gets on your list.'
+      'How Detour works: what you can read without an account, the two ways to get one, what your circle is, why founding members reach everyone, and how a place gets on your list.'
     );
   root.innerHTML = `
     <a class="skip-link" href="#how-title">Skip to how Detour works</a>
@@ -2976,23 +2976,39 @@ function renderHowItWorks(root: HTMLElement): void {
       <header class="explore-hero how-hero">
         <p class="network-kicker">The short version</p>
         <h1 id="how-title" tabindex="-1">How Detour works.</h1>
-        <p>Detour is a private list of places to eat and drink, grown by invitation. Members recommend somewhere and say why; you see what your own circle recommends — the people who invited you, the people you invited, one hop past that — plus the founding members, who reach everyone. Nothing else reaches your list. No ads, no paid listings, no anonymous stars, no editors.</p>
+        <p>Detour is a list of places to eat and drink, written by the members who go to them. Anyone can look: signed out, what you read is what Detour's founding members recommend. With an account you get your own circle as well — the people who invited you, the people you invited, one hop past that — and nothing beyond it reaches your list. No ads, no paid listings, no anonymous stars, no editors.</p>
       </header>
 
       <div class="how-faq">
         <details class="how-faq-item" open>
+          <summary>Do I need an account to look around?</summary>
+          <p>No. <a href="${esc(exploreHref())}" data-explore>Explore</a>, every city, the map, the feed and every place page are open, and what you read there is what Detour's founding members recommend — their notes and their photographs, not a teaser. An account is for the other half: writing a recommendation, marking somewhere Been &amp; loved, keeping a place on your Wanna go list, sending one privately to another member, and having a circle of your own.</p>
+        </details>
+
+        <details class="how-faq-item">
           <summary>How do I get in?</summary>
-          <p>One personal invitation from a member. Redeeming it makes you a member immediately — there is no queue to wait in. While Detour is still being built you can also ask for an invitation from the home page; we read every request and reply personally.</p>
+          <p>Two ways, and neither has a queue. <strong>Sign up</strong> — an email, a password, a pseudo and the city you live in — and you are a member as soon as you have answered; no code, nobody to approve you. Or <strong>redeem a personal invitation</strong> from a member, which asks for the same four things and puts you inside their circle. There is a third, slower door as well: fifty founding seats, which are asked for rather than taken.</p>
+        </details>
+
+        <details class="how-faq-item">
+          <summary>What is the difference between signing up and being invited?</summary>
+          <p>Where you land in the graph. An invitation puts you inside the issuer's circle: their places are on your list from the first minute, you see the people around them, and they see you. Signing up on your own starts a circle instead of joining one — you begin with the founding members' places and it fills in with every person you invite. Either way you get invitations to give.</p>
         </details>
 
         <details class="how-faq-item">
           <summary>What counts as my circle?</summary>
-          <p>You, whoever invited you, everyone you invited, and one hop further out. It is drawn for you on <a href="${esc(circleHref())}" data-circle>My Circle</a>, and it stops there.</p>
+          <p>You, whoever invited you, everyone you invited, and one hop further out. It is drawn for you on <a href="${esc(circleHref())}" data-circle>My Circle</a>, and it stops there. If you signed up without an invitation you have no inviter, so it starts as just you and grows from the people you bring in.</p>
         </details>
 
         <details class="how-faq-item">
           <summary>Then why do I see places from people I have never met?</summary>
-          <p>Founding members are the first fifty people here — the Founder and the forty-nine they invited — and their recommendations reach every member. They are a second tier, not part of your circle, and they are why the app has something in it before you have invited anyone. Their own invitees are ordinary members: it does not pass down.</p>
+          <p>Founding members are the first fifty people here — the Founder and the forty-nine they invited — and their recommendations reach every member. They are a second tier, not part of your circle, and they are why the app has something in it before you have invited anyone. They are also the whole of what Detour shows somebody who is not signed in. Their own invitees are ordinary members: it does not pass down.</p>
+        </details>
+
+        <details class="how-faq-item">
+          <summary>Can I become a founding member?</summary>
+          <p>Yes — and we would like you to ask. What we are after is a giver: somebody who writes places down and keeps writing them. A founding member's recommendations are the one thing everybody sees — every member at any distance, and every visitor who has not signed in at all — so the fifty are, between them, what Detour looks like to anyone arriving. That is also why we are glad to hear from people who move around. Somebody who eats well in six cities can put six cities on the list, and a list that only knows one town is not much of a detour.</p>
+          <p>The seat is free for life and carries enough invitations for everyone whose taste you trust. Tell us about one place you would recommend and why — <a href="${esc(foundingHref())}" data-founding>that is the whole request</a>; we read every one and reply personally. If the fifty are gone by the time we reach yours, it is considered for regular membership instead.</p>
         </details>
 
         <details class="how-faq-item">
@@ -3012,7 +3028,7 @@ function renderHowItWorks(root: HTMLElement): void {
 
         <details class="how-faq-item">
           <summary>Who sees what I write?</summary>
-          <p>Whoever invited you and the people one step around them, plus everyone you invited. Nobody further out. You can switch your recommendations to private in your member area, and then nobody sees them.</p>
+          <p>It depends which tier you are in, and the difference is worth knowing before you write. An <strong>ordinary member's</strong> notes reach the members whose circles they appear in — whoever invited you and the people one step around them, plus everyone you invited — and nobody signed out sees them at all. A <strong>founding member's</strong> notes reach every member of Detour, and they are also what the app shows visitors with no account: their words and their photographs are readable by anyone with the address. Either way, the switch in your member area turns your recommendations private, and then nobody sees them.</p>
         </details>
 
         <details class="how-faq-item">
@@ -3027,7 +3043,7 @@ function renderHowItWorks(root: HTMLElement): void {
 
         <details class="how-faq-item">
           <summary>What Detour does not do</summary>
-          <p>Sell a spot on the list, publish a star rating or an anonymous review, copy a guide's writing or photographs, or credit you publicly outside the circle you wrote for. What you write is not sold, not handed to advertisers, and not reordered to keep you scrolling — your list is chronological, and it is yours.</p>
+          <p>Sell a spot on the list, publish a star rating or an anonymous review, copy a guide's writing or photographs, or put your name anywhere your recommendations do not already reach. What you write is not sold, not handed to advertisers, and not reordered to keep you scrolling — your list is chronological, and it is yours.</p>
         </details>
       </div>
     </main>

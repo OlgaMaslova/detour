@@ -2047,14 +2047,22 @@ function settingsPanel(record: MemberRecord): string {
         <h3>Food-and-drink discovery</h3>
         <p class="community-form-note">${
           foundingMember
-            ? 'As a founding member, your food-and-drink recommendations reach every member of Detour.'
-            : 'Your food-and-drink recommendations reach the members whose circles you appear in: the person who invited you, the people you invited, the others they invited, and the person who invited your inviter. Nobody further out sees them.'
+            ? 'As a founding member, your food-and-drink recommendations reach every member of Detour — and they are what Detour shows people who are not signed in at all, so your notes and photographs are readable by anyone with the address. This switch is how you stop that.'
+            : 'Your food-and-drink recommendations reach the members whose circles you appear in: the person who invited you, the people you invited, the others they invited, and the person who invited your inviter. Nobody further out sees them, and nobody signed out sees them at all.'
         } Private shares and replies stay private.</p>
       </div>
       <label class="community-switch">
         <input type="checkbox" data-community-visibility ${keepPrivate ? 'checked' : ''} ${visibilitySaving ? 'disabled' : ''}>
         <span class="community-switch-track" aria-hidden="true"></span>
-        <span class="community-switch-copy"><strong>Keep recommendations private</strong><small>${visibilitySaving ? 'Saving…' : keepPrivate ? 'Hidden from your circle' : 'Discoverable by your circle'}</small></span>
+        <span class="community-switch-copy"><strong>Keep recommendations private</strong><small>${
+          visibilitySaving
+            ? 'Saving…'
+            : keepPrivate
+              ? 'Hidden from everyone'
+              : foundingMember
+                ? 'Public — readable by anyone'
+                : 'Discoverable by your circle'
+        }</small></span>
       </label>
     </div>
     <div class="community-danger-row">

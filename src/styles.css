@@ -1838,23 +1838,38 @@ legend { color: var(--tape-text); }
 .network-home,
 .network-invitation { width: min(100%, 1080px); margin-inline: auto; padding: clamp(2rem, 6vw, 4.75rem) 0 0; }
 .network-home { padding-top: clamp(1.5rem, 4vw, 3rem); }
-/* One column. The founding-seat request moved to a route of its own, so the
-   sample is this page's content and it gets the whole width rather than holding a
-   gap open beside it for a form nobody has asked for. */
+/* The pitch and the two ways in share the top row; the deck runs across both
+   columns beneath them.
+
+   THE CARDS ARE THE PAGE AND THEY HAVE TO ARRIVE EARLY. Stacked — copy, then a
+   full-width band of buttons, then the deck — the first real place sat a screen
+   and a half down, so the one thing that shows what Detour is came after two
+   things that only describe it. Beside the copy the buttons cost no vertical
+   space at all and the deck comes up to meet the fold.
+
+   The right column is `minmax(20rem, …)`: below that the two calls to action stop
+   being readable as a pair of offers with a sentence each, which is the whole
+   reason they sit together. Narrower than that and the layout goes back to one
+   column — see the 920px block. */
 .network-invitation {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.06fr) minmax(20rem, 0.94fr);
   grid-template-areas:
-    'intro'
-    'choice'
-    'sample';
+    'intro  choice'
+    'sample sample';
   align-items: start;
   gap: clamp(1.5rem, 4vw, 3.25rem) clamp(1.5rem, 5vw, 4rem);
   padding-bottom: clamp(2rem, 6vw, 4.75rem);
   border-bottom: none;
 }
 .network-invitation-copy { grid-area: intro; max-width: 58rem; }
-.network-invitation .network-visitor-choice { grid-area: choice; }
+/* No rule above it here: the border separates the pair from a stream of cards on
+   the feed, and in a side column it would be a stray line beside the headline. */
+.network-invitation .network-visitor-choice {
+  grid-area: choice;
+  padding-top: 0;
+  border-top: none;
+}
 
 /* member home hero: no violet panel, plain type on the graph paper */
 .network-home-heading {
@@ -2324,9 +2339,14 @@ legend { color: var(--tape-text); }
   padding: clamp(1rem, 3vw, 1.5rem) 0 0;
   border-top: 1px solid var(--tape-hairline-strong);
 }
+/* Two abreast where there is room for two, stacked where there is not — decided by
+   the track size rather than by a breakpoint, because this same pair now appears
+   at two very different widths: a half column beside the landing copy, and the
+   full width of the feed. 20rem is the point below which the explanation under a
+   button stops being a sentence and starts being a column of two-word lines. */
 .network-visitor-choice-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
   gap: clamp(1rem, 3vw, 2rem);
   align-items: start;
 }
@@ -2482,6 +2502,13 @@ legend { color: var(--tape-text); }
   display: grid;
   gap: clamp(1rem, 3vw, 1.75rem);
 }
+/* The panel's own measures — 15ch on the heading, 42ch on the copy — were cut for
+   the 20rem column it used to live in, where they barely bit. On a 46rem page they
+   leave a ribbon of text down the middle of a wide box, and there is more prose
+   here now than there was then. Widened to a reading measure; the heading still
+   wraps, which is what a display face wants. */
+.founding-page .network-invitation-action h2 { max-width: 20ch; }
+.founding-page .network-invitation-action p { max-width: 62ch; }
 .founding-alternative {
   margin: 0;
   color: var(--tape-muted);
@@ -5550,6 +5577,18 @@ legend { color: var(--tape-text); }
   .occasion-browser { grid-template-columns: 1fr; }
   .detail-body { grid-template-columns: 1fr; }
   .detail-practical { border-top: 1px solid var(--tape-hairline); }
+  /* Below this the headline and a 20rem column of calls to action are fighting
+     over the same row. One column again, and the pair goes back to being a band —
+     which is why its rule above the fold comes back with it. The deck still sits
+     under both, so the cost of the change is the height of two buttons. */
+  .network-invitation {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'intro' 'choice' 'sample';
+  }
+  .network-invitation .network-visitor-choice {
+    padding-top: clamp(1rem, 3vw, 1.5rem);
+    border-top: 1px solid var(--tape-hairline-strong);
+  }
 }
 
 @media (max-width: 860px) {
@@ -5616,8 +5655,8 @@ legend { color: var(--tape-text); }
   .network-recommendation-grid { grid-template-columns: 1fr; }
   /* One column, and the buttons go full width: a pair of half-width buttons on a
      phone is two small targets where one good one belongs. Order is unchanged, so
-     the open door is still read first. */
-  .network-visitor-choice-grid,
+     the open door is still read first. `.network-visitor-choice-grid` needs no
+     entry here — its `auto-fit` track has already collapsed by this width. */
   .place-visitor-actions { grid-template-columns: 1fr; }
   .network-visitor-option .primary-button,
   .network-visitor-option .secondary-button,

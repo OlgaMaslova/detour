@@ -488,17 +488,23 @@ export function inviteRequestFormMarkup(accountHref: string): string {
   const pending = inviteRequestState.status === 'submitting';
   const statusRole = inviteRequestState.message ? (pending ? 'status' : 'alert') : '';
   const statusClass = inviteRequestState.message && !pending ? ' is-error' : '';
+  // What we are hoping for comes before what the seat is worth, on purpose. A page
+  // that opens with four things you get reads as a prize to be won; the seat is
+  // really an amount of work somebody is volunteering for, and the people worth
+  // fifty of are the ones who read that and want it anyway.
   return `<div class="network-invite-intro">
       <p class="network-membership-label">Founding membership</p>
       <h2 id="network-membership-title">Ask to join the Detour circle.</h2>
-      <p>Tell us about one place you'd recommend, and why. We read every request and reply personally.</p>
+      <p>There are fifty seats, and what we are looking for in them is givers — people who write places down and keep writing them.</p>
+      <p>A founding member's recommendations are what every member sees, and what Detour shows anybody who has not signed in at all — so between them the fifty are what this place looks like to everyone arriving. That is also why we are glad to hear from people who move around: somebody who eats well in six cities can put six cities on the list, and a list that only knows one town is not much of a detour.</p>
       <p class="network-founding-benefits-title">What founding membership gives you</p>
       <ul class="network-founding-benefits">
         <li><strong>Free membership for life.</strong> Your place is permanent, whatever Detour becomes.</li>
         <li><strong>One of fifty.</strong> Fifty founding seats, and no more.</li>
         <li><strong>More invitations to give.</strong> Enough for everyone whose taste you trust.</li>
-        <li><strong>Whole circle visibility.</strong> Every member sees your places. Your taste defines what this becomes.</li>
+        <li><strong>The widest reach on Detour.</strong> Your places reach every member and every visitor. Your taste defines what this becomes.</li>
       </ul>
+      <p>Tell us about one place you'd recommend, and why. We read every request and reply personally.</p>
     </div>
     <form class="network-invite-form" data-invite-request-form novalidate aria-labelledby="network-membership-title">
       <fieldset${pending ? ' disabled' : ''}>
