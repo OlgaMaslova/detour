@@ -7,7 +7,7 @@ Detour now has an invitation-only member community alongside its public, editori
 - Backend foundation: commit `95c8870`.
 - Member entry and visit-verification interface: commit `624b283`.
 - Production API: https://sn-pb-repo-1297566350-6aebd3.fly.dev
-- Production guide: https://detour-app.supernaut.to
+- Production guide: https://takedetour.app
 
 ## Shipped member flows
 
@@ -53,7 +53,7 @@ A member recommendation is therefore a private editorial record, not a public ve
 Verified against the deployed backend after the curation-proof migration:
 
 - [x] Backend health returned `200` from `/api/health`.
-- [x] The public guide rendered at https://detour-app.supernaut.to with the member entry panel and the editorial map.
+- [x] The public guide rendered at https://takedetour.app with the member entry panel and the editorial map.
 - [x] The reserved non-interactive proof account `community-proof@detour.invalid` exists with `community_status = verified`.
 - [x] That member has exactly three distinct approved visit-evidence records, linked to `venueseed000001`, `venueseed000002`, and `venueseed000003`.
 - [x] Its private curation record `pjhvwl5zeubwsys` exists as `Editorial curation proof — not public`, city `Madrid`, with `status = pending`.

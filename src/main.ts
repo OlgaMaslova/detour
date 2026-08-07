@@ -74,6 +74,7 @@ import { placePromptMarkup } from './place-prompt';
 import { bindFollowUpCard, followUpCardMarkup } from './follow-up';
 import { bindTriageCard, triageCardMarkup } from './triage';
 import { detouristSignalBadge, detouristSignalText } from './signal';
+import { absoluteUrl } from './site';
 import type { PlaceChrome, PlaceHelpers } from './place';
 
 type DataMode = 'loading' | 'live' | 'error';
@@ -618,7 +619,7 @@ function editRecommendationHref(v: Venue): string {
  * is already looking at, which is the honest thing to hand over.
  */
 function placeLinkUrl(v: Venue): string {
-  return new URL(placeHref(v), window.location.origin).toString();
+  return absoluteUrl(placeHref(v));
 }
 
 /**

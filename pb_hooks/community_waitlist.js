@@ -893,7 +893,7 @@ function geocodeVenue(app, venueId) {
         "/search?format=jsonv2&limit=1&addressdetails=1&accept-language=en&q=" +
         encodeURIComponent(address + ", " + city + ", " + country),
       method: "GET",
-      headers: { "User-Agent": "Detour community place verification (contact: olga@supernaut.dev)" },
+      headers: { "User-Agent": "Detour community place verification (+https://takedetour.app)" },
       timeout: 10,
     });
   } catch {
@@ -1047,7 +1047,7 @@ function enrichVenueFromOsm(app, venueId) {
         "/search?format=jsonv2&limit=3&addressdetails=1&extratags=1&accept-language=en&q=" +
         encodeURIComponent(name + ", " + city + (country ? ", " + country : "")),
       method: "GET",
-      headers: { "User-Agent": "Detour community place verification (contact: olga@supernaut.dev)" },
+      headers: { "User-Agent": "Detour community place verification (+https://takedetour.app)" },
       timeout: 10,
     });
   } catch {
@@ -1229,7 +1229,7 @@ function confirmDiscoveredAddress(address, city, country) {
         "/search?format=jsonv2&limit=1&addressdetails=1&accept-language=en&q=" +
         encodeURIComponent(address + ", " + city + ", " + country),
       method: "GET",
-      headers: { "User-Agent": "Detour community place verification (contact: olga@supernaut.dev)" },
+      headers: { "User-Agent": "Detour community place verification (+https://takedetour.app)" },
       timeout: 10,
     });
   } catch {

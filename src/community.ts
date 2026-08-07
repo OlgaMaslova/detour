@@ -20,6 +20,7 @@ import type { Venue } from './data';
 import { OCCASION_OPTIONS } from './occasions';
 import { ENDORSE_LABEL } from './signal';
 import { bindInviteShare, inviteShareMarkup } from './share';
+import { siteOrigin } from './site';
 import {
   ensureSavedPlaces,
   refreshSavedPlaces,
@@ -813,7 +814,7 @@ function openInvites(): InviteRecord[] {
 }
 
 function invitationLink(code: string): string {
-  const url = new URL(window.location.origin);
+  const url = new URL(siteOrigin);
   url.pathname = '/';
   url.searchParams.set('view', 'members');
   url.searchParams.set('invite', code);

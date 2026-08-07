@@ -233,7 +233,7 @@ All sources below were accessed **2026-07-18**. Publication dates, app-update da
 
 ### Detour audit source
 
-- **Detour public app — audited product experience:** <https://detour-app.supernaut.to> — public web app; accessed 2026-07-18.
+- **Detour public app — audited product experience:** <https://takedetour.app> — public web app; accessed 2026-07-18.
 - **Internal audit memo:** `docs/gtm/01-audit-positioning.md` — anonymous public-product audit; completed 2026-07-18.
 
 ### Competitor and comparator sources

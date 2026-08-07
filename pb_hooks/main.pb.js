@@ -581,7 +581,7 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
       // applies when it decides which places are on their list.
       "AND " + founding.foundingMemberSql("m") + " " +
       "AND LOWER(TRIM(m.email)) NOT LIKE '%.invalid' " +
-      "AND LOWER(TRIM(m.email)) != 'agent@detour.supernaut.to' " +
+      "AND LOWER(TRIM(m.email)) NOT LIKE 'agent@%' " +
       "AND LENGTH(TRIM(r.note)) >= 24 " +
       "AND TRIM(m.pseudo) != '' ";
     // Same cap as the member feed, so neither surface is the one that quietly
@@ -725,7 +725,7 @@ routerAdd(
               "AND m.community_status = 'verified' " +
               "AND " + visibilitySql + " " +
               "AND LOWER(TRIM(m.email)) NOT LIKE '%.invalid' " +
-              "AND LOWER(TRIM(m.email)) != 'agent@detour.supernaut.to' " +
+              "AND LOWER(TRIM(m.email)) NOT LIKE 'agent@%' " +
               "AND LENGTH(TRIM(r.note)) >= 24 " +
               "AND TRIM(m.pseudo) != '' " +
               "ORDER BY r.created DESC, r.id DESC LIMIT 100"

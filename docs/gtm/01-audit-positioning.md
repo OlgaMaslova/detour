@@ -1,6 +1,6 @@
 # Detour prospective-user audit and evidence-led positioning
 
-**Audit scope/date:** Live public app at <https://detour-app.supernaut.to>, audited 2026-07-18.
+**Audit scope/date:** Live public app at <https://takedetour.app>, audited 2026-07-18.
 
 **Viewports:** Desktop at 1440×1000 and mobile at 390×844.
 
@@ -219,7 +219,7 @@ Limit the next research round to questions that can change positioning or funnel
 
 ## Audit-evidence appendix
 
-- **Public URL:** <https://detour-app.supernaut.to>
+- **Public URL:** <https://takedetour.app>
 - **Audit date:** 2026-07-18
 - **Viewports:** Desktop 1440×1000; mobile 390×844
 - **Routes/actions tested:** Landing page; Madrid, Paris, and San Francisco destination cards and city pages; city selector; Refine; Show nearby; Paris recognition/category/source filter drawer; full city lists; landing search for “Benu”; Benu selected-place map popup and detail; Alléno Paris au Pavillon Ledoyen selected-place detail; Members; Sign in; Use an invitation; “Recommend the first one”; footer community/privacy copy; desktop and mobile scrolling/rendering.

@@ -1,7 +1,7 @@
 # Three-city production deployment verification
 
 **Verified:** 2026-07-14  
-**Frontend:** https://detour-app.supernaut.to  
+**Frontend:** https://takedetour.app  
 **Frontend commit:** `e2030ed9b28e05b601eaeb5477d44f55147dc93b`  
 **Backend deployment:** `e556daeb-e7b6-4ce6-a81f-7a8792d79ce5` (healthy)  
 **Backend URL:** https://sn-pb-repo-1297566350-6aebd3.fly.dev

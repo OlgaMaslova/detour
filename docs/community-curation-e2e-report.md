@@ -2,7 +2,7 @@
 
 **Release verified:** 2026-07-16
 
-**Public guide:** https://detour-app.supernaut.to/
+**Public guide:** https://takedetour.app/
 
 **Backend:** https://sn-pb-repo-1297566350-6aebd3.fly.dev/
 
@@ -117,7 +117,7 @@ separately. No member panel was opened and no private collection was read.
 ## Release provenance and observed production verification
 
 On 2026-07-16, the production browser-plus-API validator was observed passing
-against the live frontend `https://detour-app.supernaut.to/?city=madrid` and
+against the live frontend `https://takedetour.app/?city=madrid` and
 backend `https://sn-pb-repo-1297566350-6aebd3.fly.dev` at validation
 implementation commit `c38d329966e26448edbb369c88a67044d8d510ed`. The deployed
 frontend source remains `24e14a438928426f60f585f9dbf191ae156953bf`, identified
@@ -177,7 +177,7 @@ npm run validate:community-selection-live
 The validator targets the currently deployed production frontend and backend
 directly:
 
-- Frontend Madrid route: `https://detour-app.supernaut.to/?city=madrid`
+- Frontend Madrid route: `https://takedetour.app/?city=madrid`
 - Backend: `https://sn-pb-repo-1297566350-6aebd3.fly.dev`
 - Public venue endpoint:
   `/api/collections/venues/records/venuepizza00001`
@@ -247,7 +247,7 @@ deployment. Each response is intentionally public except the two `404` checks.
 
 ```sh
 BASE='https://sn-pb-repo-1297566350-6aebd3.fly.dev'
-APP='https://detour-app.supernaut.to'
+APP='https://takedetour.app'
 
 # Frontend release identity: expect the exact release marker.
 curl -fsSL "$APP/" | grep -F 'detour-community-selection-2026-07-16-r1'
