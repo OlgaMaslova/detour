@@ -3,6 +3,9 @@
     "dev": "vite --host 0.0.0.0",
     "dev:api": "sh scripts/run-local-pocketbase.sh",
     "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "eval:image-curation": "node evals/image-curation/run.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "deploy": "npm run build && wrangler deploy",
     "validate:madrid-seed": "node scripts/validate-guia-repsol-2026-madrid-seed.mjs",
@@ -32,9 +35,10 @@
     "playwright": "1.55.0",
     "typescript": "latest",
     "vite": "latest",
+    "vitest": "^4.1.10",
     "wrangler": "latest"
   },
-  "name": "pocketbase-frontend",
+  "name": "Detour",
   "private": true,
   "type": "module"
 }

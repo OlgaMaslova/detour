@@ -84,7 +84,7 @@ interface VenueRecord {
 }
 
 /** A place as this script needs it: sluggable, plus what goes on the card. */
-interface PreviewPlace extends SluggableVenue {
+export interface PreviewPlace extends SluggableVenue {
   country: string;
   category: string;
   imageUrl: string;
@@ -177,15 +177,32 @@ function fromRecord(record: VenueRecord): PreviewPlace | null {
   };
 }
 
-/** Which published place, if any, this pair of slugs names. */
-async function resolvePlace(city: string, place: string): Promise<PreviewPlace | null> {
-  const catalogue = await loadCatalogue();
-  if (!catalogue) return null;
+/**
+ * Which place in a given catalogue, if any, this pair of slugs names.
+ *
+ * Separated from the fetch so the round trip — every place's own slug resolving
+ * back to that place and no other — is testable without a network or a Workers
+ * runtime. That round trip is the whole contract between this script and the
+ * app: both sides compute the address from `src/slugs.ts`, and a divergence puts
+ * the wrong restaurant in somebody's chat rather than failing.
+ */
+export function matchPlace<T extends SluggableVenue>(
+  catalogue: T[],
+  city: string,
+  place: string
+): T | null {
   const inCity = catalogue.filter((entry) => citySlug(entry.city) === city);
   if (!inCity.length) return null;
   // Against the whole catalogue, not just the city: venuePlaceSlug does its own
   // city comparison, and handing it a pre-filtered list would change its answer.
   return inCity.find((entry) => venuePlaceSlug(entry, catalogue) === place) ?? null;
+}
+
+/** Which published place, if any, this pair of slugs names. */
+async function resolvePlace(city: string, place: string): Promise<PreviewPlace | null> {
+  const catalogue = await loadCatalogue();
+  if (!catalogue) return null;
+  return matchPlace(catalogue, city, place);
 }
 
 /**

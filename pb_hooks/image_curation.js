@@ -217,13 +217,46 @@ function screenImageSubmission(app, imageId) {
       },
       body: JSON.stringify({
         model: $os.getenv("DETOUR_IMAGE_CURATION_MODEL") || "gpt-4o-mini",
+        // Byte-for-byte the same string as INSTRUCTIONS in
+        // evals/image-curation/run.mjs. Edit both in one commit; a diff in this
+        // string with no diff there is what the eval exists to catch.
+        //
+        // Judged by subject rather than by identification on purpose. The earlier
+        // wording read "the named venue's exterior, interior, ..." — a possessive
+        // that attached the venue to every category and so turned each one into a
+        // test the photograph almost never passes, because a member's picture of a
+        // room carries nothing proving which room. "Cannot plausibly represent the
+        // named venue → irrelevant" then beat "when evidence is insufficient, use
+        // uncertain", so an unbranded interior lost twice: rejected, not deferred.
+        // Interiors and plates are most of what members upload.
+        //
+        // It does not try to spot stock photography, and the eval records four runs
+        // establishing why: the model has no stock-vs-own-photo discriminator, so it
+        // substitutes "lacks context indicating a food-and-drink establishment" —
+        // which is exactly what a member's own photograph of a plate looks like. Any
+        // wording strong enough to catch a catalogue shot of a coffee also rejected a
+        // bowl of gazpacho, and plates are most of what members send. So the
+        // classifier is scoped to what it does reliably: memes, screenshots, maps,
+        // pets. A founder still sees every image, and only moderation auto-rejects.
+        //
+        // "Missing context is never a reason to answer irrelevant" is load-bearing.
+        // Drop that sentence and isolated food goes back to being rejected.
         instructions:
           "Classify a candidate image for a food-and-drink destination. " +
-          "Relevant images may show the named venue's exterior, interior, sign, " +
-          "menu, food, drinks, staff at work, or recognizable branding. Mark " +
-          "generic stock imagery, unrelated people or objects, screenshots, " +
-          "memes, and images that cannot plausibly represent the named venue as " +
-          "irrelevant. When evidence is insufficient, use uncertain. Return JSON only.",
+          "Judge what the photograph is of, not whether the venue can be " +
+          "identified from it. Relevant: the subject is a food-and-drink " +
+          "establishment or something served or done in one — an exterior, an " +
+          "interior, a sign, a menu, food, drinks, or staff at work. Do not " +
+          "require branding, a visible name, or any other proof that the subject " +
+          "is the named venue; most photographs of a place carry none, and " +
+          "relevant is still the right answer. An ordinary photograph of a plate " +
+          "or a glass is relevant even when no venue is visible around it: " +
+          "missing context is never a reason to answer irrelevant. Irrelevant: " +
+          "the subject has no food-and-drink content at all — memes, screenshots, " +
+          "maps, animals, unrelated people and objects, a street scene, or a room " +
+          "that is not part of an establishment. Uncertain: the photograph is too " +
+          "dark, blurred, or closely cropped to tell what its subject is. " +
+          "Return JSON only.",
         input: [
           {
             role: "user",

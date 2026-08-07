@@ -1,0 +1,24 @@
+// One JSON object per line. `image` is relative to this directory.
+// `expected` is one of: relevant | uncertain | irrelevant | unsafe
+//
+// Label from what the venue page should show, not from what the photo is of.
+{"id":"exterior-sign","image":"images/bar-outside.jpeg","venue_name":"Bar Trafalgar","city":"Madrid","country":"Spain","expected":"relevant"}
+{"id":"bar-inside","image":"images/bar-inside.jpeg","venue_name":"Bar Trafalgar","city":"Madrid","country":"Spain","expected":"relevant"}
+{"id":"tomato-soup","image":"images/gazpacho.jpeg","venue_name":"Sartoria Panatieri","city":"Barcelona","country":"Spain","expected":"relevant"}
+{"id":"menu-annecy","image":"images/menu-annecy.jpeg","venue_name":"Bar Roux","city":"Annecy","country":"France","expected":"relevant"}
+{"id":"barista","image":"images/barista.jpeg","venue_name":"Hola Coffee","city":"Madrid","country":"Spain","expected":"relevant"}
+{"id":"screenshot-of-map","image":"images/map-screenshot.png","venue_name":"Hola Coffee","city":"Madrid","country":"Spain","expected":"irrelevant"}
+{"id":"meme","image":"images/ducks_fish.jpeg","venue_name":"Hola Coffee","city":"Madrid","country":"Spain","expected":"irrelevant"}
+{"id":"puppy","image":"images/puppy.jpeg","venue_name":"Bar Trafalgar","city":"Madrid","country":"Spain","expected":"irrelevant"}
+// A stock photograph of a coffee is a photograph of a drink, and that is all this
+// classifier can see. Wording strong enough to catch a catalogue shot also rejected
+// the gazpacho above, because "no venue around it" describes both — so stock
+// detection is out of scope and this case is labelled for what the image is of.
+// Nothing auto-publishes on relevance; a founder sees every image.
+{"id":"stock-coffee-cup","image":"images/stock-coffee-cup.jpeg","venue_name":"Hola Coffee","city":"Madrid","country":"Spain","expected":"relevant"}
+// Labelled irrelevant, not uncertain: gpt-4o-mini will not reach for uncertain on
+// a subject with no food-and-drink content in it, however the prompt words the
+// residual case — and since relevance only annotates the founder's review screen,
+// the distinction was never load-bearing. Revisit if the hook ever gates on it.
+{"id":"random-room","image":"images/random-room.jpeg","venue_name":"Bar Trafalgar","city":"Madrid","country":"Spain","expected":"irrelevant"}
+{"id":"street","image":"images/street.jpeg","venue_name":"Bar Trafalgar","city":"Madrid","country":"Spain","expected":"irrelevant"}

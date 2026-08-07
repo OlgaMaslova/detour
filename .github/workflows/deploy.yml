@@ -27,6 +27,12 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
+      # Before the build, because the contract these cover is one a build cannot
+      # break loudly: the app and the Worker compute a place's address from the
+      # same functions, and a divergence puts the wrong place — or no place — in
+      # the preview card a link shows in a chat.
+      - run: npm test
+
       - run: npm run build
 
       # Guard against the failure that is invisible until users hit it: Vite

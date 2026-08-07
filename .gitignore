@@ -4,7 +4,7 @@ pb_data/
 node_modules/
 public/assets/
 LOCAL_DEV.md
-.env.local
+.env
 .env.backend.local
 pocketbase
 .detour-prod-secrets.env
