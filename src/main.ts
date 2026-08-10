@@ -2888,23 +2888,24 @@ function tapeThemeToggleMarkup(): string {
 // cannot drift back into writing their own wording.
 const FOOTER_TAGLINE = 'Recommended by members. Ready for your next detour.';
 
+// The one address readers can reach a person at, kept beside the tagline so both
+// halves of the footer's fixed copy live in one place.
+const CONTACT_EMAIL = 'hello@takedetour.app';
+
 /**
- * The footer's one link. How it works is the only page that states the rules the
- * app otherwise only implies — who can see what, and why a place is on your list —
- * so it belongs where somebody goes looking for it rather than in a nav slot
- * competing with Explore.
- */
-/**
- * The two pages that explain Detour rather than show it, on every footer.
+ * How it works is the only page that states the rules the app otherwise only
+ * implies — who can see what, and why a place is on your list — so it belongs
+ * where somebody goes looking for it rather than in a nav slot competing with
+ * Explore.
  *
- * Founding membership belongs here now that it has a route: it left the landing,
- * and a page reachable only from one pair of buttons on one screen is a page most
- * readers never learn exists.
+ * Contact sits beside it as a plain mailto rather than a route: there is nothing
+ * to render, and carrying no data- attribute keeps it out of the client-side link
+ * interception above so the reader's mail client opens.
  */
 function footerLinksMarkup(): string {
   return `<nav class="footer-links" aria-label="About Detour">
     <a href="${esc(howHref())}" data-how>How Detour works</a>
-    <a href="${esc(foundingHref())}" data-founding>Founding membership</a>
+    <a href="mailto:${esc(CONTACT_EMAIL)}">Contact</a>
   </nav>`;
 }
 
@@ -3026,7 +3027,7 @@ function renderHowItWorks(root: HTMLElement): void {
 
         <details class="how-faq-item">
           <summary>Can I become a founding member?</summary>
-          <p>Yes — and we would like you to ask. What we are after is a giver: somebody who writes places down and keeps writing them. A founding member's recommendations are the one thing everybody sees — every member at any distance, and every visitor who has not signed in at all — so the fifty are, between them, what Detour looks like to anyone arriving. That is also why we are glad to hear from people who move around. Somebody who eats well in six cities can put six cities on the list, and a list that only knows one town is not much of a detour.</p>
+          <p>Yes, absolutely! Just fill in a form. What we are after is a giver: somebody who writes places down and keeps writing them. A founding member's recommendations are the one thing everybody sees — every member at any distance, and every visitor who has not signed in at all — so the fifty are, between them, what Detour looks like to anyone arriving. That is also why we are glad to hear from people who move around. Somebody who eats well in six cities can put six cities on the list, and a list that only knows one town is not much of a detour.</p>
           <p>The seat is free for life and carries enough invitations for everyone whose taste you trust. Tell us about one place you would recommend and why — <a href="${esc(foundingHref())}" data-founding>that is the whole request</a>; we read every one and reply personally. If the fifty are gone by the time we reach yours, it is considered for regular membership instead.</p>
         </details>
 
