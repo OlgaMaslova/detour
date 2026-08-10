@@ -19,7 +19,7 @@ import { adoptTriageCard, readTriageCard, resetTriage } from './triage';
 import type { Venue } from './data';
 import { OCCASION_OPTIONS } from './occasions';
 import { ENDORSE_LABEL } from './signal';
-import { bindInviteShare, inviteShareMarkup } from './share';
+import { bindInviteShare, inviteShareMenuMarkup } from './share';
 import { siteOrigin } from './site';
 import {
   ensureSavedPlaces,
@@ -81,6 +81,10 @@ interface InviteRecord {
   created?: string;
   /** Set by the Founder when issuing: this invitation offers a founding seat. */
   grants_founding?: boolean;
+  /** The issuer's own note on who this was sent to — never read server-side. */
+  hint?: string;
+  /** Snapshot of the claiming member's pseudo, taken at redemption. */
+  claimed_pseudo?: string;
 }
 
 interface WaitlistEntry {
@@ -411,13 +415,14 @@ let memberPlacePromptState: PlacePrompt | null = null;
 // invitation. The Founder alone, as the server decides it — every other member's
 // invitations are ordinary, and they are never shown the choice.
 let canGrantFounding = false;
-// Founding seats nobody holds yet, reported only to the member who can offer one.
-// Null until the server says, so the toggle never claims a number it invented.
-let foundingSeatsRemaining: number | null = null;
 // Whether the next invitation created here offers a founding seat. Deliberately
 // resets to off after every issue: a founding invitation is the exception, and a
 // toggle left on would spend the fifty by inattention.
 let inviteGrantsFounding = false;
+// Who the next invitation is for, in the issuer's own words. Held here rather
+// than only in the DOM because loadInvites can re-render this panel — see
+// joinDraft above — while a member is still typing it.
+let inviteHintDraft = '';
 let imageCurationCount = 0;
 let curationItems: ImageCurationItem[] = [];
 let curationLoaded = false;
@@ -1775,34 +1780,23 @@ function invitesPanel(): string {
   const available = Math.max(0, invitationLimit - unclaimed.length);
   const allowanceKnown = invitesLoaded && !loadingInvites;
   const atLimit = allowanceKnown && available === 0;
-  // Nothing is reserved until someone joins, so a seat count of zero does not
-  // block issuing a marked invitation — it warns that the fifty are taken and
-  // whoever redeems it will join as an ordinary member.
-  const seatsGone = foundingSeatsRemaining === 0;
   return `<section class="community-tab-panel community-invitation-panel" id="member-panel-invitations" role="tabpanel" aria-labelledby="member-tab-invitations" tabindex="0">
     <div class="community-invite-actions">
       <p class="community-invite-explainer">Your circle grows by personal invitation — create a link and send it to someone you trust. Whoever redeems it joins inside your circle, which is what an open signup cannot do for itself.</p>
-      ${
-        canGrantFounding
-          ? `<label class="community-switch community-invite-founding">
-              <input type="checkbox" data-invite-founding ${inviteGrantsFounding ? 'checked' : ''} ${submitting ? 'disabled' : ''}>
-              <span class="community-switch-track" aria-hidden="true"></span>
-              <span class="community-switch-copy"><strong>Offer a founding seat</strong><small>${
-                inviteGrantsFounding
-                  ? seatsGone
-                    ? 'All fifty seats are taken — whoever redeems this joins as a regular member'
-                    : `The next invitation you create joins the founding circle${
-                        foundingSeatsRemaining === null ? '' : ` — ${foundingSeatsRemaining} of fifty ${foundingSeatsRemaining === 1 ? 'seat' : 'seats'} left`
-                      }`
-                  : 'The next invitation you create joins as a regular member'
-              }</small></span>
-            </label>`
-          : ''
-      }
-      <div class="community-invite-bar">
+      <div class="community-invite-row">
+        <label class="community-invite-hint-field"><span>Who's this for? <small>(optional, just for you)</small></span><input type="text" data-invite-hint value="${esc(inviteHintDraft)}" maxlength="120" placeholder="e.g. Jane" ${submitting ? 'disabled' : ''}></label>
+        ${
+          canGrantFounding
+            ? `<label class="community-switch community-invite-founding">
+                <input type="checkbox" data-invite-founding ${inviteGrantsFounding ? 'checked' : ''} ${submitting ? 'disabled' : ''}>
+                <span class="community-switch-track" aria-hidden="true"></span>
+                <span class="community-switch-copy"><strong>Offer a founding seat</strong></span>
+              </label>`
+            : ''
+        }
         <button class="secondary-button" type="button" data-community-invite ${submitting || !allowanceKnown || atLimit ? 'disabled' : ''}>${submitting ? 'Preparing…' : atLimit ? 'Invitation limit reached' : inviteGrantsFounding ? 'New founding invitation' : 'New invitation'}</button>
-        <p class="community-invite-allowance" aria-live="polite"><strong>${allowanceKnown ? available : '—'}</strong> ${allowanceKnown ? (available === 1 ? 'invitation left' : 'invitations left') : 'checking…'}</p>
       </div>
+      <p class="community-invite-allowance" aria-live="polite"><strong>${allowanceKnown ? available : '—'}</strong> ${allowanceKnown ? (available === 1 ? 'invitation left' : 'invitations left') : 'checking…'}</p>
       ${
         loadingInvites || !invitesLoaded
           ? '<p class="community-loading" role="status">Loading…</p>'
@@ -1810,7 +1804,7 @@ function invitesPanel(): string {
             ? `<div class="community-invite-list"><h4>Unclaimed invitations</h4><ul class="community-invite-codes" aria-label="Your unclaimed invitation links">${unclaimed
                 .map(
                   (invite) =>
-                    `<li><code>${esc(invite.code || '')}</code>${foundingInviteTag(invite)}<div class="community-invite-row-actions"><button class="secondary-button community-invite-copy" type="button" data-copy-invite="${esc(invite.code || '')}" aria-live="polite" aria-label="Copy invitation link for ${esc(invite.code || '')}">Copy link</button>${invite.code ? inviteShareMarkup(invitationLink(invite.code), true) : ''}</div></li>`
+                    `<li><div class="community-invite-row-main"><code>${esc(invite.code || '')}</code>${foundingInviteTag(invite)}${invite.hint ? `<span class="community-invite-hint-tag">${esc(invite.hint)}</span>` : ''}</div><div class="community-invite-row-actions"><button class="secondary-button community-invite-copy" type="button" data-copy-invite="${esc(invite.code || '')}" aria-live="polite" aria-label="Copy invitation link for ${esc(invite.code || '')}">Copy link</button>${invite.code ? inviteShareMenuMarkup(invitationLink(invite.code)) : ''}<button class="secondary-button community-invite-remove" type="button" data-remove-invite="${esc(invite.id)}" aria-label="Remove invitation ${esc(invite.code || '')}">Remove</button></div></li>`
                 )
                 .join('')}</ul></div>`
             : '<p class="community-empty">No unclaimed invitations. Create one to invite someone.</p>'
@@ -1820,7 +1814,8 @@ function invitesPanel(): string {
           ? `<div class="community-invite-list community-invite-claimed"><h4>Claimed invitations</h4><ul class="community-invite-codes" aria-label="Your claimed invitation codes">${claimed
               .map((invite) => {
                 const when = formatDate(invite.claimed_at);
-                return `<li><code>${esc(invite.code || '')}</code>${foundingInviteTag(invite)}<span>Claimed${when ? ` ${esc(when)}` : ''}</span></li>`;
+                const claimant = invite.claimed_pseudo ? pseudoLabel(invite.claimed_pseudo) : '';
+                return `<li><code>${esc(invite.code || '')}</code>${foundingInviteTag(invite)}<span>${claimant ? `Claimed by ${esc(claimant)}` : 'Claimed'}${when ? ` ${esc(when)}` : ''}</span></li>`;
               })
               .join('')}</ul></div>`
           : ''
@@ -2618,7 +2613,6 @@ function resetCommunityState(): void {
   // own rather than inheriting a stale one.
   resetSavedPlaces();
   canGrantFounding = false;
-  foundingSeatsRemaining = null;
   inviteGrantsFounding = false;
   imageCurationCount = 0;
   curationItems = [];
@@ -2780,11 +2774,6 @@ async function loadMemberFlags(signedInAs: string, render: () => void): Promise<
       : BASELINE_INVITATION_LIMIT;
   foundingMember = me.member?.founding_member === true;
   canGrantFounding = me.member?.can_grant_founding === true;
-  // A backend that does not report the figure leaves it unknown rather than
-  // zero: the toggle stays offerable, and the server is the one that decides
-  // whether a redeemed invitation actually finds a seat.
-  const seats = Number(me.member?.founding_seats_remaining);
-  foundingSeatsRemaining = canGrantFounding && Number.isFinite(seats) ? Math.max(0, Math.floor(seats)) : null;
   if (!canGrantFounding) inviteGrantsFounding = false;
   imageCurationCount = foundingMember ? cleanCount(me.member?.image_curation_count) : 0;
   if (!foundingMember && memberTab === 'curation') memberTab = 'settings';
@@ -3996,19 +3985,28 @@ export function bindCommunity(
     render();
   });
 
+  root.querySelector<HTMLInputElement>('[data-invite-hint]')?.addEventListener('input', (event) => {
+    inviteHintDraft = (event.currentTarget as HTMLInputElement).value;
+  });
+
   root.querySelector<HTMLButtonElement>('[data-community-invite]')?.addEventListener('click', async () => {
     if (!member() || !invitesLoaded || loadingInvites || openInvites().length >= invitationLimit) return;
     // The server decides this too, and forces it off for anyone but the Founder.
     const grantsFounding = canGrantFounding && inviteGrantsFounding;
+    const hint = inviteHintDraft.trim();
     submitting = true;
     notice = null;
     render();
     try {
-      await pb.collection('invites').create(grantsFounding ? { grants_founding: true } : {});
+      await pb.collection('invites').create({
+        ...(grantsFounding ? { grants_founding: true } : {}),
+        ...(hint ? { hint } : {}),
+      });
       invitesLoaded = false;
       // Back to an ordinary invitation: the choice is made per invitation, and a
       // seat should never be spent because the toggle was still on from last time.
       inviteGrantsFounding = false;
+      inviteHintDraft = '';
       notice = {
         kind: 'success',
         text: grantsFounding
@@ -4022,6 +4020,27 @@ export function bindCommunity(
       submitting = false;
       render();
     }
+  });
+
+  root.querySelectorAll<HTMLButtonElement>('[data-remove-invite]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const id = button.dataset.removeInvite || '';
+      if (!id || submitting) return;
+      if (!window.confirm('Remove this invitation? The link will stop working.')) return;
+      submitting = true;
+      notice = null;
+      render();
+      try {
+        await pb.collection('invites').delete(id);
+        invites = invites.filter((invite) => invite.id !== id);
+        notice = { kind: 'info', text: 'Invitation removed.' };
+      } catch (error) {
+        notice = { kind: 'error', text: readableError(error, 'That invitation could not be removed. Please try again.') };
+      } finally {
+        submitting = false;
+        render();
+      }
+    });
   });
 
   bindInviteShare(root);

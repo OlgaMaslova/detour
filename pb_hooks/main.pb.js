@@ -1747,6 +1747,10 @@ onRecordAfterCreateSuccess((e) => {
       const invite = e.app.findRecordById("invites", inviteId);
       invite.set("claimed_by", e.record.id);
       invite.set("claimed_at", new Date().toISOString());
+      // Snapshot, not a relation read: the issuer can view this invite but not
+      // the claimant's member record, so the pseudo has to travel with the
+      // invite itself to ever be shown back to them.
+      invite.set("claimed_pseudo", e.record.getString("pseudo"));
       e.app.save(invite);
     } catch {}
   }
@@ -1927,6 +1931,26 @@ onRecordCreateRequest((e) => {
   e.record.set("code", "DTR-" + $security.randomString(20).toUpperCase());
   e.record.set("claimed_by", "");
   e.record.set("claimed_at", "");
+  // The issuer's own reminder of who a code was sent to. Free text, never
+  // interpreted by anything server-side — just trimmed to a sane length.
+  e.record.set("hint", e.record.getString("hint").trim().slice(0, 120));
+  e.record.set("claimed_pseudo", "");
+  e.next();
+}, "invites");
+
+// An invitation an issuer no longer needs — sent to the wrong person, or never
+// sent at all — can be withdrawn while it is still unspent. Once it is
+// claimed it is the record of how a real member joined, and stays.
+onRecordDeleteRequest((e) => {
+  if (e.hasSuperuserAuth()) {
+    return e.next();
+  }
+  if (!e.auth || e.record.getString("issued_by") !== e.auth.id) {
+    throw new BadRequestError("You can remove only invitations you issued.");
+  }
+  if (e.record.getString("claimed_by")) {
+    throw new BadRequestError("A claimed invitation cannot be removed.");
+  }
   e.next();
 }, "invites");
 

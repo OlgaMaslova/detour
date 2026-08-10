@@ -57,6 +57,27 @@ export function inviteShareMarkup(link: string, compact = false): string {
 }
 
 /**
+ * The same send-it-onward options, tucked behind one "Share" disclosure
+ * instead of laid out inline — for rows that already carry a Copy link button
+ * and a Remove button, where three more links would crowd the row past what
+ * anyone can scan.
+ */
+export function inviteShareMenuMarkup(link: string): string {
+  if (!link) return '';
+  const native = canShareNatively()
+    ? `<button class="invite-share-menu-link" type="button" data-invite-share="${esc(link)}">More…</button>`
+    : '';
+  return `<details class="invite-share-menu">
+    <summary class="secondary-button invite-share-toggle">Share</summary>
+    <div class="invite-share-menu-list" role="group" aria-label="Send this invitation">
+      <a class="invite-share-menu-link" href="${esc(whatsAppHref(link))}" target="_blank" rel="noopener noreferrer">WhatsApp</a>
+      <a class="invite-share-menu-link" href="${esc(mailtoHref(link))}">Email</a>
+      ${native}
+    </div>
+  </details>`;
+}
+
+/**
  * Wires the system-sheet button. The plain links need no JavaScript, so this is
  * all there is to bind. A dismissed sheet throws AbortError, which is not a
  * failure worth reporting.
@@ -69,6 +90,14 @@ export function bindInviteShare(root: HTMLElement): void {
       // `url` carries the link, so the text is the sentence alone — passing both
       // in the text as well makes the target app show the link twice.
       void navigator.share({ title: SUBJECT, text: MESSAGE, url: link }).catch(() => {});
+    });
+  });
+  // A menu that stays open after the member has already acted on it reads as
+  // unfinished. Any click inside the list — WhatsApp, Email, or the native
+  // sheet — closes the disclosure it came from.
+  root.querySelectorAll<HTMLElement>('.invite-share-menu-list').forEach((list) => {
+    list.addEventListener('click', () => {
+      list.closest('details')?.removeAttribute('open');
     });
   });
 }

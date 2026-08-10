@@ -4644,8 +4644,13 @@ legend { color: var(--tape-text); }
   accent-color: var(--tape-orange);
 }
 
-/* ---- invitations ---- */
-.community-invite-bar { display: flex; align-items: center; gap: 0.9rem; }
+/* ---- invitations ----
+   Who it's for, whether it's a founding seat, and the button that makes it —
+   one decision, read left to right, so nothing is issued half-configured. */
+.community-invite-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem 1.2rem; width: 100%; }
+.community-invite-row .community-invite-hint-field { flex: 1 1 14rem; min-width: 12rem; }
+.community-invite-row .community-invite-founding { flex: 1 1 18rem; align-self: flex-end; }
+.community-invite-row .secondary-button { flex: none; }
 .community-invite-allowance { margin: 0; color: var(--tape-muted); font-size: 0.85rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .community-invite-allowance strong { color: var(--tape-accent-strong); font-size: 1rem; }
 .community-invite-explainer { max-width: 62ch; margin: 0; color: var(--tape-muted); font-size: 0.88rem; }
@@ -4742,6 +4747,52 @@ legend { color: var(--tape-text); }
   cursor: pointer;
 }
 .invite-share-link:hover { color: var(--tape-accent-strong); }
+
+/* ---- the same options, behind one disclosure ----
+   Unclaimed invitations already carry a Copy link button and a Remove button;
+   WhatsApp, Email and the system sheet laid out inline would be five actions
+   deep. One "Share" summary keeps the row to three. */
+.invite-share-menu { position: relative; flex: none; }
+.invite-share-menu > summary { list-style: none; }
+.invite-share-menu > summary::-webkit-details-marker { display: none; }
+.invite-share-toggle {
+  min-height: 32px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+.invite-share-menu-list {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 2;
+  display: grid;
+  gap: 0.1rem;
+  min-width: 9rem;
+  padding: 0.4rem;
+  background: var(--tape-surface);
+  border: 2px solid var(--tape-chrome);
+  box-shadow: 4px 4px 0 var(--tape-rust);
+}
+.invite-share-menu-list a,
+.invite-share-menu-list button {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  color: var(--tape-text);
+  background: none;
+  border: 0;
+  font-family: var(--tape-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+}
+.invite-share-menu-list a:hover,
+.invite-share-menu-list button:hover { color: var(--tape-ink); background: var(--tape-orange); }
 /* In a row of invitation codes the actions already read as a group, so the
    links sit tight against the copy button without a second label. */
 .community-invite-row-actions {
@@ -4753,6 +4804,29 @@ legend { color: var(--tape-text); }
   gap: 0.3rem 0.6rem;
 }
 .invite-share.is-compact { gap: 0.3rem 0.5rem; }
+
+/* ---- the issuer's own reminder of who a code was sent to ---- */
+.community-invite-hint-field { display: grid; gap: 0.3rem; width: min(100%, 22rem); }
+.community-invite-hint-field span { color: var(--tape-muted); font-size: 0.8rem; }
+.community-invite-hint-field small { font-weight: 400; }
+.community-invite-row-main { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+.community-invite-hint-tag {
+  flex: none;
+  color: var(--tape-muted);
+  font-size: 0.72rem;
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+.community-invite-remove {
+  flex: none;
+  min-height: 32px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--tape-rust);
+  border-color: var(--tape-rust);
+}
+.community-invite-remove:hover:not(:disabled) { color: var(--tape-rust); border-color: var(--tape-rust); }
 
 /* ---- section intros ----
    The base floated the description right in a 32ch column; stack it under the
@@ -5793,7 +5867,7 @@ legend { color: var(--tape-text); }
   /* No reserved height: a phone panel holding two lines and a button should be
      two lines and a button tall, not a screen of empty grid paper. */
   .community-tab-panel { min-height: 0; padding: 1.25rem; }
-  .community-invite-bar { align-items: center; flex-wrap: wrap; }
+  .community-invite-row { align-items: stretch; }
   /* A 24-character code and four send-it-onward controls do not share a line;
      the code takes the first, its actions the second. */
   .community-invite-codes li { align-items: flex-start; flex-direction: column; gap: 0.5rem; }
