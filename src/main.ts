@@ -3007,7 +3007,7 @@ function renderHowItWorks(root: HTMLElement): void {
 
         <details class="how-faq-item">
           <summary>How do I get in?</summary>
-          <p>Two ways, and neither has a queue. <strong>Sign up</strong> — an email, a password, a pseudo and the city you live in — and you are a member as soon as you have answered; no code, nobody to approve you. Or <strong>redeem a personal invitation</strong> from a member, which asks for the same four things and puts you inside their circle. There is a third, slower door as well: fifty founding seats, which are asked for rather than taken.</p>
+          <p>Two simple ways. <strong>Sign up</strong> — an email, a password, a pseudo and the city you live in — and you are a member as soon as you have answered. Or <strong>redeem a personal invitation</strong> from a member, which asks for the same four things and puts you inside their <a href="${esc(circleHref())}" data-circle>circle</a>. There is a third, slower door as well: become a founding member and secure one of the fifty founding seats, which are asked for rather than taken.</p>
         </details>
 
         <details class="how-faq-item">
@@ -3026,9 +3026,14 @@ function renderHowItWorks(root: HTMLElement): void {
         </details>
 
         <details class="how-faq-item">
+          <summary>Who is a founding member?</summary>
+          <p>One of fifty people: the Founder, and the forty-nine invited in one at a time. It is not a rank or a moderator's job — nobody approves anyone else's places, and nothing on Detour is edited. It is one thing only: a member whose recommendations are shown to everybody instead of to a circle. A founding member's notes are what every member at any distance reads, and what every visitor who has not signed in at all reads, so the fifty are, between them, what Detour looks like to anyone arriving.</p>
+          <p>Which is why what we are after is a giver: somebody who writes places down and keeps writing them. It is also why we are glad to hear from people who move around — somebody who eats well in six cities can put six cities on the list, and a list that only knows one town is not much of a detour. The seat is free for life and carries enough invitations for everyone whose taste you trust, and it stays with the person: their own invitees are ordinary members.</p>
+        </details>
+
+        <details class="how-faq-item">
           <summary>Can I become a founding member?</summary>
-          <p>Yes, absolutely! Just fill in a form. What we are after is a giver: somebody who writes places down and keeps writing them. A founding member's recommendations are the one thing everybody sees — every member at any distance, and every visitor who has not signed in at all — so the fifty are, between them, what Detour looks like to anyone arriving. That is also why we are glad to hear from people who move around. Somebody who eats well in six cities can put six cities on the list, and a list that only knows one town is not much of a detour.</p>
-          <p>The seat is free for life and carries enough invitations for everyone whose taste you trust. Tell us about one place you would recommend and why — <a href="${esc(foundingHref())}" data-founding>that is the whole request</a>; we read every one and reply personally. If the fifty are gone by the time we reach yours, it is considered for regular membership instead.</p>
+          <p>Yes, absolutely! Just fill in a form. Tell us about one place you would recommend and why — <a href="${esc(foundingHref())}" data-founding>that is the whole request</a>; we read every one and reply personally. If the fifty are gone by the time we reach yours, it is considered for regular membership instead.</p>
         </details>
 
         <details class="how-faq-item">
