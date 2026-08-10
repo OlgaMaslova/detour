@@ -83,6 +83,12 @@ curl -fsS https://api.takedetour.app/api/detour/ready
   - `1786406400_place_endorsements.js` — `community_place_endorsements`, the
     been-and-loved mark: one row per member per place, readable only by its own
     member, projected to everybody else by the server.
+  - `1786838400_guides.js` — `community_guides` and
+    `community_imported_places`, a compilation a member pasted a link to, kept
+    privately. One row per place per member across every guide, so two
+    overlapping guides share a place rather than duplicating it; `guides` is a
+    non-cascading multi-relation, and an empty one is a real state — a place kept
+    after the guide it arrived on was removed.
 - `pb_hooks/` — backend behavior: custom routes and record hooks (see below).
 - `pb_public/` — optional static fallback assets served by PocketBase.
 - `src/`, `index.html`, `vite.config.ts`, `wrangler.toml` — the frontend and
@@ -114,6 +120,7 @@ platform-provisioned or otherwise unmanaged collections in the database.
 | `community_recommendations` | the recommendation itself — the only reason anything is public on Detour |
 | `community_place_images` | member-supplied photos, screened, hanging off the recommendation that authored them |
 | `community_place_endorsements` | been & loved: one member went somewhere on another's note and would send you too. Corroboration, never authorship — it publishes nothing and gates nothing |
+| `community_guides` / `community_imported_places` | a compilation a member pasted a link to, kept privately. Not the catalogue: nobody has stood behind these, so they never touch `venues` and nothing about them is computed for another member |
 | `community_shares` / `community_share_replies` | private member-to-member sends |
 | `member_place_contributions` | the legacy curator-reviewed contribution lane |
 | `detour_submissions` | the curator publication lane |

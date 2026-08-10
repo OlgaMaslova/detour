@@ -3,6 +3,7 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { citySlug, coverTint, loadLiveCatalogue, venueCitySlug, venuePlaceSlug } from './data';
 import type { Venue } from './data';
+import type { ImportedPlace } from './guides';
 import { GLOBAL_META_DESCRIPTION, GLOBAL_META_TITLE } from './cities';
 import { OCCASION_OPTIONS, occasionLabel } from './occasions';
 import {
@@ -20,6 +21,12 @@ import {
   openEditRecommendation,
   openMemberArea,
   openSignUp,
+  bindWannaGoCards,
+  guideCardsMarkup,
+  wannaGoDestinationCardsMarkup,
+  wannaGoDestinationPlaces,
+  wannaGoDestinations,
+  openRecommendNewPlace,
   openRecommendPlace,
   openSharePlace,
   shouldShowLandingFeedCta,
@@ -42,6 +49,22 @@ import {
   savingPlace,
   toggleSavedPlace,
 } from './saved';
+import {
+  ensureGuides,
+  guide,
+  guides,
+  guidesLoaded,
+  importedPlace,
+  guideAuthorLabel,
+  guideHref,
+  loadGuide,
+  loadImportedPlace,
+} from './guides';
+import {
+  importedPlaceAsVenue,
+  importedPlaceProvenanceMarkup,
+  importedPlaceStampMarkup,
+} from './private-place';
 import {
   bindCircle,
   circleLoading,
@@ -108,6 +131,17 @@ type AppView =
   | 'country'
   | 'destination'
   | 'place'
+  /**
+   * One imported place, held privately by one member. Its own view rather than a
+   * mode of `place`, because it is not a catalogue place: it resolves by record
+   * id for its owner alone, sits inside no destination, and its page offers none
+   * of the controls a published place's does. See src/private-place.ts.
+   */
+  | 'private-place'
+  /** One imported list, its places and a map of them. See renderGuide. */
+  | 'guide'
+  /** One destination: a city's places on the wishlist, and their map. */
+  | 'wanna-destination'
   | 'account'
   /** The new-member flow: handle and city, then the first place. */
   | 'welcome'
@@ -140,6 +174,16 @@ interface State {
    * two are set and cleared together.
    */
   place: string | null;
+  /**
+   * The imported place the `mine` search param names, on the private place page;
+   * null on every other view. A record id rather than a slug: nothing about a
+   * private place is shareable, so there is nothing for a readable URL to buy.
+   */
+  privatePlace: string | null;
+  /** The imported list the `list` search param names; null on every other view. */
+  guide: string | null;
+  /** The destination slug the `dest` search param names; null elsewhere. */
+  wannaDestination: string | null;
   /** Every loaded place, across all destinations. Never rendered directly — see destinationVenues(). */
   venues: Venue[];
   /** Multi-select occasion browsing; selected values compose as AND. */
@@ -167,6 +211,9 @@ const state: State = {
   pendingDestination: null,
   exploreQuery: '',
   place: null,
+  privatePlace: null,
+  guide: null,
+  wannaDestination: null,
   venues: [],
   occasionFilters: [],
   selectedId: null,
@@ -506,6 +553,18 @@ function routeHref(
   // strips `p` from the URL lands on the list the place belongs to.
   if (view === 'place' && slug && place) url.searchParams.set('p', place);
   else url.searchParams.delete('p');
+  // The private place page carries its record id and nothing else. Set from
+  // state rather than from the `place` argument: every other route in this app
+  // clears it, and a private place has no destination to hang off.
+  if (view === 'private-place' && state.privatePlace) {
+    url.searchParams.set('mine', state.privatePlace);
+  } else url.searchParams.delete('mine');
+  if (view === 'guide' && state.guide) {
+    url.searchParams.set('guide', state.guide);
+  } else url.searchParams.delete('guide');
+  if (view === 'wanna-destination' && state.wannaDestination) {
+    url.searchParams.set('dest', state.wannaDestination);
+  } else url.searchParams.delete('dest');
   if (view === 'country' && country) url.searchParams.set('country', country);
   else url.searchParams.delete('country');
   if (view === 'account') url.searchParams.set('view', 'members');
@@ -882,6 +941,17 @@ function applyRouteFromUrl(root: HTMLElement): void {
   const requestedPlace = isSurveyRoute || !requested
     ? null
     : (url.searchParams.get('p') || '').trim().toLowerCase() || null;
+  // A private place needs no destination and is not lowercased: it is a record
+  // id, and PocketBase ids are case-sensitive.
+  const requestedPrivatePlace = isSurveyRoute
+    ? null
+    : (url.searchParams.get('mine') || '').trim() || null;
+  const requestedGuide = isSurveyRoute
+    ? null
+    : (url.searchParams.get('guide') || '').trim() || null;
+  const requestedWannaDestination = isSurveyRoute
+    ? null
+    : (url.searchParams.get('dest') || '').trim().toLowerCase() || null;
   // Honoured on the landing as well as the account page: My detours is where
   // both forms live now, and the older ?view=members form of these links is still
   // out there in shared URLs and browser history.
@@ -919,10 +989,22 @@ function applyRouteFromUrl(root: HTMLElement): void {
   state.country = requested ? null : requestedCountry;
   state.pendingDestination = null;
   state.place = requestedPlace;
+  // Only for a member: a private place resolves against rows nobody else can
+  // read, so for a visitor the parameter names nothing and the route is home.
+  state.privatePlace = memberCanExplore() ? requestedPrivatePlace : null;
+  // Same rule: a list resolves against rows nobody else can read.
+  state.guide = memberCanExplore() ? requestedGuide : null;
+  state.wannaDestination = memberCanExplore() ? requestedWannaDestination : null;
   state.surveyForm = routedSurveyForm;
   state.view =
     nextView === 'survey'
       ? 'survey'
+      : state.privatePlace
+        ? 'private-place'
+      : state.guide
+        ? 'guide'
+      : state.wannaDestination
+        ? 'wanna-destination'
       : placeFormView
         ? placeFormView
       : nextView === 'account'
@@ -1043,12 +1125,26 @@ function destroyLocatorMap(): void {
  * small print.
  */
 function mountLocatorMap(root: HTMLElement, v: Venue): void {
+  if (v.lat === null || v.lng === null) return;
+  mountPointMap(root, PLACE_MAP_ID, v.lat, v.lng);
+}
+
+/**
+ * One pin, one place, in whichever container names itself.
+ *
+ * Split out of `mountLocatorMap` so the private place page can plot an imported
+ * place without being handed a catalogue `Venue` it does not have. Both pages
+ * share `locatorMap`, which is correct: only one of them is ever mounted, and a
+ * single handle is what guarantees the previous map is torn down before the next
+ * is built.
+ */
+function mountPointMap(root: HTMLElement, containerId: string, lat: number, lng: number): void {
   destroyLocatorMap();
-  const container = root.querySelector<HTMLElement>(`#${PLACE_MAP_ID}`);
-  if (!container || v.lat === null || v.lng === null) return;
+  const container = root.querySelector<HTMLElement>(`#${containerId}`);
+  if (!container) return;
 
   const map = L.map(container, {
-    center: [v.lat, v.lng],
+    center: [lat, lng],
     zoom: 16,
     zoomControl: true,
     scrollWheelZoom: false,
@@ -1061,7 +1157,7 @@ function mountLocatorMap(root: HTMLElement, v: Venue): void {
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
   }).addTo(map);
-  L.marker([v.lat, v.lng], {
+  L.marker([lat, lng], {
     icon: L.divIcon({
       className: '',
       html: `<span class="map-pin pin-detourist pin-selected" aria-hidden="true">
@@ -1923,6 +2019,520 @@ function renderPlace(
   }
 }
 
+/**
+ * One destination: every place on the wishlist in this city, and their map.
+ *
+ * THE PLANNING SURFACE. A destination is derived rather than declared — it exists
+ * because it holds places — so this page is assembled from whatever the member
+ * holds in this city, whichever door each place came through.
+ *
+ * Guides are named here as sources, never as containers. A band under the map
+ * says which pieces put places in this city and links to each; the places
+ * themselves are grouped by city, because a city is what somebody plans around.
+ */
+function renderWannaDestination(root: HTMLElement, slug: string): void {
+  destroyMap();
+  root.dataset.restyle = 'place';
+  applyTapeTheme();
+
+  void ensureGuides(() => render(root));
+  void ensureSavedPlaces(() => render(root));
+  ensureNetworkDiscovery(() => render(root));
+
+  const destination = wannaGoDestinations().find((entry) => entry.slug === slug);
+  if (!destination) {
+    root.innerHTML = guidesLoaded()
+      ? `<article class="place-page">
+          <h1 id="wanna-destination-title" tabindex="-1">Nothing here yet.</h1>
+          <p class="tagline">You have no places on your wishlist in this city.</p>
+          <p><a href="${esc(homeHref())}" data-route-link>Back to My detours</a></p>
+        </article>`
+      : '<p class="community-loading" role="status">Loading…</p>';
+    bindRouteLinks(root);
+    return;
+  }
+
+  const places = wannaGoDestinationPlaces(slug);
+  const pins: { place: ImportedPlace; venue: Venue }[] = places
+    .map((place) => ({ place, venue: importedPlaceAsVenue(place) }))
+    .filter((entry) => entry.venue.lat !== null && entry.venue.lng !== null);
+  // Two different absences — see mapCoverageNote.
+  const unplaced = places.filter((place) => place.lat === 0 && place.lng === 0);
+  const pending = unplaced.filter((place) => !place.locate_tried).length;
+
+  syncDocumentMeta(null);
+  root.innerHTML = `
+    ${mastheadMarkup('other')}
+    <nav class="place-back-row explore-breadcrumb" aria-label="Breadcrumb">
+      <a href="${esc(homeHref())}" data-route-link>My detours</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">${esc(destination.name)}</span>
+    </nav>
+    <article class="place-page guide-page-view">
+      <header class="guide-head">
+        <p class="place-overline">On your wishlist</p>
+        <h1 id="wanna-destination-title" tabindex="-1">${esc(destination.name)}</h1>
+        <p class="place-meta">${esc(String(destination.places))} place${
+          destination.places === 1 ? '' : 's'
+        }</p>
+      </header>
+      ${
+        pins.length
+          ? `<section class="guide-map-section" aria-label="${esc(
+              `Map of your places in ${destination.name}`
+            )}">
+        <div id="venue-map" class="venue-map guide-map" tabindex="-1" aria-label="${esc(
+          `Map of your places in ${destination.name}`
+        )}"></div>
+        ${mapCoverageNote(pending, unplaced.length - pending)}
+      </section>`
+          : ''
+      }
+      ${
+        destination.guides.length
+          ? `<section class="destination-guides" aria-label="Guides that brought places here">
+        <h2>From guides</h2>
+        <ul>
+          ${destination.guides
+            .map(
+              (guide) => `<li><a href="${esc(guideHref(guide.id))}" data-guide>${esc(
+                guide.title
+              )}</a> <span>${esc(guideAuthorLabel(guide))}</span></li>`
+            )
+            .join('')}
+        </ul>
+      </section>`
+          : ''
+      }
+      ${wannaGoDestinationCardsMarkup(slug)}
+    </article>
+    <footer class="footer">
+      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
+      ${tapeThemeToggleMarkup()}
+    </footer>
+  `;
+
+  bindRouteLinks(root);
+  bindWannaGoCards(root, () => render(root));
+  if (pins.length) mountGuideMap(root, pins);
+  if (pendingFocus) {
+    const target = root.querySelector<HTMLElement>(pendingFocus);
+    pendingFocus = null;
+    target?.focus({ preventScroll: true });
+  }
+}
+
+/** The list already asked for in full, so its read happens once per list. */
+let guideRequested = '';
+
+/**
+ * One imported list: its places, and a map of all of them.
+ *
+ * The map is the point, and it is why the read on this route locates a batch of
+ * places server-side. A published list is a shape on a city — the thing the
+ * member is actually planning around — and a column of names is not that.
+ *
+ * DELIBERATELY NOT THE DESTINATION MAP. `mountMap` plots the catalogue inside a
+ * city and its pins drive `state.selectedId` and a detail panel that only exists
+ * on that view. Here a pin is a link: this list's places, on their own, each one
+ * opening the page for that place. Same pin, same tiles, different job.
+ */
+function renderGuide(root: HTMLElement, id: string): void {
+  destroyMap();
+  root.dataset.restyle = 'place';
+  applyTapeTheme();
+
+  if (guideRequested !== id) {
+    guideRequested = id;
+    void loadGuide(id).then(() => render(root));
+  }
+  void ensureGuides(() => render(root));
+
+  const list = guide(id);
+  if (!list) {
+    root.innerHTML = guidesLoaded()
+      ? `<article class="place-page">
+          <h1 id="guide-view-title" tabindex="-1">Not one of your lists.</h1>
+          <p class="tagline">That list is not yours, or it has been removed.</p>
+          <p><a href="${esc(homeHref())}" data-route-link>Back to My detours</a></p>
+        </article>`
+      : '<p class="community-loading" role="status">Loading…</p>';
+    bindRouteLinks(root);
+    return;
+  }
+
+  const source = guideAuthorLabel(list);
+  const pins: { place: ImportedPlace; venue: Venue }[] = list.places
+    .map((place) => ({ place, venue: importedPlaceAsVenue(place) }))
+    .filter((entry) => entry.venue.lat !== null && entry.venue.lng !== null);
+  // Two different absences, and the copy must not conflate them. A place the
+  // geocoder has not reached yet will get a pin; one whose address it could not
+  // match never will, and telling a member it is "still being placed" is a
+  // promise that never resolves. Some published addresses simply have no match.
+  const unplaced = list.places.filter(
+    (place) => !(Number.isFinite(place.lat) && (place.lat !== 0 || place.lng !== 0))
+  );
+  const pending = unplaced.filter((place) => !place.locate_tried).length;
+  const unplaceable = unplaced.length - pending;
+
+  syncDocumentMeta(null);
+  root.innerHTML = `
+    ${mastheadMarkup('other')}
+    <nav class="place-back-row explore-breadcrumb" aria-label="Breadcrumb">
+      <a href="${esc(homeHref())}" data-route-link>My detours</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">${esc(list.title)}</span>
+    </nav>
+    <article class="place-page guide-page-view">
+      <header class="guide-head">
+        <p class="place-overline">Your list</p>
+        <h1 id="guide-view-title" tabindex="-1">${esc(list.title)}</h1>
+        <p class="place-meta">${
+          list.source_url
+            ? `<a href="${esc(list.source_url)}" target="_blank" rel="noopener noreferrer">${esc(source)}</a>`
+            : esc(source)
+        } · ${esc(String(list.places.length))} place${list.places.length === 1 ? '' : 's'}</p>
+      </header>
+      ${
+        pins.length
+          ? `<section class="guide-map-section" aria-label="Map of ${esc(list.title)}">
+        <div id="venue-map" class="venue-map guide-map" tabindex="-1" aria-label="${esc(
+          `Map of the places on ${list.title}`
+        )}"></div>
+        ${mapCoverageNote(pending, unplaceable)}
+      </section>`
+          : `<p class="community-form-note" role="status">${
+              !list.places.length
+                ? 'Every place from this list has been removed.'
+                : pending
+                  ? 'These places are still being placed on the map. Check back shortly.'
+                  : 'None of these places could be placed on a map from the addresses this list gave.'
+            }</p>`
+      }
+      ${
+        list.places.length
+          ? guideCardsMarkup(list)
+          : ''
+      }
+    </article>
+    <footer class="footer">
+      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
+      ${tapeThemeToggleMarkup()}
+    </footer>
+  `;
+
+  bindRouteLinks(root);
+  root.querySelectorAll<HTMLImageElement>('[data-network-thumb]').forEach((img) => {
+    img.addEventListener('error', () => failedCoverUrls.add(img.currentSrc || img.src), {
+      once: true,
+    });
+  });
+  if (pins.length) mountGuideMap(root, pins);
+  if (pendingFocus) {
+    const target = root.querySelector<HTMLElement>(pendingFocus);
+    pendingFocus = null;
+    target?.focus({ preventScroll: true });
+  }
+}
+
+/**
+ * What the map is not showing, and which kind of absence it is.
+ *
+ * Says nothing when the map holds everything, which is the common case once the
+ * geocoder has caught up.
+ */
+function mapCoverageNote(pending: number, unplaceable: number): string {
+  const parts: string[] = [];
+  if (pending) parts.push(`${pending} more still being placed`);
+  if (unplaceable) {
+    parts.push(
+      `${unplaceable} could not be placed from the address this list gave`
+    );
+  }
+  if (!parts.length) return '';
+  return `<p class="community-form-note" role="status">${esc(
+    `${parts.join(' · ')}.`
+  )}</p>`;
+}
+
+/**
+ * The list's pins. Every place on it, fitted to their own bounds.
+ *
+ * A pin here is a link rather than a selection: there is no detail panel on this
+ * page and nothing to select into. Clicking one opens that place — its catalogue
+ * page if somebody has recommended it, its own page if not.
+ */
+function mountGuideMap(
+  root: HTMLElement,
+  pins: { place: ImportedPlace; venue: Venue }[]
+): void {
+  destroyMap();
+  const container = root.querySelector<HTMLElement>('#venue-map');
+  if (!container || !pins.length) return;
+
+  const map = L.map(container, {
+    center: [pins[0].venue.lat as number, pins[0].venue.lng as number],
+    zoom: 13,
+    scrollWheelZoom: false, // don't hijack page scroll
+    zoomSnap: 0.5,
+  });
+  leafletMap = map;
+
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+  }).addTo(map);
+
+  for (const { place, venue } of pins) {
+    const lat = venue.lat as number;
+    const lng = venue.lng as number;
+    const marker = L.marker([lat, lng], {
+      icon: L.divIcon({
+        className: '',
+        html: `<span class="map-pin pin-detourist" data-pin="${esc(place.id)}">
+          <span class="pin-pearl" aria-hidden="true"><span class="pin-signal"></span></span>
+          <span class="pin-label">${esc(place.name)}${
+            place.area ? `<small>${esc(place.area)}</small>` : ''
+          }</span>
+        </span>`,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
+      }),
+      keyboard: false,
+      riseOnHover: true,
+    }).addTo(map);
+
+    const open = () => {
+      const matched = place.matched_venue
+        ? allVenues().find((entry) => entry.id === place.matched_venue)
+        : undefined;
+      if (matched) {
+        state.guide = null;
+        state.view = 'place';
+        state.destination = venueRouteSlug(matched);
+        state.place = venuePageSlug(matched);
+        updateRoute('place', state.destination, 'push', state.place);
+      } else {
+        state.guide = null;
+        state.privatePlace = place.id;
+        state.view = 'private-place';
+        updateRoute('private-place', null, 'push');
+      }
+      render(root);
+    };
+
+    const el = marker.getElement();
+    if (!el) continue;
+    // The Leaflet marker root is zero-size; the inner pin is the real target.
+    el.setAttribute('tabindex', '-1');
+    el.removeAttribute('role');
+    el.removeAttribute('aria-label');
+    const pin = el.querySelector<HTMLElement>('.map-pin');
+    if (!pin) continue;
+    pin.setAttribute('role', 'link');
+    pin.setAttribute('tabindex', '0');
+    pin.setAttribute('aria-label', `${place.name}. Open this place.`);
+    pin.addEventListener('click', (event) => {
+      event.stopPropagation();
+      open();
+    });
+    pin.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      event.stopPropagation();
+      open();
+    });
+  }
+
+  // Fitted to the list rather than to a city: these places are wherever the
+  // piece sent them, and a city-shaped view would cut off the ones outside it.
+  const bounds = L.latLngBounds(
+    pins.map(({ venue }) => [venue.lat as number, venue.lng as number] as [number, number])
+  );
+  map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+}
+
+/**
+ * Which private place has already been asked for in full, so the page's own read
+ * happens once per place rather than once per render.
+ */
+let privatePlaceRequested = '';
+
+/**
+ * One imported place, on a page only its owner can open.
+ *
+ * Reads from the lists already in memory, and asks the server for this one row
+ * once — that call is what fills in the coordinates, and it is also what
+ * re-checks whether the place has been recommended by somebody since it was
+ * imported. If it has, the member is sent to the real place page instead: that
+ * page has notes on it, and this one never will.
+ */
+function renderPrivatePlace(root: HTMLElement, id: string): void {
+  destroyMap();
+  root.dataset.restyle = 'place';
+  applyTapeTheme();
+
+  // Once per place, not once per render. The read locates the place and settles
+  // its catalogue match, and neither is worth doing again on a re-render caused
+  // by something else on the page.
+  if (privatePlaceRequested !== id) {
+    privatePlaceRequested = id;
+    void loadImportedPlace(id).then(() => render(root));
+  }
+  void ensureGuides(() => render(root));
+
+  const place = importedPlace(id);
+  if (!place) {
+    // Either the lists have not arrived yet or this row is not this member's.
+    // The two are told apart by whether the lists have been read at all — an
+    // unknown id must not be reported as missing while the answer is in flight.
+    root.innerHTML = guidesLoaded()
+      ? `<article class="place-page">
+          <h1 id="private-place-title" tabindex="-1">Not on your wishlist.</h1>
+          <p class="tagline">That place is not one of yours, or it has been removed.</p>
+          <p><a href="${esc(homeHref())}" data-route-link>Back to My detours</a></p>
+        </article>`
+      : '<p class="community-loading" role="status">Loading…</p>';
+    bindRouteLinks(root);
+    return;
+  }
+
+  // A place somebody has since recommended belongs on its own real page, where
+  // the note is. Replace rather than push: the private route is not somewhere
+  // the member should be able to go back to once it has been superseded.
+  const matched = place.matched_venue
+    ? allVenues().find((venue) => venue.id === place.matched_venue)
+    : undefined;
+  if (matched) {
+    const destinationSlug = venueRouteSlug(matched);
+    const placeSlug = venuePageSlug(matched);
+    state.privatePlace = null;
+    state.view = 'place';
+    state.destination = destinationSlug;
+    state.place = placeSlug;
+    updateRoute('place', destinationSlug, 'replace', placeSlug);
+    render(root);
+    return;
+  }
+
+  // THE SAME PAGE, not a second one shaped like it. `placePageMarkup` renders
+  // this and every published place, so an imported place cannot drift into
+  // looking like a different kind of object — see src/private-place.ts.
+  const v = importedPlaceAsVenue(place);
+  const owningLists = guides().filter((list) => place.guides.includes(list.id));
+  const source = {
+    // The publication that wrote the words, not the member's name for the list.
+    label: owningLists.length ? guideAuthorLabel(owningLists[0]) : 'a list you kept',
+    listTitles: owningLists.map((list) => list.title),
+  };
+  syncDocumentMeta(null, false, v);
+
+  const chrome: PlaceChrome = {
+    // A private place sits in no destination, so the crumb leads back to the
+    // list it is on rather than to a city route that would not contain it.
+    destinationName: 'My detours',
+    destinationSlug: '',
+    destinationHref: homeHref(),
+    countryName: '',
+    countrySlug: '',
+    countryHref: exploreHref(),
+    exploreHref: exploreHref(),
+    // A member, so the page offers Recommend — the ordinary form, and the only
+    // way this place ever becomes one anybody else can see.
+    isMember: true,
+    // All three off, each for its own reason. See private-place.ts.
+    canEndorse: false,
+    canSave: false,
+    canShare: false,
+    // Nobody has stood behind this place and nobody can until somebody writes a
+    // recommendation, so the stamp would report an absence that was never a
+    // possibility — and the band below already says so in words.
+    showSignal: false,
+    // Not on Detour, and yours alone — stamped across the cover, because those
+    // are facts about what kind of page this is and a muted sentence carrying
+    // them went unread.
+    heroStamp: importedPlaceStampMarkup(esc),
+    // Where it came from. Passed into the template's own slot rather than
+    // injected after render: the injection was anchored on a class this page
+    // does not have, and a missed `querySelector` is silent.
+    afterHero: importedPlaceProvenanceMarkup(place, source, esc),
+    outsideCircle: false,
+    saved: false,
+    saving: false,
+    saveError: '',
+    memberNav: navLinks('other'),
+    homeHref: homeHref(),
+    accountHref: accountHref(),
+    foundingHref: foundingHref(),
+    recommendHref,
+    editRecommendationHref,
+    sharePlaceHref,
+    // Its address resolves for one member, so there is nothing to hand anybody.
+    placeLinkUrl: () => '',
+    brandMark: brandMark(),
+    communityControl: communityControl(accountHref()),
+    footerTagline: FOOTER_TAGLINE,
+    footerLinks: footerLinksMarkup(),
+    themeToggle: tapeThemeToggleMarkup(),
+  };
+  const helpers: PlaceHelpers = {
+    esc,
+    safeExternalHref,
+    // No member photograph exists for a place nobody has recommended, so the
+    // hero falls through to the venue's own `imageUrl` — which is where the
+    // publication's hotlinked photograph was put.
+    cover: (venue) => venueCover(venue, 'place', ''),
+    visitLinks: venueVisitLinks,
+    directionsHref,
+    occasionLabels: () => [],
+    // Nobody has written about this place. An empty list is the truth, and the
+    // page already has a rendering for it.
+    notes: () => [],
+    notesStatus: '',
+    shortDate,
+  };
+
+  root.innerHTML = placePageMarkup(v, chrome, helpers);
+
+  bindRouteLinks(root);
+  bindPlaceLinkCopy(root);
+  root.querySelectorAll<HTMLImageElement>('[data-cover-image]').forEach((img) => {
+    img.addEventListener('error', () => showCoverFallback(img), { once: true });
+    if (img.complete && img.naturalWidth === 0) showCoverFallback(img);
+  });
+  // Recommend on this page cannot go through the catalogue route the published
+  // page uses: that carries a venue id, and this place has none. It opens the
+  // ordinary form with the name and city already in it instead.
+  root.querySelectorAll<HTMLAnchorElement>('[data-community-route="recommend-place"]').forEach(
+    (link) => {
+      link.addEventListener(
+        'click',
+        (event) => {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          openRecommendNewPlace(place.name, place.city || '');
+          state.privatePlace = null;
+          state.view = 'home';
+          updateRoute('home', null, 'push');
+          render(root);
+        },
+        // Capture, so this runs before the generic handler bindRouteLinks
+        // attached — which would otherwise navigate home with an empty form.
+        true
+      );
+    }
+  );
+
+  if (placeIsLocated(v)) mountLocatorMap(root, v);
+  else destroyLocatorMap();
+  if (pendingFocus) {
+    const target = root.querySelector<HTMLElement>(pendingFocus);
+    pendingFocus = null;
+    target?.focus({ preventScroll: true });
+  }
+}
+
 /* ---------- render ---------- */
 
 /**
@@ -2066,6 +2676,62 @@ function bindRouteLinks(root: HTMLElement): void {
     (event.currentTarget as HTMLButtonElement).textContent = tapeThemeLabel();
   });
   bindDisclosureMenus(root);
+  // An imported place with no catalogue match, opened from its list on Wanna go.
+  // A real anchor carrying `?mine=<id>`, so a modified click still opens a tab
+  // and a cold load on that address resolves — this only saves the round trip.
+  // One imported list, its places and their map. A real anchor carrying
+  // `?guide=<id>`, so a modified click still opens a tab.
+  // One destination's board. A real anchor carrying `?dest=<slug>`, so a
+  // modified click still opens a tab and a cold load on that address resolves.
+  root.querySelectorAll<HTMLAnchorElement>('[data-wanna-destination]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const slug = link.dataset.wannaDestination || '';
+      if (!slug) return;
+      event.preventDefault();
+      state.wannaDestination = slug;
+      state.guide = null;
+      state.privatePlace = null;
+      state.destination = null;
+      state.place = null;
+      state.view = 'wanna-destination';
+      updateRoute('wanna-destination', null, 'push');
+      pendingFocus = '#wanna-destination-title';
+      render(root);
+    });
+  });
+  root.querySelectorAll<HTMLAnchorElement>('[data-guide]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const id = new URL(link.href, window.location.href).searchParams.get('guide') || '';
+      if (!id) return;
+      event.preventDefault();
+      state.guide = id;
+      state.wannaDestination = null;
+      state.view = 'guide';
+      state.destination = null;
+      state.place = null;
+      state.privatePlace = null;
+      updateRoute('guide', null, 'push');
+      pendingFocus = '#guide-view-title';
+      render(root);
+    });
+  });
+  root.querySelectorAll<HTMLAnchorElement>('[data-private-place]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const id = new URL(link.href, window.location.href).searchParams.get('mine') || '';
+      if (!id) return;
+      event.preventDefault();
+      state.privatePlace = id;
+      state.view = 'private-place';
+      state.destination = null;
+      state.place = null;
+      updateRoute('private-place', null, 'push');
+      pendingFocus = '#private-place-title';
+      render(root);
+    });
+  });
   root.querySelectorAll<HTMLButtonElement>('[data-community-sign-out]').forEach((button) => {
     button.addEventListener('click', () => {
       signOutMember();
@@ -3027,7 +3693,7 @@ function renderHowItWorks(root: HTMLElement): void {
 
         <details class="how-faq-item">
           <summary>Who is a founding member?</summary>
-          <p>One of fifty people: the Founder, and the forty-nine invited in one at a time. It is not a rank or a moderator's job — nobody approves anyone else's places, and nothing on Detour is edited. It is one thing only: a member whose recommendations are shown to everybody instead of to a circle. A founding member's notes are what every member at any distance reads, and what every visitor who has not signed in at all reads, so the fifty are, between them, what Detour looks like to anyone arriving.</p>
+          <p>One of fifty people: the Founder, and the forty-nine invited in one at a time. It is not a rank or a moderator's job — nobody approves anyone else's places, and nothing on Detour is edited. It is one thing only: a member whose recommendations are shown to everybody instead of to a circle. </p>
           <p>Which is why what we are after is a giver: somebody who writes places down and keeps writing them. It is also why we are glad to hear from people who move around — somebody who eats well in six cities can put six cities on the list, and a list that only knows one town is not much of a detour. The seat is free for life and carries enough invitations for everyone whose taste you trust, and it stays with the person: their own invitees are ordinary members.</p>
         </details>
 
@@ -3162,6 +3828,9 @@ function renderLanding(root: HTMLElement): void {
   // The Wanna go tab and the share inbox both read the member's own saved list;
   // one request per session serves the landing whichever tab it opens on.
   void ensureSavedPlaces(() => render(root));
+  // The same tab groups its places under the lists they were imported from, and
+  // the tab cannot tell whether it is empty until both have answered.
+  void ensureGuides(() => render(root));
   // The share form's recipient field offers this member's circle.
   loadCircleForSharePickers(root);
   if (pendingFocus) {
@@ -3368,6 +4037,26 @@ function render(root: HTMLElement) {
   // The circle is member data, not catalogue data, so it never waits on places.
   if (state.view === 'circle') {
     renderCircle(root);
+    return;
+  }
+
+  // A private place is the member's own row, so like the circle it never waits
+  // on the catalogue — and it must be reached before the destination branches
+  // below, which would answer with a city this place does not belong to.
+  if (state.view === 'private-place' && state.privatePlace) {
+    renderPrivatePlace(root, state.privatePlace);
+    return;
+  }
+
+  // A member's own list, for the same reason: its rows are theirs, so it never
+  // waits on the catalogue.
+  if (state.view === 'guide' && state.guide) {
+    renderGuide(root, state.guide);
+    return;
+  }
+
+  if (state.view === 'wanna-destination' && state.wannaDestination) {
+    renderWannaDestination(root, state.wannaDestination);
     return;
   }
 

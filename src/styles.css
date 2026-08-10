@@ -2198,6 +2198,36 @@ legend { color: var(--tape-text); }
 .network-recommendation .network-entry-byline { align-self: end; }
 .network-pseudo,
 .network-reply-byline strong { color: var(--tape-accent-strong); font-weight: 700; }
+/* A publication, on a member's own imported place. Deliberately NOT the accent
+   colour `.network-pseudo` wears: that colour means a person on Detour, and the
+   whole point of this byline is that nobody here said it. Muted and italic reads
+   as a citation, which is what it is. */
+/* The provenance chip: which door this place came through. Bordered rather than
+   plain text, because it is a fact about the place and not a byline — and typed,
+   because "Eater NY" alone does not say whether a publication chose this place or
+   a member did. */
+.provenance-chip {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 0.28rem 0.55rem;
+  border: 2px solid var(--tape-hairline-strong);
+  font-family: var(--tape-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  font-style: normal;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--tape-muted);
+}
+/* A publication chose it. Accent, and a link back to the piece — the only way
+   into a guide now that nothing indexes them at the top level. */
+.provenance-chip-guide { color: var(--tape-accent-strong); border-color: var(--tape-accent); }
+a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--tape-orange); }
+/* A member did. Named, but never in the accent a guide wears. */
+.provenance-chip-feed { color: var(--tape-text); border-color: var(--tape-hairline-strong); }
+/* The member's own hand. Dashed: nobody else asserted anything about it. */
+.provenance-chip-manual { border-style: dashed; }
 .network-entry time { font-variant-numeric: tabular-nums; }
 /* Archiving is a quiet, reversible tidy-up — an accent text action in the
    card's top-right corner, not a sticker button. */
@@ -3289,6 +3319,523 @@ legend { color: var(--tape-text); }
    cards themselves are the feed's, laid out by `.community-queue-cards`. */
 .community-endorsement-list,
 .community-saved-list { display: grid; gap: 0.7rem; }
+
+/* Wanna go → imported lists.
+   Deliberately plainer than the recommendation cards above them. These are
+   places nobody on Detour has stood behind, and dressing them in the same card
+   would say otherwise — so they are ruled rows with a heading, not tape. */
+.community-import-trigger {
+  display: grid;
+  justify-items: start;
+  gap: 0.35rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--tape-hairline);
+}
+
+/* The import dialogue. Borrows the confirm dialogue's frame — same border, same
+   backdrop, same tape stripe — because it is the same kind of thing standing in
+   front of the same page. It is wider and it scrolls, because a confirm holds
+   two sentences and this holds up to a hundred checkboxes. */
+.community-import-dialog {
+  width: min(calc(100% - 2rem), 44rem);
+  max-width: none;
+  max-height: min(90vh, 52rem);
+  margin: auto;
+  padding: 0;
+  color: var(--tape-text);
+  background: var(--tape-surface);
+  border: 3px solid var(--tape-chrome);
+  border-radius: 0;
+  box-shadow: 12px 12px 0 var(--tape-rust);
+  overflow: hidden;
+}
+/* Scoped to [open], because the UA hides a closed dialogue with `display: none`
+   and an unconditional `display: flex` here would show it on every page. */
+.community-import-dialog[open] { display: flex; }
+.community-import-dialog::backdrop {
+  background: rgba(4, 8, 20, 0.78);
+  backdrop-filter: blur(2px);
+}
+/* THE SHEET DOES NOT SCROLL; the list inside it does.
+   It was the other way round, and the sticky button bar showed the bug: sticky
+   bottom-0 pins to the bottom of the *padding box*, so rows kept scrolling
+   through the strip of padding underneath the bar and appeared to pass behind
+   it. Making the list the only scroller puts the bar outside the scrollport
+   entirely — nothing can pass under it, and there is still exactly one thing to
+   scroll. */
+.community-import-sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: clamp(1.35rem, 5vw, 2.25rem);
+  overflow: hidden;
+}
+.community-import-sheet::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--tape-gold) 0 25%,
+    var(--tape-amber) 25% 50%,
+    var(--tape-orange) 50% 75%,
+    var(--tape-rust) 75%
+  );
+}
+.community-import-dialog h2 {
+  margin: 0;
+  color: var(--tape-text);
+  font-family: var(--tape-anton);
+  /* Smaller than the confirm dialogue's: this heading counts things and sits
+     above a form, rather than asking one irreversible question. */
+  font-size: clamp(1.4rem, 5vw, 1.9rem);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  line-height: 1.05;
+  text-transform: uppercase;
+  text-shadow: 3px 3px 0 var(--tape-ghost);
+}
+.community-import-dialog h2:focus { outline: none; }
+/* The form fills the sheet. `.community-form` caps itself at 38rem, which is
+   right for a column of fields on a page and leaves a dead margin down the side
+   of a 44rem dialogue whose content is a list. */
+.community-import-dialog .community-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 0.7rem;
+  max-width: none;
+}
+/* Everything but the list keeps its own height; the list takes the slack. */
+.community-import-dialog .community-form > * { flex: 0 0 auto; }
+.community-import-head { display: grid; gap: 0.3rem; }
+.community-import-actions { display: flex; gap: 0.6rem; margin: 0.2rem 0 0.1rem; }
+.community-import-bulk {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--tape-muted);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  cursor: pointer;
+}
+.community-import-bulk:hover:not(:disabled) { color: var(--tape-orange); }
+.community-import-bulk:disabled { opacity: 0.56; cursor: not-allowed; }
+/* The one scroller in the dialogue. Thirty-eight rows is a list to work through,
+   and it takes whatever height is left between the fields above and the bar
+   below — `min-height` so a very short viewport still shows a few rows rather
+   than collapsing the list to nothing. */
+.community-import-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.2rem 0.1rem;
+  display: grid;
+  gap: 0.1rem;
+  border-block: 1px solid var(--tape-hairline);
+  flex: 1 1 auto;
+  min-height: 5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* One place per row: a box, a name, and the address under the name.
+     [x]  Crevette                    ON DETOUR
+          10 Downing St
+   DELIBERATELY MORE SPECIFIC THAN IT LOOKS LIKE IT NEEDS TO BE. `.community-form
+   label` further down this file is a one-column grid in heavy mono — right for a
+   field and its caption, which is every other label in the app, and wrong here.
+   It has the same specificity as a bare `.community-import-row > label` and comes
+   later, so it won on source order and stacked the box, the name and the address
+   into three lines of monospace. The extra class is what stops that; do not
+   "simplify" it away. */
+.community-import-list .community-import-row > label {
+  display: grid;
+  /* minmax(0, 1fr) rather than 1fr: a long address must wrap rather than push
+     the flag off the right edge. */
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.65rem;
+  row-gap: 0.1rem;
+  padding: 0.5rem 0.1rem;
+  cursor: pointer;
+  /* Undo the field label's type. A list of places is prose, not a caption. */
+  font-family: var(--tape-prose);
+  font-size: 0.95rem;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+/* `.community-form input` is a bare selector further down and dresses every
+   input as a text field: min-height 46px, a 2.5px chrome border and the field
+   fill. On a checkbox that is a 46px-tall row with a framed box in it, which is
+   what made this list read as three stacked lines with air between them. The
+   accent colour is the app's, set on :root. */
+.community-import-list .community-import-row > label > input[type='checkbox'] {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  min-height: 0;
+  margin: 0;
+  background: none;
+  border: 0;
+}
+.community-import-row.is-held > label { opacity: 0.62; }
+.community-import-name {
+  grid-row: 1;
+  grid-column: 2;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.community-import-where {
+  /* Under the name and running to the edge, so it never fights the flag. */
+  grid-row: 2;
+  grid-column: 2 / -1;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--tape-muted);
+}
+.community-import-flag {
+  grid-row: 1;
+  grid-column: 3;
+  justify-self: end;
+  font-family: var(--tape-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tape-muted);
+  white-space: nowrap;
+}
+.community-import-flag.is-matched { color: var(--tape-amber); }
+/* The foot of the dialogue, always visible because it is outside the scrollport
+   rather than stuck to the edge of one. */
+.community-import-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  padding-top: 0.8rem;
+  margin-top: 0.2rem;
+  background: var(--tape-surface);
+  border-top: 1px solid var(--tape-hairline-strong);
+}
+.community-import-kept { color: var(--tape-amber); font-style: normal; }
+
+.community-saved-heading {
+  margin: 0.6rem 0 0;
+  font-family: var(--tape-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tape-muted);
+}
+/* Wanna go, laid out as the planning space: filter chips, then one section per
+   destination. The cards themselves are untouched — they are the app's one card,
+   and this is the furniture around them. */
+.wanna-intro { display: grid; gap: 0.7rem; }
+.wanna-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+.wanna-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+/* A hard-bordered plate, filled when active — the same chrome-on-ink language
+   the tabs above it use, so the row reads as a filter rather than as buttons
+   that do something. */
+.wanna-chip {
+  padding: 0.5rem 0.85rem;
+  color: var(--tape-text);
+  background: transparent;
+  border: 2px solid var(--tape-hairline-strong);
+  border-radius: 0;
+  font-family: var(--tape-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.wanna-chip:hover { border-color: var(--tape-chrome); }
+.wanna-chip.is-active {
+  color: var(--tape-ink);
+  background: var(--tape-cream);
+  border-color: var(--tape-cream);
+}
+/* The source filter is a native select wearing the chip's clothes.
+   `appearance: none` is the whole point: without it the browser draws its own
+   control inside our border and the chip reads as two nested boxes with the
+   platform's own caret in the middle of them. The caret below is ours, on the
+   wrapper, so it inherits the chip's colour — a caret baked into a data-URI
+   background cannot follow `currentColor`. */
+.wanna-source { position: relative; display: inline-flex; }
+.wanna-source::after {
+  content: '▾';
+  position: absolute;
+  top: 50%;
+  right: 0.7rem;
+  transform: translateY(-45%);
+  font-size: 0.62rem;
+  line-height: 1;
+  color: var(--tape-muted);
+  pointer-events: none;
+}
+.wanna-source select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 0;
+  /* Room on the right for our caret. */
+  padding: 0.5rem 1.9rem 0.5rem 0.85rem;
+  color: var(--tape-text);
+  background: transparent;
+  border: 2px solid var(--tape-hairline-strong);
+  border-radius: 0;
+  font-family: var(--tape-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.wanna-source select:hover { border-color: var(--tape-chrome); }
+/* The dropdown itself is the platform's, and on a dark page it inherits nothing
+   — so the options get explicit colours or they render black on black. */
+.wanna-source select option { color: var(--tape-text); background: var(--tape-surface); }
+.wanna-add { flex-shrink: 0; }
+
+.wanna-section { display: grid; gap: 0.7rem; margin-top: 1.4rem; }
+.wanna-section-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.3rem 0.8rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--tape-hairline-strong);
+}
+.wanna-section-head h3 {
+  margin: 0;
+  font-family: var(--tape-anton);
+  font-size: clamp(1.6rem, 5vw, 2.3rem);
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  text-transform: uppercase;
+  text-shadow: 3px 3px 0 var(--tape-ghost);
+}
+.wanna-section-meta {
+  margin: 0;
+  font-family: var(--tape-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  color: var(--tape-muted);
+}
+.wanna-section-map {
+  grid-column: 3;
+  font-family: var(--tape-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  white-space: nowrap;
+}
+.wanna-guides { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.wanna-guides-label {
+  font-family: var(--tape-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tape-muted);
+}
+/* Guides named as sources, in the accent that means "somebody else chose this". */
+.wanna-guide-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  color: var(--tape-accent-strong);
+  border: 2px solid var(--tape-accent);
+  font-family: var(--tape-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+.wanna-guide-chip:hover { color: var(--tape-orange); border-color: var(--tape-orange); }
+.wanna-guide-chip span {
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--tape-muted);
+}
+.wanna-section-more { margin: 0; }
+.wanna-section-more button {
+  padding: 0;
+  color: var(--tape-muted);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 0.86rem;
+  font-style: italic;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  cursor: pointer;
+}
+.wanna-section-more button:hover { color: var(--tape-orange); }
+
+@media (max-width: 640px) {
+  .wanna-section-head { grid-template-columns: minmax(0, 1fr) auto; }
+  .wanna-section-meta { grid-column: 1; grid-row: 2; }
+  .wanna-section-map { grid-column: 2; grid-row: 1; }
+}
+
+/* "From guides" on a destination board. Guides are named as sources here, never
+   given rows of their own — a city is what a member plans around. */
+.destination-guides { display: grid; gap: 0.4rem; }
+.destination-guides h2 {
+  margin: 0;
+  font-family: var(--tape-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tape-accent);
+}
+.destination-guides ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; }
+.destination-guides li { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; }
+.destination-guides span {
+  font-family: var(--tape-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tape-muted);
+}
+
+/* Wanna go → the index of guides. One line each, no cards: a list of
+   thirty-eight is thirty-eight cards, and two of those bury the member's own
+   wishlist under somebody else's reading. Opening a list is where its places
+   are. */
+.community-guide-index {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  border-top: 1px solid var(--tape-hairline);
+}
+.community-guide-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 0.8rem;
+  row-gap: 0.1rem;
+  padding: 0.7rem 0.1rem;
+  border-bottom: 1px solid var(--tape-hairline);
+}
+.community-guide-title {
+  grid-row: 1;
+  grid-column: 1;
+  font-family: var(--tape-anton);
+  font-size: clamp(1.05rem, 3vw, 1.3rem);
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  line-height: 1.15;
+  text-transform: uppercase;
+}
+.community-guide-meta {
+  grid-row: 2;
+  grid-column: 1;
+  margin: 0;
+  font-family: var(--tape-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tape-muted);
+}
+.community-guide-row > .community-queue-delete { grid-row: 1; grid-column: 2; }
+
+/* An imported place's stamp: leads the hero's copy column, above the title.
+   A rubber stamp, not a badge — rotated off-square, hard-bordered, letter-spaced
+   and slightly transparent, so it reads as something pressed onto the page
+   rather than laid out on it. It carries two structural facts, not in the
+   catalogue and private, that were previously a muted sentence nobody read. */
+.place-import-stamp {
+  /* Shrunk to its own text so the rotated box does not claim the column's full
+     width and leave the title sitting in a wedge of empty space. The left margin
+     is for the tilt: rotation is a paint-time transform, so the box keeps its
+     unrotated footprint and the raised corner overhangs the column edge. */
+  justify-self: start;
+  margin: 0 0 0.25rem 0.35rem;
+  transform-origin: left center;
+  display: inline-grid;
+  gap: 0.1rem;
+  justify-items: center;
+  padding: 0.45rem 0.85rem;
+  color: var(--tape-cream);
+  /* Its own ink rather than a token: a stamp is pressed in one colour, and this
+     one reads against the page ground rather than against a photograph. */
+  background: rgba(16, 16, 20, 0.72);
+  border: 3px solid var(--tape-cream);
+  border-radius: 2px;
+  transform: rotate(-8deg);
+  text-align: center;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.place-import-stamp strong {
+  font-family: var(--tape-anton);
+  font-size: clamp(1rem, 3.4vw, 1.5rem);
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+.place-import-stamp span {
+  font-family: var(--tape-mono);
+  font-size: clamp(0.56rem, 1.5vw, 0.68rem);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  line-height: 1.1;
+  opacity: 0.82;
+}
+/* A stamp printed straight is a label. Honour the reduced-motion preference for
+   the rotation too — it is decoration, and some readers find angled text hard. */
+@media (prefers-reduced-motion: reduce) {
+  .place-import-stamp { transform: none; }
+}
+
+/* An imported place's provenance band, inserted under the place page's own
+   header — see renderPrivatePlace. Everything else on that page is the published
+   place page's, unchanged, which is the point: one template, two kinds of place.
+   Only this has no published counterpart, because only an imported place has to
+   say where it came from and that nobody else can see it. */
+.private-place-provenance-band { display: grid; gap: 0.6rem; margin: -0.3rem 0 0.2rem; }
+.private-place-excerpt {
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  background: var(--tape-inset);
+  border-left: 2px solid var(--tape-hairline);
+}
+.private-place-excerpt p { margin: 0 0 0.35rem; }
+.private-place-excerpt footer { font-size: 0.82rem; color: var(--tape-muted); }
+.private-place-from { margin: 0; font-size: 0.88rem; color: var(--tape-muted); }
+
+@media (max-width: 640px) {
+  /* Two columns, and the flag drops below the address rather than squeezing the
+     name — "Already on your list" is wider than a phone can spare beside it. */
+  .community-import-list .community-import-row > label {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .community-import-where { grid-column: 2; }
+  .community-import-flag { grid-row: 3; grid-column: 2; justify-self: start; }
+}
 
 /* What a visitor gets where the notes would be. A ruled section like every other
    one on the page — not a panel, not a banner: it is the last thing on a page

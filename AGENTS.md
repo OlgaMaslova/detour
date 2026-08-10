@@ -568,3 +568,158 @@ member's recommendation and would send you there too. Specified in
   claimed before the send.
 - **Not in the feed.** "Anna has been somewhere" is not news, and a feed at this
   supply cannot afford filler that looks like activity.
+
+## Guides
+
+A member pastes a link to somebody else's list of restaurants — an Eater map
+page, a magazine's best-of — and keeps what is on it, privately, grouped under
+that list, on their **Wanna go** tab. `community_imported_lists` /
+`community_imported_places`, `pb_hooks/imported_lists.js`, `/api/detour/lists*`.
+Specified in `docs/guides-spec.md`.
+
+- **Every imported place is an ordinary card, and its page is the ordinary place
+  page.** `groupedRecommendationCardMarkup` renders the cards and
+  `placePageMarkup` renders the page; `src/private-place.ts` renders nothing at
+  all and is only the adapter that shapes an `ImportedPlace` into the `Venue`
+  that page takes. There was briefly a second place template and it was the wrong
+  answer — two templates for one kind of object drift, and a member should not be
+  able to tell from the layout that a place arrived by a different door. Do not
+  reintroduce one. Been & loved, Wanna go, share and Copy link are switched off
+  through the chrome, and Recommend opens the ordinary form with the name and
+  city filled in. A stamp above the title (`heroStamp`) says *not on Detour /
+  your list only* — those two facts were a muted sentence under the title and
+  nobody read them; a page says what kind of document it is through its form,
+  not its copy. The Detourist signal is off too (`showSignal: false`) — it
+  counts people standing behind a place, and there can be none here until
+  somebody recommends it. Anything the page needs that no catalogue place has
+  goes through the `afterHero` slot: injecting markup after render was anchored
+  on a class that page does not have, and a missed `querySelector` says nothing. Removal stays on My detours, as it does for every save.
+- **The publication's sentence is the card's note, and the publication is its
+  byline.** Credited with a plain source name through the `byline` option, never
+  through `pseudo()` — an `@handle` means a person on Detour, and a magazine
+  wearing one is the most misleading thing this feature could render. Credit the
+  publication (`importedSourceLabel`), not the member's title for the list. The
+  override is passed ONLY on the no-notes branch of `placeCardMarkup`: if a
+  member has written about the place, the words and the byline are theirs, and
+  relabelling them is the one misattribution that would really matter. Safe only
+  because these cards are private to the member who imported them.
+- **Photographs are hotlinked, never copied.** The publisher's URL goes in an
+  `src` and their server is asked for it; nothing is fetched, stored or
+  re-served, and it is never promoted onto a `venues.image_url`. The resize hint
+  (`w=`) is applied at render time and only to URLs already carrying Photon's own
+  parameters — an unrecognised CDN may sign its URLs, and an extra parameter
+  would trade a heavy image for no image. Eater's own are 3.7MB without it and
+  58KB with.
+- **This is not the guide catalogue coming back.** The baseline deliberately
+  swept away Michelin, Guía Repsol, 50 Top Pizza and the rest, because a place is
+  public here for exactly one reason: a member recommended it. Imported places
+  live in two collections of their own and touch neither `venues` nor
+  `community_waitlist_entries`. Nothing about them may become public, ranked, or
+  counted. `position` is in the source data and is deliberately not read — a list
+  here is a set of places, not a chart.
+- **Fully private, on the same terms as Wanna go**, since they share a tab. No
+  count, no projection, no notification to the recommender of a place that
+  matched. Apply the same test: *could a member learn anything at all about
+  another member's imports, including that they exist?*
+- **Reading is not keeping, and the split is the feature.** `POST /lists/read`
+  writes nothing; the member renames the list, corrects the city, unchecks what
+  they do not want, and only then does `POST /lists` write. Thirty-eight places
+  arriving unasked is the failure this exists to avoid. A link that cannot be
+  read answers 200 with `resolved: false` and changes nothing — nothing here may
+  be made to depend on a page having been readable.
+- **The import is a modal, and both states belong in it.** The tab carries one
+  button; the paste field and the review screen are two states of the dialogue,
+  because the twenty seconds a long page takes to read happen between them.
+  Inline, a read pushed the member's own wishlist off the screen and left a
+  half-finished review in the middle of their list. Escape closes it, which is
+  only safe because nothing has been written yet — do not add a write to the read
+  step and leave that behaviour in place.
+- **Ticking a checkbox in the review must not re-render.** A redraw per tick
+  throws away the scroll position of a hundred-row list. The draft is mutated and
+  the submit button's count is patched in place; the name and city fields work
+  the same way. The sheet scrolls, not the list, and the button bar is sticky —
+  two nested scrollers on a phone is how a member ends up unable to reach the
+  button that keeps the list.
+- **Three readers, in order: `json_ld`, `structured`, `model`.** The model runs
+  only when both free readers came back empty, may use only the text it was
+  given, and every name it returns must appear in that text. Do not promote it up
+  the chain; `read_by` on the list is how you tell whether it is carrying sites it
+  should not have to. The two free readers cooperate — one facts-by-heading pass
+  serves both, because JSON-LD names the places and the page body locates them.
+- **Sizes in `imported_lists.js` are measured, not guessed.** Eater's
+  thirty-eight-place page is 2.5MB with sections 50KB apart. Lowering
+  `MAX_BODY_SCAN` does not fail loudly — it returns the first six places and
+  calls that the list.
+- **Read the response with `response.raw`, never `response.body`.** `body` is
+  bytes; `String()`ing it yields comma-separated numbers that every reader
+  silently finds nothing in. Same idiom as the cover fetcher.
+- **Boroughs are why the list carries a city.** Publications file under *Astoria*
+  and *Bronx* where the catalogue files under *New York*, so both the catalogue
+  match and the geocoder fall back to the list's city, and the claimed-city guard
+  accepts either — including Nominatim's `suburb` and `borough`. Remove that and
+  half a New York import stops matching and none of it locates.
+- **One row per place per member, across every list.** Two overlapping lists show
+  the same place under both headings rather than twice on the wishlist. `lists`
+  does NOT cascade — removing one list must not take a place another still names,
+  so the route unlinks instead.
+- **`lists` is deliberately NOT required, and an empty one is a real state.**
+  Removing a list asks the member what to do with its places, and *Keep the
+  places* leaves rows belonging to no list at all. `ownLists` returns those
+  separately as `unlisted` and the tab shows them under "Not from a list" — a
+  place that belonged to nothing and was only ever grouped by list would vanish
+  from the app while still existing. For the same reason `ownLists` must NOT bail
+  early on a member with zero lists: they may still hold kept places.
+- **Removing a list asks first, and Wanna go's no-confirmation rule does not
+  apply.** That rule is about one bookmark; this is up to a hundred places in one
+  unconfirmed, un-undoable tap, and "Remove list" honestly reads both ways — drop
+  the whole thing, or drop the heading and keep what was under it. The dialogue
+  offers both and counts out the places another list still names, because those
+  survive either answer. `?places=keep` on the DELETE is the unlink path.
+- **`onRecordDelete` on `members` in `imported_lists.pb.js` orders the account
+  cascade.** It was load bearing while `lists` was required — PocketBase deleted
+  a list, a place still required it, and Remove account failed outright. `lists`
+  is optional now so the cascade no longer blocks, but the hook stays: it
+  guarantees a departing member's places go before their lists rather than
+  relying on PocketBase's cascade order, and it is the thing that would fail
+  loudly if `lists` were ever made required again.
+- **Do not filter a multi-relation with `?=` here.** `lists ?= {:list}` matches
+  nothing and fails silently — the unlink loop runs over an empty set and the
+  delete then fails on the required reference. Read the member's own rows and
+  match in JavaScript.
+- **Wanna go is grouped by destination, and a destination is derived.** A city
+  appears because it holds a place and vanishes when it holds none — there is no
+  destination record, so nothing can be renamed or merged yet. Sections are
+  inline, capped at three cards while every city is on screen; the map lives on
+  `?dest=<slug>` behind *Open map*, because a map per section would be four
+  Leaflet instances on one tab.
+- **Guides are sources, never containers.** They are named per destination
+  ("Guides here") and reached from a place's provenance chip. Do not add a guides
+  index — that makes them containers again, which is what this model undid.
+- **Every card carries a typed provenance chip**: `GUIDE · <author>` (accent,
+  links to the guide), `FEED · via @pseudo` (plain), `ADDED BY YOU` (dashed). The
+  type is load bearing: "Eater NY" alone does not say whether a publication chose
+  the place or a member did.
+- **One destination per guide-city; boroughs are `area`.** Publications file by
+  borough, and taking Astoria/Bronx/Jackson Heights at face value turned one NYC
+  guide into four destinations. The city the member confirmed wins. This also
+  fixed geocoding — "7415 Roosevelt Ave, New York" resolves where the borough
+  form returned nothing.
+- **The list's own page is `?list=<id>`** — map first, then the cards, without
+  their Remove footers. Its pins are links, not selections: `mountMap`
+  belongs to the destination view and drives a detail panel this page does not
+  have, so `mountListMap` shares the pin styling and nothing else.
+- **Never tell a member a place is "still being placed" when it cannot be.**
+  `locate_tried` distinguishes not-yet-attempted from attempted-and-failed; a
+  failed address is stamped and not retried for a week, and some published
+  addresses have no geocoder match at all. Conflating the two promises pins that
+  never arrive.
+- **Locating is lazy and weekly-bounded.** Coordinates are filled when a private
+  page is opened, one place at a time; thirty-eight geocoder calls inside the
+  import request would exceed both the request and OpenStreetMap's rate policy.
+- **A match opens the real place page; a miss gets `?mine=<id>`.** Matching is
+  re-checked on every read, because a place nobody had recommended in August may
+  have been recommended by October — that is the one thing this feature does that
+  pays off over time. A private page whose place has since been recommended
+  redirects to the real one. The private page offers no Been & loved, no Wanna
+  go, no share and no copy link: all of those are for published places, and its
+  address resolves for exactly one member.

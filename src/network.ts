@@ -807,6 +807,23 @@ function recommendationCardMarkup(
      * instead of reporting an absence that was never expected.
      */
     emptyNote?: string;
+    /**
+     * Where the title goes when this place is not in the catalogue.
+     *
+     * For the one kind of place that has a page without being published: a
+     * member's imported place, which lives at `?mine=<id>` and resolves for them
+     * alone. Everything else with no catalogue row has nowhere to go and renders
+     * its title as plain text, which is still the default here.
+     */
+    fallbackHref?: string;
+    /**
+     * A cover to use when neither a member's photo nor the catalogue has one.
+     *
+     * Last in the chain on purpose: a photograph somebody on Detour took, then
+     * the place's own verified cover, then — only if there is neither — the
+     * publication's, hotlinked from the list this place was imported from.
+     */
+    fallbackCoverHref?: string;
   },
   resolvePlace?: NetworkPlaceResolver
 ): string {
@@ -817,7 +834,9 @@ function recommendationCardMarkup(
   // every other card in the app — and can be opened in a new tab.
   const title = place
     ? `<a class="network-entry-place" href="${esc(place.placeHref)}" data-place="${esc(place.venueId)}" aria-label="Open the ${esc(view.venueName)} place page">${esc(view.venueName)}</a>`
-    : esc(view.venueName);
+    : view.fallbackHref
+      ? `<a class="network-entry-place" href="${esc(view.fallbackHref)}" data-private-place aria-label="Open your saved page for ${esc(view.venueName)}">${esc(view.venueName)}</a>`
+      : esc(view.venueName);
   // The cover is the newest visible recommendation's photo, falling back to the
   // place's enrichment cover — resolved by the caller, which is the only place
   // that knows the full set of recommendations behind this card. It is not
@@ -829,7 +848,7 @@ function recommendationCardMarkup(
   // that skipped its cover would be stretched to its neighbour's photo and
   // collect the difference as a dead gap.
   const initial = (view.venueName.trim().charAt(0) || '•').toUpperCase();
-  const coverHref = view.photoHref || place?.imageUrl || '';
+  const coverHref = view.photoHref || place?.imageUrl || view.fallbackCoverHref || '';
   // Same generated-cover attributes the catalogue writes, so a card with no
   // photograph anywhere gets the designed treatment rather than a faint letter —
   // and so the runtime swap for a dead image reproduces it from the markup.
@@ -918,6 +937,38 @@ export function groupedRecommendationCardMarkup(
     selected?: boolean;
     markRecent?: boolean;
     emptyNote?: string;
+    /** See `recommendationCardMarkup` — these are for imported places. */
+    fallbackHref?: string;
+    fallbackCoverHref?: string;
+    /**
+     * Who said the words in this card, when it was not a member.
+     *
+     * Only ever a publication, on a member's own imported place, on a card
+     * nobody else can see. Rendered as a plain source name and deliberately NOT
+     * through `pseudo()`: an `@handle` is a person on Detour, and a magazine
+     * wearing one would be the single most misleading thing this feature could
+     * put on screen. When set, it replaces the member byline entirely — there is
+     * no member to name.
+     */
+    byline?: string;
+    /**
+     * Where the provenance chip leads: the guide this place came in on.
+     *
+     * The chip is how a guide is reached at all now that guides are sources
+     * rather than containers — nothing indexes them at the top level, so the
+     * place they produced is the way back to the piece that named it.
+     */
+    bylineHref?: string;
+    /**
+     * Which door the place came through, for the chip's own treatment.
+     *
+     * `provenance.type` from the model, and the reason the chip is typed rather
+     * than a bare name: "Eater NY" alone does not say whether a publication
+     * chose this place or a member did. Guide reads as the source it is, feed
+     * names a person, and manual is the member's own hand — visually distinct so
+     * a grid can be scanned for one of them.
+     */
+    bylineKind?: 'guide' | 'feed' | 'manual';
   } = {}
 ): string {
   const fronting = [...items].sort(frontingOrder)[0];
@@ -926,11 +977,21 @@ export function groupedRecommendationCardMarkup(
   // combined byline read as though both members wrote the one note, and the
   // date beside it belongs to the fronting recommendation alone. The place page
   // carries every note with its own author.
-  const bylineHtml = fronting.is_own
-    ? '<strong class="network-pseudo">You</strong>'
-    : fronting.recommender_pseudo?.trim()
-      ? pseudo(fronting.recommender_pseudo)
-      : '';
+  // A publication's name outranks the member logic below it because there is no
+  // member: an imported place has nobody's recommendation behind it, and the
+  // words in the card are the publication's own.
+  const chipClass = `provenance-chip provenance-chip-${options.bylineKind || 'manual'}`;
+  const bylineHtml = options.byline
+    ? options.bylineHref
+      ? `<a class="${chipClass}" href="${esc(options.bylineHref)}" data-guide>${esc(
+          options.byline
+        )}</a>`
+      : `<span class="${chipClass}">${esc(options.byline)}</span>`
+    : fronting.is_own
+      ? '<strong class="network-pseudo">You</strong>'
+      : fronting.recommender_pseudo?.trim()
+        ? pseudo(fronting.recommender_pseudo)
+        : '';
   // No count on a card, of either kind. A card is one place, one photograph and
   // one member's sentence about it, and a stamped figure beside that turns
   // reading into scoring — the eye takes the number first and the note second,
@@ -952,6 +1013,8 @@ export function groupedRecommendationCardMarkup(
       // Searched across the group, not taken from `fronting`.
       photoHref: coverPhotoHref(items, CARD_PHOTO_THUMB),
       emptyNote: options.emptyNote,
+      fallbackHref: options.fallbackHref,
+      fallbackCoverHref: options.fallbackCoverHref,
     },
     resolvePlace
   );

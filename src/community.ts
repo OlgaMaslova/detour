@@ -18,6 +18,7 @@ import { adoptFollowUpCard, readFollowUpCard, resetFollowUp } from './follow-up'
 import { adoptTriageCard, readTriageCard, resetTriage } from './triage';
 import type { Venue } from './data';
 import { OCCASION_OPTIONS } from './occasions';
+import { citySlug } from './slugs';
 import { ENDORSE_LABEL } from './signal';
 import { bindInviteShare, inviteShareMenuMarkup } from './share';
 import { siteOrigin } from './site';
@@ -31,6 +32,38 @@ import {
   savingPlace,
   toggleSavedPlace,
 } from './saved';
+import {
+  cancelImport,
+  closeImportDialog,
+  ensureGuides,
+  importDialogOpen,
+  importDraft,
+  importFailure,
+  importKeeping,
+  importReading,
+  guides,
+  guidesLoaded,
+  allImportedPlaces,
+  destinationBoardHref,
+  importedCoverHref,
+  guideHref,
+  importedPlaceSourceLabel,
+  guideAuthorLabel,
+  importedVenueIds,
+  keepImportDraft,
+  openImportDialog,
+  privatePlaceHref,
+  readListLink,
+  removeGuide,
+  removeImportedPlace,
+  removingImported,
+  resetGuides,
+  setAllDraftPlaces,
+  setDraftCity,
+  setDraftTitle,
+  toggleDraftPlace,
+} from './guides';
+import type { ImportDraft, Guide, ImportedPlace } from './guides';
 import { getTokenPayload, isTokenExpired } from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 
@@ -369,6 +402,16 @@ let circleRecipientsLoading = false;
 // field is a free-text one: a member may still edit it into somewhere off the
 // list, and prefilling it must not take that away.
 let sharePlacePrefill = '';
+/**
+ * A name and city carried into the empty recommendation form.
+ *
+ * The place-page path uses `recommendationDraft`, which is a catalogue `Venue`
+ * and carries an id, an address and a published row behind it. A private
+ * imported place has none of those — it is two strings — so it prefills the
+ * free-form fields instead and everything else is typed as usual. Cleared
+ * whenever the form closes, so a second visit to Add new is empty.
+ */
+const newPlacePrefill = { name: '', city: '' };
 let notice: Notice | null = null;
 let knownVenues: Venue[] = [];
 let waitlistEntries: WaitlistEntry[] = [];
@@ -384,6 +427,16 @@ let loadingInvites = false;
 let submitting = false;
 let deletingRecommendationId = '';
 let pendingRecommendationDeletion: PendingRecommendationDeletion | null = null;
+/**
+ * The list a member has asked to remove, held while they answer for its places.
+ *
+ * Wanna go's own Remove takes no confirmation and should not — it is one
+ * bookmark. This is up to a hundred places in one tap and is not undoable, and
+ * "Remove list" honestly reads two ways: drop the whole thing, or drop the
+ * heading and keep what was under it. Both are things a member might mean, so
+ * both are offered rather than one being guessed at.
+ */
+let pendingGuideRemoval: { id: string; title: string; total: number; shared: number } | null = null;
 let pendingCollision: PendingCollision | null = null;
 let highlightedWaitlistId = '';
 let queueExpanded = false;
@@ -835,6 +888,47 @@ function deleteRecommendationDialogMarkup(): string {
       <div class="community-confirm-actions">
         <button class="secondary-button" type="button" data-community-delete-cancel>Keep it</button>
         <button class="community-danger" type="button" data-community-delete-confirm>Delete</button>
+      </div>
+    </div>
+  </dialog>`;
+}
+
+/**
+ * Removing a list: what happens to the places that came in on it.
+ *
+ * Three outs rather than two, because "Remove list" is genuinely ambiguous and
+ * the destructive reading is the one a mis-tap would take. Places another list
+ * still names are counted out of both answers — they survive either way, and
+ * saying so stops the numbers looking like they disagree.
+ */
+function removeGuideDialogMarkup(): string {
+  const pending = pendingGuideRemoval;
+  if (!pending) return '';
+  const exclusive = Math.max(0, pending.total - pending.shared);
+  const busy = removingImported(pending.id);
+  return `<dialog class="community-confirm-dialog" data-guide-remove-dialog aria-labelledby="remove-guide-title" aria-describedby="remove-guide-description">
+    <div class="community-confirm-sheet">
+      <p class="community-confirm-kicker">Remove a list</p>
+      <h2 id="remove-guide-title" tabindex="-1">Remove “${esc(pending.title)}”?</h2>
+      <p id="remove-guide-description">${
+        exclusive
+          ? `${exclusive} place${exclusive === 1 ? '' : 's'} came in with this list. You can drop them too, or keep them on your wishlist without the heading.`
+          : 'Nothing came in with this list that is not also on another one, so nothing will be lost.'
+      }${
+        pending.shared
+          ? ` ${pending.shared} ${pending.shared === 1 ? 'is' : 'are'} also on another list and will be kept either way.`
+          : ''
+      }</p>
+      <div class="community-confirm-actions">
+        <button class="secondary-button" type="button" data-guide-remove-cancel ${busy ? 'disabled' : ''}>Cancel</button>
+        ${
+          exclusive
+            ? `<button class="secondary-button" type="button" data-guide-remove-keep ${busy ? 'disabled' : ''}>Keep the places</button>`
+            : ''
+        }
+        <button class="community-danger" type="button" data-guide-remove-confirm ${busy ? 'disabled' : ''}>${
+          busy ? 'Removing…' : exclusive ? 'Remove list and places' : 'Remove list'
+        }</button>
       </div>
     </div>
   </dialog>`;
@@ -1421,9 +1515,33 @@ function placeCardMarkup(place: {
   country: string;
   fallback?: Partial<DiscoveryRecommendation>;
   emptyNote: string;
+  /** An imported place's own private page, when it has one. */
+  fallbackHref?: string;
+  /** An imported place's hotlinked cover, used only if nothing better exists. */
+  fallbackCoverHref?: string;
+  /**
+   * The publication to credit the fallback note to.
+   *
+   * DELIBERATELY NOT PASSED ON THE NOTES BRANCH. If a member has written about
+   * this place, the words in the card are theirs and the byline is theirs — a
+   * publication's name over a member's sentence would be a misattribution, and
+   * the one that matters most.
+   */
+  fallbackByline?: string;
+  /** Where the provenance chip leads — the guide this place came in on. */
+  fallbackBylineHref?: string;
+  /** Which door it came through, for the chip's own treatment. */
+  fallbackBylineKind?: 'guide' | 'feed' | 'manual';
 }): string {
+  const options = {
+    fallbackHref: place.fallbackHref,
+    fallbackCoverHref: place.fallbackCoverHref,
+  };
+  // A place with visible notes is a catalogue place: it links to its own page and
+  // wears a photograph somebody on Detour took, so the imported fallbacks are
+  // handed over but will lose to both.
   const notes = notesForPlace(place.name, place.city);
-  if (notes.length) return groupedRecommendationCardMarkup(notes, landingPlaceResolver);
+  if (notes.length) return groupedRecommendationCardMarkup(notes, landingPlaceResolver, options);
   return groupedRecommendationCardMarkup(
     [
       {
@@ -1435,7 +1553,13 @@ function placeCardMarkup(place: {
       },
     ],
     landingPlaceResolver,
-    { emptyNote: place.emptyNote }
+    {
+      ...options,
+      emptyNote: place.emptyNote,
+      byline: place.fallbackByline,
+      bylineHref: place.fallbackBylineHref,
+      bylineKind: place.fallbackBylineKind,
+    }
   );
 }
 
@@ -1601,8 +1725,12 @@ function recommendationPanel(): string {
         // between having something to say and saying it.
         `<form class="community-form" data-community-recommendation>
         ${mapLinkField()}
-        <label>Food-and-drink destination name<input name="venue_name" maxlength="200" required placeholder="A restaurant, café, bar, or other food-and-drink destination"></label>
-        <label>City or locality<input name="city" maxlength="120" required placeholder="City or locality"></label>
+        <label>Food-and-drink destination name<input name="venue_name" maxlength="200" value="${esc(
+          newPlacePrefill.name
+        )}" required placeholder="A restaurant, café, bar, or other food-and-drink destination"></label>
+        <label>City or locality<input name="city" maxlength="120" value="${esc(
+          newPlacePrefill.city
+        )}" required placeholder="City or locality"></label>
         ${categoryField()}
         <label>My recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?"></textarea></label>
         ${photoField()}
@@ -2013,7 +2141,21 @@ function endorsementsPanel(): string {
  * a place, and the cassette deck already models it.
  */
 function placeCardGrid(
-  items: { venue?: Venue; name?: string; city?: string; country?: string; emptyNote: string; footer?: string }[]
+  items: {
+    venue?: Venue;
+    name?: string;
+    city?: string;
+    country?: string;
+    emptyNote: string;
+    footer?: string;
+    fallback?: Partial<DiscoveryRecommendation>;
+    /** All four only ever set for imported places — see placeCardMarkup. */
+    fallbackHref?: string;
+    fallbackCoverHref?: string;
+    fallbackByline?: string;
+    fallbackBylineHref?: string;
+    fallbackBylineKind?: 'guide' | 'feed' | 'manual';
+  }[]
 ): string {
   if (!items.length) return '';
   const columns = recommendationColumnCount();
@@ -2026,6 +2168,12 @@ function placeCardGrid(
             city: item.venue?.city || item.city || '',
             country: item.venue?.country || item.country || '',
             emptyNote: item.emptyNote,
+            fallback: item.fallback,
+            fallbackHref: item.fallbackHref,
+            fallbackCoverHref: item.fallbackCoverHref,
+            fallbackByline: item.fallbackByline,
+            fallbackBylineHref: item.fallbackBylineHref,
+            fallbackBylineKind: item.fallbackBylineKind,
           })}
           ${item.footer || ''}
         </li>`
@@ -2035,8 +2183,12 @@ function placeCardGrid(
 }
 
 /**
- * Wanna go — the member's own list, newest first, and the only place in the
- * product where these rows are ever shown.
+ * Wanna go — the member's planning space, grouped into the cities it is about.
+ *
+ * NOT A FLAT LIST ANY MORE. It was one, and at two imported guides it became a
+ * dump of fifty cards in no order a traveller could use. A wishlist is answered
+ * city by city — that is the unit somebody plans in — so this is an index of
+ * destinations and the places live on each destination's own page.
  *
  * Its own request, unlike Been & loved beside it, and for a reason that is the
  * whole feature: a mark can be read off the scoped catalogue payload because it
@@ -2051,44 +2203,686 @@ function placeCardGrid(
  * behalf. A list that only grows risks becoming a graveyard, and sinking the dead
  * weight is a better answer than deleting somebody's intentions for them.
  */
+/** Which door a place came through. `provenance.type` from the model. */
+type WannaGoSource = 'all' | 'guide' | 'feed' | 'manual';
+
+/** How many cards a destination shows while every city is on screen. */
+const WANNA_GO_PREVIEW = 3;
+
+/** The active destination filter: a slug, or 'all'. */
+let wannaGoCity = 'all';
+/** The active source filter. */
+let wannaGoSource: WannaGoSource = 'all';
+/** Destinations the member has expanded past the preview cap. */
+const wannaGoShowAll = new Set<string>();
+
+/** One city a member has places in, and how many. */
+export interface WannaGoDestination {
+  /** The city as first written, for display. */
+  name: string;
+  /** Route slug, and the grouping key everything else compares by. */
+  slug: string;
+  places: number;
+  /** Guides that put at least one place in this city. */
+  guides: Guide[];
+}
+
+/** The grouping key. One definition, so every surface agrees what a city is. */
+function destinationSlugOf(city: string): string {
+  return citySlug(city.trim() || 'Unplaced') || 'unplaced';
+}
+
+/**
+ * The member's wishlist, grouped into the cities it is actually about.
+ *
+ * A DESTINATION IS DERIVED, NEVER DECLARED. There is no destination record and
+ * no way to make one: a city appears because it holds a place and vanishes when
+ * it holds none. Renaming one ("NYC trip in May") needs somewhere to keep the
+ * name, and that is deliberately not built yet.
+ *
+ * BOTH DOORS, ONE GROUPING. An imported place and a place the member pressed
+ * Wanna go on are the same kind of thing standing in the same city, so they are
+ * counted together. Which door a place came through is a property of the place —
+ * its provenance chip — not a reason to file it somewhere else.
+ *
+ * A place whose city is unknown groups under "Unplaced" rather than being
+ * dropped: it is on the wishlist, and a member who cannot find it would
+ * reasonably conclude the import lost it.
+ */
+export function wannaGoDestinations(): WannaGoDestination[] {
+  const byKey = new Map<string, WannaGoDestination>();
+  const add = (rawCity: string, guide?: Guide) => {
+    const name = rawCity.trim() || 'Unplaced';
+    const slug = destinationSlugOf(name);
+    const found: WannaGoDestination =
+      byKey.get(slug) || { name, slug, places: 0, guides: [] };
+    found.places += 1;
+    if (guide && !found.guides.some((entry) => entry.id === guide.id)) found.guides.push(guide);
+    byKey.set(slug, found);
+  };
+
+  const guideOf = guideByPlaceId();
+  for (const place of allImportedPlaces()) add(place.city, guideOf.get(place.id));
+
+  // A save on a place an imported row already covers is the same place twice.
+  const covered = importedVenueIds();
+  for (const save of savedPlaces()) {
+    if (covered.has(save.venue_id)) continue;
+    add(save.city);
+  }
+
+  return [...byKey.values()].sort(
+    (a, b) => b.places - a.places || a.name.localeCompare(b.name)
+  );
+}
+
+/** The guide each imported place arrived on, when one still names it. */
+function guideByPlaceId(): Map<string, Guide> {
+  const guideOf = new Map<string, Guide>();
+  for (const guide of guides()) {
+    for (const place of guide.places) if (!guideOf.has(place.id)) guideOf.set(place.id, guide);
+  }
+  return guideOf;
+}
+
+/**
+ * Where a place came from, as the chip states it.
+ *
+ * Three kinds and no fourth. A guide names the publication and links back to the
+ * piece; the feed names the member whose note the place was read on; manual is
+ * the member's own hand. An imported place whose guides have all been removed is
+ * still guide-sourced — the piece wrote it, and losing the guide does not change
+ * who did.
+ */
+function provenanceOf(
+  place: { name: string; city: string },
+  imported?: ImportedPlace,
+  guide?: Guide
+): { kind: 'guide' | 'feed' | 'manual'; label: string; href: string } {
+  if (imported) {
+    return guide
+      ? { kind: 'guide', label: `Guide · ${guideAuthorLabel(guide)}`, href: guideHref(guide.id) }
+      : { kind: 'guide', label: `Guide · ${importedPlaceSourceLabel(imported)}`, href: '' };
+  }
+  const author = notesForPlace(place.name, place.city).find(
+    (note) => !note.is_own && note.recommender_pseudo?.trim()
+  );
+  if (author) {
+    return {
+      kind: 'feed',
+      label: `Feed · via ${pseudoLabel(author.recommender_pseudo || '')}`,
+      href: '',
+    };
+  }
+  return { kind: 'manual', label: 'Added by you', href: '' };
+}
+
+/**
+ * One destination's cards — imported and saved together, each wearing its own
+ * provenance and filtered by the active source.
+ *
+ * The whole point of the model: an imported place and a place the member pressed
+ * Wanna go on are the same kind of thing standing in the same city, so they sit
+ * in one grid rather than in two sections divided by which door they came
+ * through.
+ */
+function wannaGoDestinationCards(slug: string) {
+  const guideOf = guideByPlaceId();
+  const wanted = (kind: 'guide' | 'feed' | 'manual') =>
+    wannaGoSource === 'all' || wannaGoSource === kind;
+
+  const imported = wannaGoDestinationPlaces(slug)
+    .map((place) => ({ place, provenance: provenanceOf(place, place, guideOf.get(place.id)) }))
+    .filter((entry) => wanted(entry.provenance.kind))
+    .map((entry) => importedPlaceCard(entry.place, entry.provenance));
+
+  const covered = importedVenueIds();
+  const saves = savedPlaces()
+    .filter((place) => !covered.has(place.venue_id) && destinationSlugOf(place.city) === slug)
+    .map((place) => {
+      const venue = knownVenues.find((item) => item.id === place.venue_id);
+      const name = place.venue_name || venue?.name || 'A place you saved';
+      return { place, venue, name, provenance: provenanceOf({ name, city: place.city }) };
+    })
+    .filter((entry) => wanted(entry.provenance.kind))
+    .map(({ place, venue, name, provenance }) => {
+      const failure = savePlaceFailure(place.venue_id);
+      const busy = savingPlace(place.venue_id);
+      return {
+        venue,
+        name,
+        city: place.city,
+        country: place.country,
+        emptyNote: 'On your wishlist. Nobody else can see it.',
+        fallbackByline: provenance.label,
+        fallbackBylineKind: provenance.kind,
+        footer: `<div class="community-queue-bar community-queue-bar-single">
+          <button class="community-queue-delete" type="button" data-saved-drop="${esc(
+            place.venue_id
+          )}" ${busy ? 'disabled' : ''} aria-label="${esc(
+            `Remove ${name} from your wishlist`
+          )}">${busy ? 'Removing…' : 'Remove'}</button>
+          ${failure ? `<p class="community-form-error" role="alert">${esc(failure)}</p>` : ''}
+        </div>`,
+      };
+    });
+
+  return [...imported, ...saves];
+}
+
+/** The same cards as markup, for the destination board main.ts renders. */
+export function wannaGoDestinationCardsMarkup(slug: string): string {
+  return placeCardGrid(wannaGoDestinationCards(slug));
+}
+
 function savedPanel(): string {
-  const places = savedPlaces();
-  const body = !savedPlacesLoaded()
-    ? '<p class="community-loading" role="status">Loading…</p>'
-    : places.length
-      ? placeCardGrid(
-          places.map((place) => {
-            const venue = knownVenues.find((item) => item.id === place.venue_id);
-            const name = place.venue_name || venue?.name || 'A place you saved';
-            const failure = savePlaceFailure(place.venue_id);
-            const busy = savingPlace(place.venue_id);
-            return {
-              venue,
-              name,
-              city: place.city,
-              country: place.country,
-              // Only reached when nothing visible stands behind the place — see
-              // placeCardMarkup.
-              emptyNote: 'On your wishlist. Nobody else can see it.',
-              // The same glued footer the Recommendations cards wear, with the
-              // one operation this rung has. No confirmation: it is private,
-              // reversible, and one tap put it there.
-              footer: `<div class="community-queue-bar community-queue-bar-single">
-                <button class="community-queue-delete" type="button" data-saved-drop="${esc(
-                  place.venue_id
-                )}" ${busy ? 'disabled' : ''} aria-label="${esc(
-                  `Remove ${name} from your wishlist`
-                )}">${busy ? 'Removing…' : 'Remove'}</button>
-                ${failure ? `<p class="community-form-error" role="alert">${esc(failure)}</p>` : ''}
-              </div>`,
-            };
-          })
-        )
-      : '<p class="community-empty">Nothing here yet. Open a place you mean to get to and press “Wanna go” — nobody but you ever sees this wishlist.</p>';
+  const loading = !savedPlacesLoaded() || !guidesLoaded();
+  const destinations = wannaGoDestinations();
+  if (loading) {
+    return `<div class="community-saved-list">
+      ${wannaGoIntroMarkup(destinations)}
+      <p class="community-loading" role="status">Loading…</p>
+    </div>`;
+  }
+  if (!destinations.length) {
+    return `<div class="community-saved-list">
+      ${wannaGoIntroMarkup(destinations)}
+      <p class="community-empty">Nothing here yet. Open a place you mean to get to and press “Wanna go”, or paste a link to a guide you have been reading — nobody but you ever sees this.</p>
+    </div>`;
+  }
+
+  // The destination filter narrows to one city; the source filter narrows by
+  // which door a place came through. Both are views of the same set, never
+  // different data.
+  const shown = destinations.filter(
+    (destination) => wannaGoCity === 'all' || destination.slug === wannaGoCity
+  );
+  const sections = shown
+    .map((destination) => wannaGoSectionMarkup(destination, shown.length === 1))
+    .filter(Boolean);
+
   return `<div class="community-saved-list">
-    <p class="community-form-note">On your wishlist. Nobody else sees this.</p>
-    ${body}
+    ${wannaGoIntroMarkup(destinations)}
+    ${
+      sections.length
+        ? sections.join('')
+        : '<p class="community-empty">Nothing on your wishlist matches that filter.</p>'
+    }
   </div>`;
+}
+
+/**
+ * The note, the filters, and the one way in.
+ *
+ * The chips are the whole navigation of this tab: a destination narrows the page
+ * to one city, and the source filter answers "what did I import?" without giving
+ * guides rows of their own. Counts are on the chips because a filter that does
+ * not say how much it holds makes a member press it to find out.
+ */
+function wannaGoIntroMarkup(destinations: WannaGoDestination[]): string {
+  const total = destinations.reduce((sum, destination) => sum + destination.places, 0);
+  const cityChip = (slug: string, label: string, count: number) =>
+    `<button class="wanna-chip${wannaGoCity === slug ? ' is-active' : ''}" type="button"
+      data-wanna-city="${esc(slug)}" aria-pressed="${wannaGoCity === slug}">${esc(
+      label
+    )} <span aria-hidden="true">·</span> ${esc(String(count))}</button>`;
+  return `<div class="wanna-intro">
+    <p class="community-form-note">Your private planning space. Nobody else sees this.</p>
+    <div class="wanna-controls">
+      <div class="wanna-chips" role="group" aria-label="Filter your wishlist">
+        ${cityChip('all', 'All', total)}
+        ${destinations
+          .map((destination) => cityChip(destination.slug, destination.name, destination.places))
+          .join('')}
+        <label class="wanna-source">
+          <span class="visually-hidden">Filter by where a place came from</span>
+          <select data-wanna-source>
+            ${SOURCE_FILTERS.map(
+              ([value, label]) =>
+                `<option value="${esc(value)}"${
+                  wannaGoSource === value ? ' selected' : ''
+                }>${esc(label)}</option>`
+            ).join('')}
+          </select>
+        </label>
+      </div>
+      <button class="primary-button wanna-add" type="button" data-import-open>+ Add</button>
+    </div>
+  </div>`;
+}
+
+/** The source filter's options. `provenance.type`, plus the everything case. */
+const SOURCE_FILTERS: readonly (readonly [WannaGoSource, string])[] = [
+  ['all', 'Source: all'],
+  ['guide', 'Source: guides'],
+  ['feed', 'Source: the feed'],
+  ['manual', 'Source: added by me'],
+];
+
+/**
+ * One destination, inline: its heading, the guides that fed it, and its places.
+ *
+ * Capped while every city is on screen and uncapped once one is chosen, because
+ * the two views answer different questions — "where am I going?" wants a glance
+ * per city, "what is in New York?" wants the list. `Open map` leads to the
+ * destination's own page, which is where the map lives; a map per section would
+ * be four Leaflet instances on one tab.
+ */
+function wannaGoSectionMarkup(destination: WannaGoDestination, expanded: boolean): string {
+  const cards = wannaGoDestinationCards(destination.slug);
+  if (!cards.length) return '';
+  const shown = expanded || wannaGoShowAll.has(destination.slug)
+    ? cards
+    : cards.slice(0, WANNA_GO_PREVIEW);
+  const hidden = cards.length - shown.length;
+  return `<section class="wanna-section" aria-labelledby="wanna-dest-${esc(destination.slug)}">
+    <header class="wanna-section-head">
+      <h3 id="wanna-dest-${esc(destination.slug)}">${esc(destination.name)}</h3>
+      <p class="wanna-section-meta">${esc(String(destination.places))} place${
+        destination.places === 1 ? '' : 's'
+      }${
+        destination.guides.length
+          ? ` · ${esc(String(destination.guides.length))} guide${
+              destination.guides.length === 1 ? '' : 's'
+            }`
+          : ''
+      }</p>
+      <a class="wanna-section-map" href="${esc(
+        destinationBoardHref(destination.slug)
+      )}" data-wanna-destination="${esc(destination.slug)}">Open map</a>
+    </header>
+    ${
+      destination.guides.length
+        ? `<div class="wanna-guides">
+      <span class="wanna-guides-label">Guides here</span>
+      ${destination.guides
+        .map(
+          (guide) => `<a class="wanna-guide-chip" href="${esc(guideHref(guide.id))}" data-guide>${esc(
+            guideAuthorLabel(guide)
+          )} <span>${esc(String(guide.places.length))} place${
+            guide.places.length === 1 ? '' : 's'
+          }</span></a>`
+        )
+        .join('')}
+    </div>`
+        : ''
+    }
+    ${placeCardGrid(shown)}
+    ${
+      hidden > 0
+        ? `<p class="wanna-section-more"><button type="button" data-wanna-show-all="${esc(
+            destination.slug
+          )}">+ ${esc(String(hidden))} more in ${esc(destination.name)} — show all</button></p>`
+        : ''
+    }
+  </section>`;
+}
+
+/** Every imported place the member holds in one destination. */
+export function wannaGoDestinationPlaces(slug: string): ImportedPlace[] {
+  return allImportedPlaces().filter((place) => destinationSlugOf(place.city) === slug);
+}
+
+/**
+ * The removal controls on a destination board, which is rendered by main.ts and
+ * so gets none of `bindCommunity`'s wiring.
+ */
+export function bindWannaGoCards(root: HTMLElement, render: () => void): void {
+  root.querySelectorAll<HTMLButtonElement>('[data-saved-drop]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const venueId = button.dataset.savedDrop || '';
+      if (!venueId || button.disabled) return;
+      void toggleSavedPlace(venueId, 'place_page', render);
+    });
+  });
+  bindImportedRemoval(root, render);
+}
+
+
+/**
+ * The import dialogue: paste, then review, in one modal.
+ *
+ * Two states rather than two dialogues, because the twenty seconds a long page
+ * takes to read happen between them, and a member who has waited that long must
+ * not have the answer appear somewhere other than where they were looking.
+ *
+ * Rendered only while open, and `showModal()` is called from the bind step — the
+ * same shape as the delete-recommendation dialogue, and for the same reason: the
+ * whole panel re-renders on every state change, so the element is recreated each
+ * time and has to be re-opened rather than kept.
+ */
+function importDialogMarkup(): string {
+  if (!importDialogOpen()) return '';
+  const draft = importDraft();
+  const failure = importFailure();
+  return `<dialog class="community-import-dialog" data-import-dialog aria-labelledby="import-dialog-title">
+    <div class="community-import-sheet">
+      ${draft ? importReviewMarkup(draft, failure) : importReadMarkup(failure)}
+    </div>
+  </dialog>`;
+}
+
+/** The dialogue's first state: the field, and what the last attempt said. */
+function importReadMarkup(failure: string): string {
+  const reading = importReading();
+  return `<form class="community-form community-import-form" data-import-read>
+    <p class="community-confirm-kicker">Add to your wishlist</p>
+    <h2 id="import-dialog-title" tabindex="-1">Keep a list you have been reading.</h2>
+    <label>Link to the list<input name="url" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Paste the link — e.g. a city’s best-of list" ${
+      reading ? 'disabled' : ''
+    } required></label>
+    <p class="community-form-note">${
+      reading
+        ? 'Reading the page. A long list can take up to half a minute.'
+        : 'We read the page and show you what is on it. Nothing is kept until you say so.'
+    }</p>
+    ${failure ? `<p class="community-form-error" role="alert">${esc(failure)}</p>` : ''}
+    <div class="community-import-bar">
+      <button class="secondary-button" type="submit" ${reading ? 'disabled' : ''}>${
+        reading ? 'Reading…' : 'Read the list'
+      }</button>
+      <button class="community-queue-delete" type="button" data-import-cancel ${
+        reading ? 'disabled' : ''
+      }>Cancel</button>
+    </div>
+  </form>`;
+}
+
+/**
+ * What the link turned out to hold, and the member's answer to it.
+ *
+ * Everything is checked except what they already have, because the honest
+ * default on a list somebody chose to paste is yes. The name is theirs to change
+ * before it is kept — the article's headline is a headline, and "NYC trip,
+ * October" is what the list is actually for.
+ *
+ * The city field is the one piece of work asked of the member, and it is asked
+ * because it is the only thing that decides whether a place already on Detour is
+ * recognised as the same place. It is prefilled from the page whenever the page
+ * said.
+ */
+function importReviewMarkup(draft: ImportDraft, failure: string): string {
+  const keeping = importKeeping();
+  const chosen = draft.places.filter((place) => place.keep).length;
+  const matched = draft.places.filter((place) => place.matched).length;
+  const held = draft.places.filter((place) => place.already_have).length;
+  return `<form class="community-form community-import-review" data-import-keep>
+    <div class="community-import-head">
+      <p class="community-confirm-kicker">Add to your wishlist</p>
+      <h2 id="import-dialog-title" tabindex="-1">${esc(String(draft.places.length))} place${
+        draft.places.length === 1 ? '' : 's'
+      } on this list</h2>
+      <p class="community-form-note">${esc(draft.source || 'From the page you pasted')}${
+        draft.knownListTitle
+          ? ` · you have kept this link before, as “${esc(draft.knownListTitle)}” — keeping again refreshes it`
+          : ''
+      }</p>
+    </div>
+    <label>List name<input name="title" value="${esc(draft.title)}" maxlength="200" ${
+      keeping ? 'disabled' : ''
+    } required></label>
+    <label>City<input name="city" value="${esc(draft.city)}" maxlength="120" placeholder="e.g. New York" ${
+      keeping ? 'disabled' : ''
+    }></label>
+    <p class="community-form-note">The city is how we tell whether a place is already on Detour.${
+      matched ? ` ${matched} of these already ${matched === 1 ? 'is' : 'are'}.` : ''
+    }${held ? ` ${held} ${held === 1 ? 'is' : 'are'} already on your list.` : ''}</p>
+    <div class="community-import-actions">
+      <button class="community-import-bulk" type="button" data-import-all="1" ${keeping ? 'disabled' : ''}>Check all</button>
+      <button class="community-import-bulk" type="button" data-import-all="" ${keeping ? 'disabled' : ''}>Clear all</button>
+    </div>
+    <ul class="community-import-list">
+      ${draft.places
+        .map((place, index) => {
+          const where = [place.area, place.address].filter(Boolean).join(' · ');
+          return `<li class="community-import-row${place.already_have ? ' is-held' : ''}">
+        <label>
+          <input type="checkbox" data-import-place="${index}" ${place.keep ? 'checked' : ''} ${
+            keeping ? 'disabled' : ''
+          }>
+          <span class="community-import-name">${esc(place.name)}</span>
+          ${where ? `<span class="community-import-where">${esc(where)}</span>` : ''}
+          ${
+            place.already_have
+              ? '<span class="community-import-flag">Already on your list</span>'
+              : place.matched
+                ? '<span class="community-import-flag is-matched">On Detour</span>'
+                : ''
+          }
+        </label>
+      </li>`;
+        })
+        .join('')}
+    </ul>
+    ${failure ? `<p class="community-form-error" role="alert">${esc(failure)}</p>` : ''}
+    <div class="community-import-bar">
+      <button class="secondary-button" type="submit" ${keeping || !chosen ? 'disabled' : ''}>${
+        keeping ? 'Keeping…' : `Add ${chosen} to Wanna go`
+      }</button>
+      <button class="community-queue-delete" type="button" data-import-cancel ${keeping ? 'disabled' : ''}>Cancel</button>
+    </div>
+  </form>`;
+}
+
+
+/**
+ * ONE BUILDER FOR AN IMPORTED PLACE'S CARD, wherever it is standing.
+ *
+ * Under its list heading, or under "Not from a list" once that heading is gone —
+ * the card is the same either way, because the place is. Splitting these would
+ * be the same mistake `placeCardMarkup` exists to prevent one level up: a place
+ * that looks different depending on which part of the tab it is on.
+ */
+function importedPlaceCard(
+  place: ImportedPlace,
+  provenance: { kind: 'guide' | 'feed' | 'manual'; label: string; href: string }
+) {
+  const busy = removingImported(place.id);
+  return {
+    name: place.name,
+    // The area is the only locating fact most of these carry, and
+    // on a card it belongs where the city goes — "Astoria, New
+    // York" is what the member needs to place it.
+    city: [place.area, place.city].filter(Boolean).join(', ') || place.city,
+    country: place.country,
+    // The publication's own sentence, in the quote a member's note
+    // would occupy — it is why the place was kept, and reading the
+    // card without it says nothing at all. It carries the
+    // publication's byline rather than a member's, so the card is
+    // never mistakable for somebody's recommendation. Only the
+    // fallback branch takes this: see placeCardMarkup.
+    fallback: place.excerpt ? { note: place.excerpt } : undefined,
+    fallbackByline: provenance.label,
+    fallbackBylineKind: provenance.kind,
+    // The chip is the way back to the piece — and now that guides are sources
+    // rather than containers, the only way in.
+    fallbackBylineHref: provenance.href,
+    // Reached only when the piece said nothing quotable about it.
+    emptyNote: `${provenance.label}. Only you can see this.`,
+    fallbackHref: privatePlaceHref(place.id),
+    fallbackCoverHref: importedCoverHref(place.image_url),
+    footer: `<div class="community-queue-bar community-queue-bar-single">
+      <button class="community-queue-delete" type="button" data-imported-drop="${esc(place.id)}" ${
+        busy ? 'disabled' : ''
+      } aria-label="${esc(`Remove ${place.name} from your wishlist`)}">${
+        busy ? 'Removing…' : 'Remove'
+      }</button>
+    </div>`,
+  };
+}
+
+/**
+ * One list's places as cards, for the list's own page.
+ *
+ * The same builder the tab uses, so a place looks identical wherever it stands —
+ * minus the Remove footer. Removal lives on My detours and only there, the rule
+ * every save in this app follows, and a list page is somewhere a member is
+ * planning rather than tidying.
+ */
+export function guideCardsMarkup(guide: Guide): string {
+  const provenance = {
+    kind: 'guide' as const,
+    label: `Guide · ${guideAuthorLabel(guide)}`,
+    href: guideHref(guide.id),
+  };
+  return placeCardGrid(
+    guide.places.map((place) => ({ ...importedPlaceCard(place, provenance), footer: '' }))
+  );
+}
+
+
+/**
+ * The import flow's own wiring: the paste, the review screen, and removal.
+ *
+ * ONE DELIBERATE DEPARTURE FROM RENDER-EVERYTHING. Ticking a checkbox does not
+ * re-render. The rest of this module redraws the whole panel on every state
+ * change, which is right for a form with four fields and wrong for a list of
+ * thirty-eight: a redraw per tick throws away the scroll position, so a member
+ * unchecking the places they do not want would be sent back to the top of the
+ * list after each one. The draft is updated and the one thing that changed — the
+ * count on the submit button — is patched in place instead. Same reason the
+ * name and city fields update the draft on input without redrawing.
+ */
+function bindGuides(root: HTMLElement, render: () => void): void {
+  root.querySelector<HTMLButtonElement>('[data-import-open]')?.addEventListener('click', () => {
+    openImportDialog(render);
+  });
+
+  const dialog = root.querySelector<HTMLDialogElement>('[data-import-dialog]');
+  if (dialog) {
+    // Escape, and the backdrop click the browser turns into a cancel. Both mean
+    // the same thing here and both are safe: nothing has been written, because
+    // reading and keeping are separate calls.
+    dialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      closeImportDialog(render);
+    });
+    // One Cancel, bound on the dialogue rather than on either form: the button
+    // appears in both states and means the same thing in both.
+    dialog.querySelector<HTMLButtonElement>('[data-import-cancel]')?.addEventListener('click', () => {
+      cancelImport(render);
+    });
+    if (!dialog.open) {
+      dialog.showModal();
+      // Focus the field rather than the heading: the member pressed a button
+      // called "Add a list from a link" and the next thing they do is paste.
+      const field =
+        dialog.querySelector<HTMLElement>('input[name="url"]') ||
+        dialog.querySelector<HTMLElement>('#import-dialog-title');
+      field?.focus({ preventScroll: true });
+    }
+  }
+
+  const readForm = root.querySelector<HTMLFormElement>('[data-import-read]');
+  readForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const field = readForm.querySelector<HTMLInputElement>('input[name="url"]');
+    const value = field?.value.trim() || '';
+    if (!value) return;
+    void readListLink(value, render);
+  });
+
+  const reviewForm = root.querySelector<HTMLFormElement>('[data-import-keep]');
+  if (!reviewForm) return;
+
+  const keepButton = reviewForm.querySelector<HTMLButtonElement>('button[type="submit"]');
+  const syncKeepBar = (): void => {
+    const draft = importDraft();
+    if (!draft || !keepButton || importKeeping()) return;
+    const chosen = draft.places.filter((place) => place.keep).length;
+    keepButton.textContent = `Add ${chosen} to Wanna go`;
+    keepButton.disabled = chosen === 0;
+  };
+
+  reviewForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void keepImportDraft(render);
+  });
+
+  reviewForm
+    .querySelector<HTMLInputElement>('input[name="title"]')
+    ?.addEventListener('input', (event) => {
+      setDraftTitle((event.currentTarget as HTMLInputElement).value);
+    });
+  reviewForm
+    .querySelector<HTMLInputElement>('input[name="city"]')
+    ?.addEventListener('input', (event) => {
+      setDraftCity((event.currentTarget as HTMLInputElement).value);
+    });
+
+  reviewForm.querySelectorAll<HTMLInputElement>('[data-import-place]').forEach((box) => {
+    box.addEventListener('change', () => {
+      const index = Number(box.dataset.importPlace);
+      if (!Number.isInteger(index)) return;
+      toggleDraftPlace(index, syncKeepBar);
+    });
+  });
+
+  reviewForm.querySelectorAll<HTMLButtonElement>('[data-import-all]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setAllDraftPlaces(Boolean(button.dataset.importAll), render);
+    });
+  });
+
+}
+
+/** Removal of a kept list, or of one place on one. Bound wherever they render. */
+function bindImportedRemoval(root: HTMLElement, render: () => void): void {
+  root.querySelectorAll<HTMLButtonElement>('[data-guide-drop]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const id = button.dataset.listDrop || '';
+      if (!id || button.disabled) return;
+      const list = guides().find((entry) => entry.id === id);
+      if (!list) return;
+      pendingGuideRemoval = {
+        id,
+        title: list.title,
+        total: list.places.length,
+        // Places another list also names survive whichever answer is given, so
+        // the dialogue counts them out of the choice rather than into it.
+        shared: list.places.filter((place) => place.guides.length > 1).length,
+      };
+      render();
+    });
+  });
+
+  const listDialog = root.querySelector<HTMLDialogElement>('[data-guide-remove-dialog]');
+  if (listDialog) {
+    const close = () => {
+      pendingGuideRemoval = null;
+      render();
+    };
+    listDialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      close();
+    });
+    listDialog.querySelector<HTMLButtonElement>('[data-guide-remove-cancel]')?.addEventListener('click', close);
+    const answer = (places: 'keep' | 'remove') => () => {
+      const pending = pendingGuideRemoval;
+      if (!pending) return;
+      void removeGuide(pending.id, places, () => {
+        pendingGuideRemoval = null;
+        render();
+      });
+    };
+    listDialog
+      .querySelector<HTMLButtonElement>('[data-guide-remove-keep]')
+      ?.addEventListener('click', answer('keep'));
+    listDialog
+      .querySelector<HTMLButtonElement>('[data-guide-remove-confirm]')
+      ?.addEventListener('click', answer('remove'));
+    if (!listDialog.open) {
+      listDialog.showModal();
+      listDialog.querySelector<HTMLElement>('#remove-guide-title')?.focus({ preventScroll: true });
+    }
+  }
+  root.querySelectorAll<HTMLButtonElement>('[data-imported-drop]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const id = button.dataset.importedDrop || '';
+      if (!id || button.disabled) return;
+      void removeImportedPlace(id, render);
+    });
+  });
 }
 
 function detoursPanel(): string {
@@ -2205,6 +2999,8 @@ function signedInPanel(): string {
     ${noticeMarkup()}
     ${panel}
     ${deleteRecommendationDialogMarkup()}
+    ${importDialogMarkup()}
+    ${removeGuideDialogMarkup()}
   </section>`;
 }
 
@@ -2237,6 +3033,8 @@ export function landingPanel(venues: Venue[], resolvePlace?: NetworkPlaceResolve
     ${noticeMarkup()}
     ${detoursPanel()}
     ${deleteRecommendationDialogMarkup()}
+    ${importDialogMarkup()}
+    ${removeGuideDialogMarkup()}
   </section>`;
 }
 
@@ -2273,6 +3071,13 @@ function settleLandingTab(): void {
   detourTabChosen = true;
   if (waitlistEntries.length) return;
   if (savedPlacesLoaded() && savedPlaces().length) {
+    detourTab = 'saved';
+    return;
+  }
+  // A member whose only places are ones they imported opens on the tab holding
+  // them, for the same reason as above: the first thing they see should be a
+  // list rather than an empty state.
+  if (guidesLoaded() && guides().length) {
     detourTab = 'saved';
     return;
   }
@@ -2451,6 +3256,8 @@ export function openRecommendPlace(venue?: Venue): void {
   editingEntryId = '';
   withdrawingEndorsementId = '';
   endorsementFailure = new Map<string, string>();
+  newPlacePrefill.name = '';
+  newPlacePrefill.city = '';
   recommendationDraft = venue || null;
   recommendationIntent = 'add';
   // "Recommend" from the feed or a place page is an explicit ask for the form,
@@ -2458,6 +3265,23 @@ export function openRecommendPlace(venue?: Venue): void {
   recommendationFormOpen = true;
   pendingCollision = null;
   pendingFormReveal = 'recommendation';
+}
+
+/**
+ * Open the empty recommendation form with a name and city already in it.
+ *
+ * The way off a private place page: a member who has been somewhere they
+ * imported can say so, and saying so is what puts the place on Detour for
+ * everybody else. It is the ordinary recommendation path — same form, same
+ * `place_intent` collision question, same publication rule — with two fields
+ * filled. Deliberately not a separate submission path, and deliberately not
+ * carrying the publication's copy into the note: the note has to be the
+ * member's own words or it is not a recommendation.
+ */
+export function openRecommendNewPlace(name: string, city: string): void {
+  openRecommendPlace();
+  newPlacePrefill.name = name;
+  newPlacePrefill.city = city;
 }
 
 /** Open the current member's editor for one published place. */
@@ -2612,6 +3436,12 @@ function resetCommunityState(): void {
   // shell must not keep the previous member's, and the next member reads their
   // own rather than inheriting a stale one.
   resetSavedPlaces();
+  // Kept lists sit on the same tab and are the same kind of secret, including
+  // the half-finished draft of a link somebody pasted and did not keep.
+  resetGuides();
+  wannaGoCity = 'all';
+  wannaGoSource = 'all';
+  wannaGoShowAll.clear();
   canGrantFounding = false;
   inviteGrantsFounding = false;
   imageCurationCount = 0;
@@ -3266,7 +4096,10 @@ export function bindCommunity(
     detourTabChosen = true;
     detourTab = nextTab;
     if (nextTab === 'shares' && communityLoaded) void markIncomingSharesSeen();
-    if (nextTab === 'saved') void ensureSavedPlaces(render);
+    if (nextTab === 'saved') {
+      void ensureSavedPlaces(render);
+      void ensureGuides(render);
+    }
     render();
     if (focusTab) {
       window.requestAnimationFrame(() => {
@@ -3392,6 +4225,35 @@ export function bindCommunity(
       void toggleSavedPlace(venueId, 'place_page', render);
     });
   });
+
+  bindGuides(root, render);
+  // The tab's own navigation: destination and source filters, and the per-city
+  // expand. All three are view state — they never touch what the member holds.
+  root.querySelectorAll<HTMLButtonElement>('[data-wanna-city]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const slug = button.dataset.wannaCity || 'all';
+      if (wannaGoCity === slug) return;
+      wannaGoCity = slug;
+      // A city chosen on purpose shows everything in it; the cap is only for the
+      // all-cities glance.
+      wannaGoShowAll.clear();
+      render();
+    });
+  });
+  root.querySelector<HTMLSelectElement>('[data-wanna-source]')?.addEventListener('change', (event) => {
+    const value = (event.currentTarget as HTMLSelectElement).value as WannaGoSource;
+    wannaGoSource = SOURCE_FILTERS.some(([option]) => option === value) ? value : 'all';
+    render();
+  });
+  root.querySelectorAll<HTMLButtonElement>('[data-wanna-show-all]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const slug = button.dataset.wannaShowAll || '';
+      if (!slug) return;
+      wannaGoShowAll.add(slug);
+      render();
+    });
+  });
+  bindImportedRemoval(root, render);
 
   const detourTabButtons = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-detour-tab]'));
   detourTabButtons.forEach((button) => {

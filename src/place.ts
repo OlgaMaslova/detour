@@ -82,6 +82,44 @@ export interface PlaceChrome {
    * which of the two is reading.
    */
   outsideCircle: boolean;
+  /**
+   * Whether to stamp the place with its Detourist signal at all.
+   *
+   * True everywhere in the catalogue, including on a published place nobody has
+   * recommended yet — there the bare mark says "no count on file", which is a
+   * real thing to say about a place that could have one.
+   *
+   * False for a member's imported place, where it cannot. Nobody has stood
+   * behind it and nobody can until somebody writes a recommendation, so the mark
+   * reports an absence that was never a possibility — and the provenance band
+   * directly beneath already says, in words, that nobody on Detour has
+   * recommended it. Two statements of the same nothing, one of them cryptic.
+   */
+  showSignal?: boolean;
+  /**
+   * A mark stamped at the top of the hero's copy column, above the title, or ''.
+   *
+   * The one visual statement this page makes about a place's standing that is
+   * not a count. Used by a member's imported place to say, without a sentence,
+   * that it is theirs alone and not in the catalogue — the copy that said so
+   * before was a muted line nobody read, which is a structural fact carried by
+   * prose. It leads the page rather than sitting over the photograph: the
+   * standing of the place is the first thing to know about it, and the
+   * photograph is the publication's rather than ours to mark up. Rendered by the
+   * template rather than injected, for the same reason as `afterHero`.
+   */
+  heroStamp?: string;
+  /**
+   * Markup to stand directly under the hero, or ''.
+   *
+   * One slot, for the one thing a place can carry that the catalogue has no
+   * field for: where an imported place came from, and that nobody but its owner
+   * can see it. A slot rather than a branch keeps this template ignorant of that
+   * feature — and it replaced `insertAdjacentHTML` after render, which had been
+   * anchored on a class this page does not have, so the content silently never
+   * appeared and nothing threw or logged.
+   */
+  afterHero?: string;
   /** Whether it is already on their list. Their own row; nobody else can see it. */
   saved: boolean;
   /** A toggle in flight, so the control can say so rather than sit inert. */
@@ -378,10 +416,17 @@ function moreActions(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
   // URL is not somewhere this reader is going, it is something they are taking.
   // Offered to a visitor too — the page they are on is already public, and the
   // one act that costs nobody anything is passing it on.
-  const copyLink = (inMenu: boolean) =>
-    `<button type="button"${actionAttrs(inMenu)} data-copy-place-link="${h.esc(
-      chrome.placeLinkUrl(v)
-    )}" aria-label="${h.esc(`Copy a link to ${v.name}`)}">Copy link</button>`;
+  //
+  // Withheld when there is no address to hand over. Every published place has
+  // one; a member's imported place does not — its route resolves for that member
+  // alone, so a copied link is a 400 for whoever it is pasted to.
+  const shareableUrl = chrome.placeLinkUrl(v);
+  const copyLink = shareableUrl
+    ? (inMenu: boolean) =>
+        `<button type="button"${actionAttrs(inMenu)} data-copy-place-link="${h.esc(
+          shareableUrl
+        )}" aria-label="${h.esc(`Copy a link to ${v.name}`)}">Copy link</button>`
+    : null;
   const items = [endorse, save, share, copyLink].filter(
     (entry): entry is PlaceAction => entry !== null
   );
@@ -562,6 +607,7 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
     <article class="place-page">
       <header class="place-hero">
         <div class="place-hero-copy">
+          ${chrome.heroStamp || ''}
           <p class="place-overline">${h.esc(`${chrome.destinationName}`)}</p>
           <h1 id="place-title" tabindex="-1">${h.esc(v.name)}</h1>
           <div class="place-hero-details">
@@ -571,7 +617,10 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
                 ? `<p class="place-good-for">${h.esc(occasions.join(' · '))}</p>`
                 : ''
             }
-            <div class="place-signal-row">
+            ${
+              chrome.showSignal === false
+                ? ''
+                : `<div class="place-signal-row">
               ${detouristSignalBadge(
                 {
                   total: v.detouristTotal ?? v.detouristCount,
@@ -588,12 +637,14 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
                 // press it again wondering why nothing happened.
                 chrome.saved
               )}
-            </div>
+            </div>`
+            }
             ${placeActions(v, chrome, h, alreadyRecommended)}
           </div>
         </div>
         ${h.cover(v)}
       </header>
+      ${chrome.afterHero || ''}
       ${
         v.description
           ? `<section class="place-section place-about" aria-labelledby="place-about-title">
