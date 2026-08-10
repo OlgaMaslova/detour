@@ -4582,6 +4582,23 @@ legend { color: var(--tape-text); }
 /* Holds its line whether or not a link has been read, so the name and city
    fields below do not jump the moment one is. */
 .community-form-note[data-map-link-status] { min-height: 1.3rem; }
+/* A form note with one word that acts — "Email me a reset link" under the sign-in
+   fields. It reads as the sentence it is part of, not as a third control competing
+   with Sign in: a member who remembers their password should not have to look
+   past a button to type it. */
+.community-form-link {
+  min-height: 0;
+  padding: 0;
+  color: var(--tape-accent-strong);
+  font: inherit;
+  background: none;
+  border: none;
+  border-radius: 0;
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+  cursor: pointer;
+}
+.community-form-link:hover { color: var(--tape-text); }
 .community-loading,
 .community-empty { margin: 0; font-size: 0.9rem; font-style: italic; }
 /* The dashed frame is a box, so it needs the inset every other card has —

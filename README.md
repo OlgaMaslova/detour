@@ -155,7 +155,9 @@ POST /api/detour/curation/submissions/{id}/unpublish
 Hooks live in `pb_hooks/`, but only files named `*.pb.js` are loaded and can
 register anything — `main.pb.js`, `invite_requests.pb.js`,
 `first_place_notice.pb.js` (one email to a new member's inviter when their first
-place lands, claimed once via `members.inviter_introduced_at`), and
+place lands, claimed once via `members.inviter_introduced_at`),
+`password_reset.pb.js` (rewrites the reset email so its link opens the membership
+card at `?reset=<token>` instead of the admin console), and
 `place_endorsements.pb.js` (the been-and-loved toggle, and the sweep that tells
 the recommender whose note was acted on). Every other `.js` file there is a
 module the loaded hooks `require()`.

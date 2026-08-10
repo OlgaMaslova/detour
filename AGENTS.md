@@ -291,6 +291,39 @@ doors is exactly one field: `invited_by`, which is the graph edge.
   PocketBase setting rather than something in this repo; if abuse appears, that is
   the first place to look, not a new field on `members`.
 
+## The way back in
+
+A forgotten password is answered on the membership card, not on a page of its
+own: `mode` in src/community.ts gains `forgot` (asks for the address, sends the
+link) and `reset` (what the emailed link opens). Both are the same card as
+sign-in, because somebody who cannot get in is already looking at it.
+
+- **The reset email is rewritten in a hook, not in the collection template.**
+  `pb_hooks/password_reset.pb.js` replaces the message on
+  `onMailerRecordPasswordResetSend` so the link goes to `?reset=<token>` on
+  takedetour.app. PocketBase's stock template links into the admin console, which
+  the "no user-facing links to the admin UI" rule forbids and no member should be
+  asked to trust with a new password. The hook is best-effort: it logs and falls
+  through to `e.next()` rather than failing the send.
+- **The token is a credential, so it never enters a link this app builds.**
+  `routeHref` deletes `reset` from every href unconditionally, and
+  `clearPasswordResetRoute` takes it off the address bar the moment it is spent or
+  abandoned. The card holds it in module state for exactly as long as it needs it.
+- **A routed token outranks a live session.** `communityPanel` shows the
+  signed-out panel while one is present: clicking a reset link is a statement that
+  the password needs changing, and a member with a stale session in that browser
+  would otherwise be shown the member area and never reach the card. The confirm
+  kills that session anyway — PocketBase rotates the token key with the password.
+- **The reset signs the member in.** The confirm call returns no session, so the
+  address is read from the token's own `email` claim (`emailFromResetToken`) and
+  used with the password they just chose. A token that does not say costs the
+  automatic sign-in and nothing else: the fallback is the sign-in card with the
+  address filled in, exactly like the signup path's.
+- **The Forgot card must never answer whether an address has an account.**
+  PocketBase writes 204 either way and sends in the background, so the notice says
+  "if … has a Detour account" and the only failures reachable there are about the
+  request. Do not add a "no such member" message to it.
+
 ## The new-member flow
 
 Redeeming an invitation does not land on the account page. `?view=welcome`

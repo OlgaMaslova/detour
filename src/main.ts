@@ -8,6 +8,7 @@ import { OCCASION_OPTIONS, occasionLabel } from './occasions';
 import {
   adoptCircleRecipients,
   applyInvitationRoute,
+  applyPasswordResetRoute,
   bindCommunity,
   communityControl,
   communityPanel,
@@ -542,6 +543,11 @@ function routeHref(
   url.searchParams.delete('recommend');
   url.searchParams.delete('edit-recommendation');
   url.searchParams.delete('share');
+  // Unconditionally, including on the account route the reset card lives on: the
+  // token is a credential, and every href built here is something that ends up in
+  // history, in the address bar, and in whatever gets pasted to somebody else.
+  // The card holds its own token in memory for as long as it needs it.
+  url.searchParams.delete('reset');
   if (view === 'survey') url.hash = '';
   return `${url.pathname}${url.search}${url.hash}`;
 }
@@ -841,12 +847,18 @@ function applyRouteFromUrl(root: HTMLElement): void {
   const routedSurveyForm = surveyFormFromPath(url.pathname);
   const isSurveyRoute = routedSurveyForm !== null;
   const invitationCode = isSurveyRoute ? null : url.searchParams.get('invite');
+  // The token out of a reset email. Like an invitation code it is enough on its
+  // own to name the route: the emailed link carries ?view=members too, but a link
+  // that lost it must still open the card that spends the token.
+  const passwordResetToken = isSurveyRoute ? null : url.searchParams.get('reset');
   const requestedCountry = isSurveyRoute
     ? null
     : (url.searchParams.get('country') || '').trim().toLowerCase() || null;
   const nextView: AppView = isSurveyRoute
     ? 'survey'
-    : url.searchParams.get('view') === 'members' || invitationCode?.trim()
+    : url.searchParams.get('view') === 'members' ||
+        invitationCode?.trim() ||
+        passwordResetToken?.trim()
       ? 'account'
       : url.searchParams.get('view') === 'welcome'
         ? 'welcome'
@@ -883,6 +895,7 @@ function applyRouteFromUrl(root: HTMLElement): void {
   const requestedShareId = placeFormRoute ? (url.searchParams.get('share') || '').trim() : '';
 
   applyInvitationRoute(invitationCode);
+  applyPasswordResetRoute(passwordResetToken);
   // An older ?view=members link carrying one of these lands on the account page,
   // which no longer holds the form it is asking for. It is rerouted to the
   // landing, where the form now is, rather than dropping the member on
