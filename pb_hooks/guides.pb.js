@@ -81,6 +81,8 @@ routerAdd(
         country: place.country,
         excerpt: place.excerpt,
         image_url: place.image || "",
+        category: place.category || "",
+        cuisine: place.cuisine || "",
         matched_venue: matchedVenue,
         matched: Boolean(matchedVenue),
         already_have: Boolean(existing),
@@ -240,6 +242,11 @@ routerAdd(
         record.set("excerpt", lists.cleanText(entry.excerpt, 400));
         // Pointed at, never fetched — see the field's note in the migration.
         record.set("image_url", lists.publicImageUrl(entry.image_url));
+        // The publication's own answer to "what is this?", checked against the
+        // closed set the catalogue uses. Anything else is dropped rather than
+        // stored: a value the app cannot render or filter by is worse than none.
+        record.set("category", lists.importedCategory(entry.category));
+        record.set("cuisine", lists.cleanText(entry.cuisine, 60));
         record.set("source_url", url);
         record.set("normalized_name", normalizedName);
         record.set("normalized_city", normalizedCity);

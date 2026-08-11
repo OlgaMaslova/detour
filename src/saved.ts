@@ -197,12 +197,10 @@ export function resetSavedPlaces(): void {
 /** The server's own sentence when it sent one — every refusal here is readable. */
 function readSaveError(error: unknown): string {
   if (error && typeof error === 'object') {
-    const response = error as { response?: { message?: string }; message?: string };
-    return (
-      response.response?.message ||
-      response.message ||
-      'That could not be saved just now. Try again in a moment.'
-    );
+    // Only what the server itself said: the SDK's own `message` is a placeholder
+    // on transport failures, and says less than the sentence below.
+    const response = error as { response?: { message?: string } };
+    return response.response?.message || 'That could not be saved just now. Try again in a moment.';
   }
   return 'That could not be saved just now. Try again in a moment.';
 }

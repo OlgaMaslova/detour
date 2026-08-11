@@ -299,6 +299,7 @@ function queuePreviewLimit(): number {
 }
 const CATEGORY_OPTIONS = [
   ['restaurant', 'Restaurant'],
+  ['ethnic_cuisine', 'Ethnic cuisine'],
   ['cafe', 'Café'],
   ['bakery', 'Bakery'],
   ['bar', 'Bar'],
@@ -433,7 +434,7 @@ let pendingRecommendationDeletion: PendingRecommendationDeletion | null = null;
  *
  * Wanna go's own Remove takes no confirmation and should not — it is one
  * bookmark. This is up to a hundred places in one tap and is not undoable, and
- * "Remove list" honestly reads two ways: drop the whole thing, or drop the
+ * "Remove guide" honestly reads two ways: drop the whole thing, or drop the
  * heading and keep what was under it. Both are things a member might mean, so
  * both are offered rather than one being guessed at.
  */
@@ -544,16 +545,20 @@ function resetJoinDraft(): void {
   joinDraft.city = '';
 }
 
+/**
+ * Only what the server itself said. The SDK writes its own placeholder into
+ * `error.message` when nothing answered at all — "Something went wrong." — which
+ * says less than the fallback and does not tell anyone to try again.
+ */
 function readableError(error: unknown, fallback: string): string {
   if (error && typeof error === 'object') {
     const response = error as {
       response?: { message?: string; data?: Record<string, { message?: string }> };
-      message?: string;
     };
     const fieldError = response.response?.data
       ? Object.values(response.response.data).find((value) => value?.message)?.message
       : undefined;
-    return fieldError || response.response?.message || response.message || fallback;
+    return fieldError || response.response?.message || fallback;
   }
   return fallback;
 }
@@ -897,7 +902,7 @@ function deleteRecommendationDialogMarkup(): string {
 /**
  * Removing a list: what happens to the places that came in on it.
  *
- * Three outs rather than two, because "Remove list" is genuinely ambiguous and
+ * Three outs rather than two, because "Remove guide" is genuinely ambiguous and
  * the destructive reading is the one a mis-tap would take. Places another list
  * still names are counted out of both answers — they survive either way, and
  * saying so stops the numbers looking like they disagree.
@@ -909,15 +914,15 @@ function removeGuideDialogMarkup(): string {
   const busy = removingImported(pending.id);
   return `<dialog class="community-confirm-dialog" data-guide-remove-dialog aria-labelledby="remove-guide-title" aria-describedby="remove-guide-description">
     <div class="community-confirm-sheet">
-      <p class="community-confirm-kicker">Remove a list</p>
+      <p class="community-confirm-kicker">Remove a guide</p>
       <h2 id="remove-guide-title" tabindex="-1">Remove “${esc(pending.title)}”?</h2>
       <p id="remove-guide-description">${
         exclusive
-          ? `${exclusive} place${exclusive === 1 ? '' : 's'} came in with this list. You can drop them too, or keep them on your wishlist without the heading.`
-          : 'Nothing came in with this list that is not also on another one, so nothing will be lost.'
+          ? `${exclusive} place${exclusive === 1 ? '' : 's'} came in with this guide. You can drop them too, or keep them on your wishlist without the heading.`
+          : 'Nothing came in with this guide that is not also on another one, so nothing will be lost.'
       }${
         pending.shared
-          ? ` ${pending.shared} ${pending.shared === 1 ? 'is' : 'are'} also on another list and will be kept either way.`
+          ? ` ${pending.shared} ${pending.shared === 1 ? 'is' : 'are'} also on another guide and will be kept either way.`
           : ''
       }</p>
       <div class="community-confirm-actions">
@@ -928,7 +933,7 @@ function removeGuideDialogMarkup(): string {
             : ''
         }
         <button class="community-danger" type="button" data-guide-remove-confirm ${busy ? 'disabled' : ''}>${
-          busy ? 'Removing…' : exclusive ? 'Remove list and places' : 'Remove list'
+          busy ? 'Removing…' : exclusive ? 'Remove guide and places' : 'Remove guide'
         }</button>
       </div>
     </div>
@@ -2449,7 +2454,7 @@ function wannaGoIntroMarkup(destinations: WannaGoDestination[]): string {
           </select>
         </label>
       </div>
-      <button class="primary-button wanna-add" type="button" data-import-open>+ Add</button>
+      <button class="primary-button wanna-add" type="button" data-import-open>Import Guide</button>
     </div>
   </div>`;
 }
@@ -2469,7 +2474,8 @@ const SOURCE_FILTERS: readonly (readonly [WannaGoSource, string])[] = [
  * the two views answer different questions — "where am I going?" wants a glance
  * per city, "what is in New York?" wants the list. `Open map` leads to the
  * destination's own page, which is where the map lives; a map per section would
- * be four Leaflet instances on one tab.
+ * be four map instances on one tab — and, since Google bills per instance, four
+ * charges for a screen nobody asked to see a map on.
  */
 function wannaGoSectionMarkup(destination: WannaGoDestination, expanded: boolean): string {
   const cards = wannaGoDestinationCards(destination.slug);
@@ -2649,7 +2655,7 @@ export function cityPickPlaces(venues: Venue[]): BoardPlace[] {
       ...quoted,
       provenance: provenanceOf({ name: venue.name, city: venue.city }),
       guideIds: [],
-      been: venue.endorsedByCaller === true,
+      been: beenThere(venue, venue.name, venue.city),
       saved: isSavedPlace(venue.id),
       skipped: false,
       lat: venue.lat,
@@ -2704,6 +2710,31 @@ function newestNoteFor(name: string, city: string): {
 }
 
 /**
+ * Have they been — the question the To try / Been split actually asks.
+ *
+ * TWO ANSWERS COUNT, not one. The Been & loved mark is the explicit one, but a
+ * member's own recommendation is the rung above it: the place page hides both
+ * *Been* and *Wanna go* once somebody has written here, on the grounds that a
+ * note says more than a mark can. A board that read only the mark left those
+ * places sitting under *To try* with no control left anywhere that could move
+ * them — a member looking at a city they had written about was told they still
+ * meant to get there.
+ *
+ * The ladder runs forward only, and this is what keeps it running: wishlist,
+ * mark, note, each one standing for everything below it.
+ */
+function beenThere(venue: Venue | undefined, name: string, city: string): boolean {
+  if (venue?.endorsedByCaller === true) return true;
+  return notesForPlace(name, city).some((item) => item.is_own && Boolean(item.note?.trim()));
+}
+
+/** An imported place's category as a word, from the closed set's own labels. */
+function importedCategoryLabel(value: string): string {
+  const found = CATEGORY_OPTIONS.find(([option]) => option === value);
+  return found ? found[1] : '';
+}
+
+/**
  * One imported place as a row, wherever it is being read.
  *
  * The city page and the guide page show the same object under two headings, so
@@ -2727,7 +2758,11 @@ function importedBoardPlace(
     venue,
     imported: place,
     area: place.area || venue?.neighborhood || '',
-    category: venue?.category || '',
+    // A matched catalogue place keeps the category a member chose; the
+    // publication's own answer stands in only where Detour has none. Its word
+    // for the cuisine beats the bare label — a row saying "Georgian" tells a
+    // planner what "Ethnic cuisine" does not.
+    category: venue?.category || place.cuisine || importedCategoryLabel(place.category),
     // The publication's sentence is why this place is on the list at all, so it
     // leads; a member's note stands in when the piece said nothing quotable.
     quote: said || fromFeed.quote,
@@ -2739,7 +2774,7 @@ function importedBoardPlace(
       : fromFeed.sourceName,
     provenance: provenanceOf(place, place, guide),
     guideIds: place.guides,
-    been: venue?.endorsedByCaller === true,
+    been: beenThere(venue, venue?.name || place.name, venue?.city || place.city),
     saved: !place.skipped,
     skipped: place.skipped,
     lat: venue?.lat ?? (located ? place.lat : null),
@@ -2790,7 +2825,7 @@ export function wannaGoBoardPlaces(slug: string, venues: Venue[]): BoardPlace[] 
       ...newestNoteFor(name, save.city),
       provenance: provenanceOf({ name, city: save.city }),
       guideIds: [],
-      been: venue?.endorsedByCaller === true,
+      been: beenThere(venue, name, save.city),
       saved: true,
       skipped: false,
       lat: venue?.lat ?? null,
@@ -2798,11 +2833,14 @@ export function wannaGoBoardPlaces(slug: string, venues: Venue[]): BoardPlace[] 
     });
   }
 
-  // Been & loved in this city, however it got there. A place they marked without
-  // ever saving belongs on the board too: it is one of their places in this city,
-  // and the board is the answer to "what do I have in New York".
+  // Been & loved in this city, however it got there — the mark, or a
+  // recommendation of their own, which stands for it. A place they marked or
+  // wrote about without ever saving belongs on the board too: it is one of their
+  // places in this city, and the board is the answer to "what do I have in New
+  // York".
   for (const venue of catalogue) {
-    if (!venue.endorsedByCaller || claimed.has(venue.id)) continue;
+    if (claimed.has(venue.id)) continue;
+    if (!beenThere(venue, venue.name, venue.city)) continue;
     if (destinationSlugOf(venue.city) !== slug) continue;
     claimed.add(venue.id);
     rows.push({
@@ -2860,19 +2898,19 @@ function importReadMarkup(failure: string): string {
   const reading = importReading();
   return `<form class="community-form community-import-form" data-import-read>
     <p class="community-confirm-kicker">Add to your wishlist</p>
-    <h2 id="import-dialog-title" tabindex="-1">Keep a list you have been reading.</h2>
-    <label>Link to the list<input name="url" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Paste the link — e.g. a city’s best-of list" ${
+    <h2 id="import-dialog-title" tabindex="-1">Save a guide you have been reading.</h2>
+    <label>Link to the guide<input name="url" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Paste the link — e.g. a city’s best-of guide" ${
       reading ? 'disabled' : ''
     } required></label>
     <p class="community-form-note">${
       reading
-        ? 'Reading the page. A long list can take up to half a minute.'
+        ? 'Reading the page...'
         : 'We read the page and show you what is on it. Nothing is kept until you say so.'
     }</p>
     ${failure ? `<p class="community-form-error" role="alert">${esc(failure)}</p>` : ''}
     <div class="community-import-bar">
       <button class="secondary-button" type="submit" ${reading ? 'disabled' : ''}>${
-        reading ? 'Reading…' : 'Read the list'
+        reading ? 'Reading…' : 'Read the guide'
       }</button>
       <button class="community-queue-delete" type="button" data-import-cancel ${
         reading ? 'disabled' : ''
@@ -2904,7 +2942,7 @@ function importReviewMarkup(draft: ImportDraft, failure: string): string {
       <p class="community-confirm-kicker">Add to your wishlist</p>
       <h2 id="import-dialog-title" tabindex="-1">${esc(String(draft.places.length))} place${
         draft.places.length === 1 ? '' : 's'
-      } on this list</h2>
+      } on this guide</h2>
       <p class="community-form-note">${esc(draft.source || 'From the page you pasted')}${
         draft.knownListTitle
           ? ` · you have kept this link before, as “${esc(draft.knownListTitle)}” — keeping again refreshes it`
@@ -2961,7 +2999,7 @@ function importReviewMarkup(draft: ImportDraft, failure: string): string {
 /**
  * ONE BUILDER FOR AN IMPORTED PLACE'S CARD, wherever it is standing.
  *
- * Under its list heading, or under "Not from a list" once that heading is gone —
+ * Under its guide heading, or under "Not from a guide" once that heading is gone —
  * the card is the same either way, because the place is. Splitting these would
  * be the same mistake `placeCardMarkup` exists to prevent one level up: a place
  * that looks different depending on which part of the tab it is on.
@@ -3021,12 +3059,57 @@ function importedPlaceCard(
  * count on the submit button — is patched in place instead. Same reason the
  * name and city fields update the draft on input without redrawing.
  */
+/**
+ * Where the member was inside the import dialogue, kept across its rebuilds.
+ *
+ * The dialogue is thrown away and rebuilt on every render, so without this the
+ * browser has nothing to give focus back to and the code below hands it to the
+ * heading — which took the caret out of the name field every time anything else
+ * on the review screen moved. The member typing a name is the person we are
+ * least entitled to interrupt: the name is the only part of a kept guide they
+ * author.
+ *
+ * `stage` is read/review. Focus is placed by us exactly once per stage — on the
+ * first open, and again when the read finishes and the review takes over, which
+ * is a wait long enough that the answer has to arrive under the member's eyes.
+ * Every other rebuild restores what they had.
+ */
+let importFocusStage = '';
+let importFocusKey = '';
+let importFocusCaret = -1;
+let importListScroll = 0;
+
+/** A selector that survives the rebuild, for the controls worth returning to. */
+function importFocusKeyFor(element: Element | null): string {
+  if (!(element instanceof HTMLElement)) return '';
+  if (element instanceof HTMLInputElement && element.name) {
+    return `input[name="${element.name}"]`;
+  }
+  const place = element.dataset.importPlace;
+  if (place) return `[data-import-place="${place}"]`;
+  const all = element.dataset.importAll;
+  if (all !== undefined) return `[data-import-all="${all}"]`;
+  if (element.hasAttribute('data-import-cancel')) return '[data-import-cancel]';
+  if (element instanceof HTMLButtonElement && element.type === 'submit') {
+    return '[data-import-keep] button[type="submit"]';
+  }
+  return '';
+}
+
 function bindGuides(root: HTMLElement, render: () => void): void {
   root.querySelector<HTMLButtonElement>('[data-import-open]')?.addEventListener('click', () => {
     openImportDialog(render);
   });
 
   const dialog = root.querySelector<HTMLDialogElement>('[data-import-dialog]');
+  if (!dialog) {
+    // Closed, so there is nothing to come back to. Cleared here rather than in
+    // each of the three ways it closes.
+    importFocusStage = '';
+    importFocusKey = '';
+    importFocusCaret = -1;
+    importListScroll = 0;
+  }
   if (dialog) {
     // Escape, and the backdrop click the browser turns into a cancel. Both mean
     // the same thing here and both are safe: nothing has been written, because
@@ -3040,14 +3123,46 @@ function bindGuides(root: HTMLElement, render: () => void): void {
     dialog.querySelector<HTMLButtonElement>('[data-import-cancel]')?.addEventListener('click', () => {
       cancelImport(render);
     });
+    // Remembered so the rebuild can put it back — see `importFocusKey`.
+    dialog.addEventListener('focusin', () => {
+      const key = importFocusKeyFor(document.activeElement);
+      if (!key) return;
+      importFocusKey = key;
+      importFocusCaret = -1;
+    });
+
+    // The list is the only scroller in the sheet, and a rebuild would otherwise
+    // send a member who was forty places down back to the top.
+    const list = dialog.querySelector<HTMLElement>('.community-import-list');
+    if (list) {
+      if (importListScroll) list.scrollTop = importListScroll;
+      list.addEventListener('scroll', () => {
+        importListScroll = list.scrollTop;
+      });
+    }
+
     if (!dialog.open) {
       dialog.showModal();
-      // Focus the field rather than the heading: the member pressed a button
-      // called "Add a list from a link" and the next thing they do is paste.
-      const field =
-        dialog.querySelector<HTMLElement>('input[name="url"]') ||
-        dialog.querySelector<HTMLElement>('#import-dialog-title');
-      field?.focus({ preventScroll: true });
+      const stage = importDraft() ? 'review' : 'read';
+      const held = importFocusKey
+        ? dialog.querySelector<HTMLElement>(importFocusKey)
+        : null;
+      if (held) {
+        held.focus({ preventScroll: true });
+        if (importFocusCaret >= 0 && held instanceof HTMLInputElement) {
+          held.setSelectionRange(importFocusCaret, importFocusCaret);
+        }
+      } else if (importFocusStage !== stage) {
+        // Focus the field rather than the heading: the member pressed a button
+        // called "Add a guide from a link" and the next thing they do is paste.
+        // On the review screen there is no field to paste into, so the heading
+        // takes it — the count of places is the answer they waited for.
+        const field =
+          dialog.querySelector<HTMLElement>('input[name="url"]') ||
+          dialog.querySelector<HTMLElement>('#import-dialog-title');
+        field?.focus({ preventScroll: true });
+      }
+      importFocusStage = stage;
     }
   }
 
@@ -3077,15 +3192,23 @@ function bindGuides(root: HTMLElement, render: () => void): void {
     void keepImportDraft(render);
   });
 
+  // The caret rides along with the value: a rebuild mid-word must not drop the
+  // member at the end of what they had already typed.
   reviewForm
     .querySelector<HTMLInputElement>('input[name="title"]')
     ?.addEventListener('input', (event) => {
-      setDraftTitle((event.currentTarget as HTMLInputElement).value);
+      const field = event.currentTarget as HTMLInputElement;
+      setDraftTitle(field.value);
+      importFocusKey = 'input[name="title"]';
+      importFocusCaret = field.selectionStart ?? -1;
     });
   reviewForm
     .querySelector<HTMLInputElement>('input[name="city"]')
     ?.addEventListener('input', (event) => {
-      setDraftCity((event.currentTarget as HTMLInputElement).value);
+      const field = event.currentTarget as HTMLInputElement;
+      setDraftCity(field.value);
+      importFocusKey = 'input[name="city"]';
+      importFocusCaret = field.selectionStart ?? -1;
     });
 
   reviewForm.querySelectorAll<HTMLInputElement>('[data-import-place]').forEach((box) => {

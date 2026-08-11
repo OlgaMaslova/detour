@@ -1,6 +1,11 @@
 import './styles.css';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
+import {
+  destroyLocatorMap,
+  destroyMap,
+  mountBoardMap,
+  mountLocatorMap,
+  resetBoardView,
+} from './maps';
 import { citySlug, coverTint, loadLiveCatalogue, venueCitySlug, venuePlaceSlug } from './data';
 import type { Venue } from './data';
 import type { Guide, ImportedPlace } from './guides';
@@ -104,7 +109,7 @@ import {
 } from './network';
 import type { DiscoveryRecommendation, NetworkPlaceResolver } from './network';
 import { defaultSurveyForm, renderSurvey, surveyFormFromPath, surveyMeta, surveyPath } from './survey';
-import { PLACE_MAP_ID, crumbTrailMarkup, placeIsLocated, placePageMarkup } from './place';
+import { crumbTrailMarkup, placeIsLocated, placePageMarkup } from './place';
 import { placePromptMarkup } from './place-prompt';
 import { bindFollowUpCard, followUpCardMarkup } from './follow-up';
 import { bindTriageCard, triageCardMarkup } from './triage';
@@ -511,8 +516,7 @@ function resetDestinationState(): void {
   state.cityLens = 'picks';
   state.geoStatus = '';
   state.geoBusy = false;
-  savedView = null;
-  savedPinKey = '';
+  resetBoardView();
 }
 
 function routeHref(
@@ -1055,7 +1059,7 @@ function destinationHasOccasions(): boolean {
   return destinationVenues().some((v) => venueOccasions(v).length > 0);
 }
 
-/* ---------- interactive map (Leaflet + OpenStreetMap) ---------- */
+/* ---------- which places can be plotted (the maps live in maps.ts) ---------- */
 
 type MappableVenue = Venue & { lat: number; lng: number };
 
@@ -1075,93 +1079,6 @@ function mappableVenues(list: Venue[]): MappableVenue[] {
   return list.filter(
     (v): v is MappableVenue => v.lat !== null && v.lng !== null
   );
-}
-
-// The whole root is re-rendered on every state change, which destroys the
-// map's DOM node. Keep a single module-level Leaflet instance and tear it
-// down (removing all layers and listeners) before creating the next one so
-// duplicate maps or leaked listeners can never occur.
-let leafletMap: L.Map | null = null;
-// Preserve the user's pan/zoom across re-renders. Cleared (so the map refits)
-// whenever the set of visible pins changes, e.g. after filtering.
-let savedView: { center: L.LatLng; zoom: number } | null = null;
-let savedPinKey = '';
-
-function destroyMap(): void {
-  if (leafletMap) {
-    leafletMap.remove();
-    leafletMap = null;
-  }
-  // Every teardown of the main map is a view change or a re-render; the
-  // detail's locator map goes with it and is remounted below if still needed.
-  destroyLocatorMap();
-}
-
-// The short-list detail panel carries its own locator map — the planning-tools
-// map is collapsed by default there, so "where is it" is the one thing opening
-// a place can add that the card does not already say.
-let locatorMap: L.Map | null = null;
-
-function destroyLocatorMap(): void {
-  if (locatorMap) {
-    locatorMap.remove();
-    locatorMap = null;
-  }
-}
-
-/**
- * The selected place, pinned. Zoom controls, dragging and touch zoom are on —
- * a locator you cannot zoom out of tells you the street but not the district.
- * Scroll-wheel zoom stays off so the map never hijacks page scrolling. OSM is
- * credited in the map's own corner, like the city map — the caption line that
- * used to sit under this map read as a section of the page rather than as tile
- * small print.
- */
-function mountLocatorMap(root: HTMLElement, v: Venue): void {
-  if (v.lat === null || v.lng === null) return;
-  mountPointMap(root, PLACE_MAP_ID, v.lat, v.lng);
-}
-
-/**
- * One pin, one place, in whichever container names itself.
- *
- * Split out of `mountLocatorMap` so the private place page can plot an imported
- * place without being handed a catalogue `Venue` it does not have. Both pages
- * share `locatorMap`, which is correct: only one of them is ever mounted, and a
- * single handle is what guarantees the previous map is torn down before the next
- * is built.
- */
-function mountPointMap(root: HTMLElement, containerId: string, lat: number, lng: number): void {
-  destroyLocatorMap();
-  const container = root.querySelector<HTMLElement>(`#${containerId}`);
-  if (!container) return;
-
-  const map = L.map(container, {
-    center: [lat, lng],
-    zoom: 16,
-    zoomControl: true,
-    scrollWheelZoom: false,
-    boxZoom: false,
-  });
-  locatorMap = map;
-
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
-  }).addTo(map);
-  L.marker([lat, lng], {
-    icon: L.divIcon({
-      className: '',
-      html: `<span class="map-pin pin-detourist pin-selected" aria-hidden="true">
-        <span class="pin-pearl"><span class="pin-signal"></span></span>
-      </span>`,
-      iconSize: [0, 0],
-      iconAnchor: [0, 0],
-    }),
-    keyboard: false,
-    interactive: false,
-  }).addTo(map);
 }
 
 /**
@@ -1528,8 +1445,10 @@ function bindPlaceSave(root: HTMLElement, v: Venue): void {
 /** The server's own sentence when it sent one — every refusal here is readable. */
 function readablePlaceError(error: unknown, fallback: string): string {
   if (error && typeof error === 'object') {
-    const response = error as { response?: { message?: string }; message?: string };
-    return response.response?.message || response.message || fallback;
+    // Only what the server itself said: the SDK's own `message` is a placeholder
+    // on transport failures, and says less than the fallback.
+    const response = error as { response?: { message?: string } };
+    return response.response?.message || fallback;
   }
   return fallback;
 }
@@ -1542,15 +1461,23 @@ function readablePlaceError(error: unknown, fallback: string): string {
  * the reader's own relationship to the place and by nothing else, least of all
  * by the page they came from:
  *
- *   BEEN & LOVED / New York / Katz's    they have been and said so
- *   WANNA GO     / New York / Zimmi's   it is on their wishlist, whichever door
- *                                       it came through
- *   EXPLORE      / Zimmi's              neither, so there is no list of theirs
- *                                       for it to sit in
+ *   RECOMMENDATIONS / New York / Katz's  they wrote about it — it is in the tab
+ *                                        of their own recommendations
+ *   BEEN & LOVED    / New York / Katz's  they marked it and said no more
+ *   WANNA GO        / New York / Zimmi's it is on their wishlist, whichever door
+ *                                        it came through
+ *   EXPLORE         / Zimmi's            none of those, so there is no list of
+ *                                        theirs for it to sit in
  *
- * Marking Been moves the root with the place, which is the whole point of tying
- * it to standing rather than to a route: the trail keeps naming the list the
- * place is actually in.
+ * IN THAT ORDER, HIGHEST RUNG FIRST, because a place can satisfy more than one
+ * and the crumb names one list. Been & loved is not the answer for a place they
+ * recommended: they never pressed that button — the page hides it once they have
+ * written — so the crumb would point at a tab their place is not in and claim a
+ * mark they never made. Their recommendation is where it actually is.
+ *
+ * Climbing a rung moves the root with the place, which is the whole point of
+ * tying it to standing rather than to a route: the trail keeps naming the list
+ * the place is actually in.
  *
  * A guide is never a step here. It is a lens over places, not a container of
  * them — the city is the parent even for a place that arrived on somebody's list
@@ -1567,6 +1494,8 @@ function placeCrumbs(
     cityName: string;
     /** The catalogue destination's slug, when this place has a catalogue page. */
     destinationSlug?: string;
+    /** They have written their own recommendation here — the top rung. */
+    recommended: boolean;
     been: boolean;
     onWishlist: boolean;
   }
@@ -1576,31 +1505,38 @@ function placeCrumbs(
   // The member's own board for this city, which exists only while they hold a
   // place in it — derived, like every destination in Wanna go.
   const board = city ? wannaGoDestinations().find((entry) => entry.slug === citySlug(city)) : undefined;
-  if (context.been) {
-    // Their own board first: it holds everything they have in this city,
-    // been included, so it is the city page that actually contains this place.
-    // The catalogue's city stands in where they hold nothing else there — a real
-    // page about the same city, if not one of theirs.
-    const cityStep: PlaceCrumb[] = board
+  // Their own board first: it holds everything they have in this city — been and
+  // recommended included — so it is the city page that actually contains this
+  // place. The catalogue's city stands in where they hold nothing else there: a
+  // real page about the same city, if not one of theirs.
+  const standingCity: PlaceCrumb[] = board
+    ? [
+        {
+          label: board.name,
+          href: destinationBoardHref(board.slug),
+          attrs: `data-wanna-destination="${esc(board.slug)}"`,
+        },
+      ]
+    : city && context.destinationSlug
       ? [
           {
-            label: board.name,
-            href: destinationBoardHref(board.slug),
-            attrs: `data-wanna-destination="${esc(board.slug)}"`,
+            label: city,
+            href: destinationHref(context.destinationSlug),
+            attrs: `data-open-destination="${esc(context.destinationSlug)}"`,
           },
         ]
-      : city && context.destinationSlug
-        ? [
-            {
-              label: city,
-              href: destinationHref(context.destinationSlug),
-              attrs: `data-open-destination="${esc(context.destinationSlug)}"`,
-            },
-          ]
-        : [];
+      : [];
+  if (context.recommended) {
+    return [
+      { label: 'Recommendations', href: homeHref(), attrs: 'data-detours-tab="recommendations"' },
+      ...standingCity,
+      here,
+    ];
+  }
+  if (context.been) {
     return [
       { label: 'Been & loved', href: homeHref(), attrs: 'data-detours-tab="endorsements"' },
-      ...cityStep,
+      ...standingCity,
       here,
     ];
   }
@@ -1670,16 +1606,27 @@ function renderPlace(
   //
   // The imported place page redirects here the moment a place it holds gets
   // recommended. It used to redirect to a page where every trace of where the
-  // member found it had gone; now the band and the publication's line travel with
-  // it, and the notes arrive underneath them.
+  // member found it had gone; now the publication's line travels with it, under
+  // the notes it belongs beside. The How it got here band does not make the trip
+  // — see originBand in place.ts: once the place is in Detour, that is the fact,
+  // and the guide's chip on its own quote still says which piece it came off.
   const importedAs = memberCanExplore()
     ? allImportedPlaces().find((entry) => entry.matched_venue === v.id)
     : undefined;
+
+  // Has this reader written here. Asked once and used three times below, because
+  // the crumb, the mark and the wishlist control must never disagree about it:
+  // the two controls switch off on a place the member has written about, so if
+  // the crumb did not also count that as having been, the place would sit under
+  // WANNA GO with nothing left on the page able to move it. The same rule runs
+  // the city board — see `beenThere` in community.ts.
+  const ownNote = placeNotesForVenue(v).some((item) => item.is_own);
 
   const chrome: PlaceChrome = {
     crumbs: placeCrumbs(v, {
       cityName: destination.name,
       destinationSlug: destination.slug,
+      recommended: ownNote,
       been: v.endorsedByCaller === true,
       onWishlist: isSavedPlace(v.id) || Boolean(importedAs),
     }),
@@ -1697,18 +1644,14 @@ function renderPlace(
     // place" call to action can never both claim this reader has not spoken.
     // Not on a place from outside the caller's circle either: the mark is
     // corroboration of what is written above it, and for that reader nothing is.
-    canEndorse:
-      memberCanExplore() && !outsideCircle && !placeNotesForVenue(v).some((item) => item.is_own),
+    canEndorse: memberCanExplore() && !outsideCircle && !ownNote,
     // The same gate, one rung lower and with one more condition: the ladder runs
     // forward only, so a place this reader has already been to is not somewhere
     // they can still intend to go. Offered from outside the circle, though — a
     // wishlist is private, the server asks only that the place be published, and
     // wanting to go somewhere a stranger could have shown you is not a claim about
     // anybody's recommendation.
-    canSave:
-      memberCanExplore() &&
-      v.endorsedByCaller !== true &&
-      !placeNotesForVenue(v).some((item) => item.is_own),
+    canSave: memberCanExplore() && v.endorsedByCaller !== true && !ownNote,
     outsideCircle,
     // No further conditions: a share is a private message about a place, so a
     // member may send one about anywhere they can see — including a place they
@@ -1774,7 +1717,8 @@ function renderPlace(
   //
   // The guides are read for the same reason and on the same terms: until they
   // arrive the page cannot know this is a place the reader kept off a list, and
-  // "How it got here" would be missing from a page that has an answer for it.
+  // the publication's own line — and, on a place nobody has recommended yet,
+  // "How it got here" — would be missing from a page that has an answer for it.
   if (memberCanExplore()) {
     void ensureSavedPlaces(() => render(root));
     void ensureGuides(() => render(root));
@@ -2251,7 +2195,9 @@ function renderCity(
     img.addEventListener('error', drop, { once: true });
     if (img.complete && img.naturalWidth === 0) drop();
   });
-  if (boardView === 'map' && pins.length) mountBoardMap(root, pins);
+  if (boardView === 'map' && pins.length) {
+    mountBoardMap(root, pins, { esc, open: (row) => openBoardPlace(root, row) });
+  }
   bindBoardHighlight(root);
   if (pendingFocus) {
     const target = root.querySelector<HTMLElement>(pendingFocus);
@@ -2295,7 +2241,7 @@ function cityCrumbs(name: string, lens: CityLens, catalogue: Destination | undef
 function cityEmptyLine(lens: CityLens, filtered: boolean, name: string): string {
   if (filtered) return 'Nothing in this city matches those filters.';
   if (lens === 'yours') {
-    return 'Nothing of yours here yet. Open a place you mean to get to and press “Wanna go”, or keep a list you have been reading.';
+    return 'Nothing of yours here yet. Open a place you mean to get to and press “Wanna go”, or add a guide you have been reading.';
   }
   return `No published places in ${name} yet — Detour grows wherever its members eat well.`;
 }
@@ -2502,102 +2448,25 @@ function bindBoardHighlight(root: HTMLElement): void {
 }
 
 /**
- * The board's own map: numbered pins, fitted to whatever the chips left.
+ * Where a pin goes when it is pressed.
  *
- * ONE MAP FOR EVERY CITY SURFACE — the city page, the guide page, whichever lens
- * or reading is on screen. A pin is a dot rather than a labelled name: the list
- * beside it is the legend, and hovering either half lights the other.
+ * The map layer owns pins; routing stays here, so this is what it is handed. A
+ * catalogue place opens its own page. A place the member holds only through an
+ * imported guide has no catalogue record to open, so it opens the private place
+ * page instead — and drops the guide, because arriving at one place is not still
+ * reading the list it came from.
  */
-function mountBoardMap(root: HTMLElement, pins: BoardPlace[]): void {
-  destroyMap();
-  const container = root.querySelector<HTMLElement>('#venue-map');
-  if (!container || !pins.length) return;
-
-  const map = L.map(container, {
-    center: [pins[0].lat as number, pins[0].lng as number],
-    zoom: 13,
-    scrollWheelZoom: false, // don't hijack page scroll
-    zoomSnap: 0.5,
-  });
-  leafletMap = map;
-
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
-  }).addTo(map);
-
-  const caption = root.querySelector<HTMLElement>('[data-board-caption]');
-  for (const row of pins) {
-    const marker = L.marker([row.lat as number, row.lng as number], {
-      icon: L.divIcon({
-        className: '',
-        // No number on the pin: the rows lost theirs, and a numbered pin beside
-        // an unnumbered list is a legend for a key that is not printed. It is a
-        // dot, and the hover says which place it is.
-        html: `<span class="board-pin${
-          row.been ? ' is-been' : ''
-        }" data-board-pin="${esc(row.key)}" aria-hidden="false"></span>`,
-        iconSize: [0, 0],
-        iconAnchor: [0, 0],
-      }),
-      keyboard: false,
-      riseOnHover: true,
-    }).addTo(map);
-
-    const open = () => {
-      if (row.venue) {
-        openPlace(root, row.venue);
-        return;
-      }
-      if (!row.imported) return;
-      state.guide = null;
-      state.privatePlace = row.imported.id;
-      state.view = 'private-place';
-      updateRoute('private-place', null, 'push');
-      render(root);
-    };
-
-    const el = marker.getElement();
-    if (!el) continue;
-    // The Leaflet marker root is zero-size; the inner pin is the real target.
-    el.setAttribute('tabindex', '-1');
-    el.removeAttribute('role');
-    el.removeAttribute('aria-label');
-    const pin = el.querySelector<HTMLElement>('.board-pin');
-    if (!pin) continue;
-    pin.setAttribute('role', 'link');
-    pin.setAttribute('tabindex', '0');
-    pin.setAttribute('aria-label', `${row.name}. Open this place.`);
-    const light = (on: boolean) => {
-      pin.classList.toggle('is-lit', on);
-      root
-        .querySelector<HTMLElement>(`[data-board-row="${CSS.escape(row.key)}"]`)
-        ?.classList.toggle('is-lit', on);
-      if (caption) caption.textContent = on ? row.name : '';
-    };
-    pin.addEventListener('mouseenter', () => light(true));
-    pin.addEventListener('mouseleave', () => light(false));
-    pin.addEventListener('focus', () => light(true));
-    pin.addEventListener('blur', () => light(false));
-    pin.addEventListener('click', (event) => {
-      event.stopPropagation();
-      open();
-    });
-    pin.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      event.preventDefault();
-      event.stopPropagation();
-      open();
-    });
+function openBoardPlace(root: HTMLElement, row: BoardPlace): void {
+  if (row.venue) {
+    openPlace(root, row.venue);
+    return;
   }
-
-  // Fitted to what is on screen rather than to the city: the whole point of the
-  // chips is that "Chelsea, still to try" zooms to Chelsea.
-  const bounds = L.latLngBounds(
-    pins.map((row) => [row.lat as number, row.lng as number] as [number, number])
-  );
-  map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+  if (!row.imported) return;
+  state.guide = null;
+  state.privatePlace = row.imported.id;
+  state.view = 'private-place';
+  updateRoute('private-place', null, 'push');
+  render(root);
 }
 
 /**
@@ -2668,8 +2537,8 @@ function renderGuide(root: HTMLElement, id: string): void {
   if (!list) {
     root.innerHTML = guidesLoaded()
       ? `<article class="place-page">
-          <h1 id="guide-view-title" tabindex="-1">Not one of your lists.</h1>
-          <p class="tagline">That list is not yours, or it has been removed.</p>
+          <h1 id="guide-view-title" tabindex="-1">Not one of your guides.</h1>
+          <p class="tagline">That guide is not yours, or it has been removed.</p>
           <p><a href="${esc(homeHref())}" data-route-link>Back to My detours</a></p>
         </article>`
       : '<p class="community-loading" role="status">Loading…</p>';
@@ -2726,7 +2595,7 @@ function renderGuide(root: HTMLElement, id: string): void {
                 )}" target="_blank" rel="noopener noreferrer">Original <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
               : ''
           }
-          <button class="secondary-button" type="button" data-guide-drop="${esc(list.id)}">Remove…</button>
+          <button class="secondary-button" type="button" data-guide-drop="${esc(list.id)}">Remove</button>
         </div>
       </header>
       <div class="board-filters">
@@ -2839,7 +2708,9 @@ function renderGuide(root: HTMLElement, id: string): void {
       once: true,
     });
   });
-  if (boardView === 'map' && pins.length) mountBoardMap(root, pins);
+  if (boardView === 'map' && pins.length) {
+    mountBoardMap(root, pins, { esc, open: (row) => openBoardPlace(root, row) });
+  }
   bindBoardHighlight(root);
   if (pendingFocus) {
     const target = root.querySelector<HTMLElement>(pendingFocus);
@@ -2968,7 +2839,15 @@ function renderPrivatePlace(root: HTMLElement, id: string): void {
     // parent — not the guide it arrived on, which is a lens rather than a
     // container and gets its credit in How it got here instead. The crumb used to
     // read My detours / <place>, which named a screen rather than a list.
-    crumbs: placeCrumbs(v, { cityName: place.city, been: false, onWishlist: true }),
+    crumbs: placeCrumbs(v, {
+      cityName: place.city,
+      // Nobody has written here — this page exists only for a place that is not
+      // on Detour yet, and the moment somebody recommends it the route redirects
+      // to the published page above.
+      recommended: false,
+      been: false,
+      onWishlist: true,
+    }),
     // The one fact about this place's standing that neither the crumb nor the
     // signal states — the signal is switched off here precisely because there is
     // nothing to count. It replaces the rotated NOT ON DETOUR stamp that used to

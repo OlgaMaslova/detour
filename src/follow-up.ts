@@ -216,11 +216,11 @@ export function bindFollowUpCard(root: HTMLElement, render: () => void): void {
 /** The server's own sentence when it sent one — every refusal here is readable. */
 function readFollowUpError(error: unknown): string {
   if (error && typeof error === 'object') {
-    const response = error as { response?: { message?: string }; message?: string };
+    // Only what the server itself said: the SDK's own `message` is a placeholder
+    // on transport failures, and says less than the sentence below.
+    const response = error as { response?: { message?: string } };
     return (
-      response.response?.message ||
-      response.message ||
-      'That could not be recorded just now. Try again in a moment.'
+      response.response?.message || 'That could not be recorded just now. Try again in a moment.'
     );
   }
   return 'That could not be recorded just now. Try again in a moment.';

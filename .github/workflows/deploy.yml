@@ -33,7 +33,16 @@ jobs:
       # the preview card a link shows in a chat.
       - run: npm test
 
+      # The Maps key reaches the bundle from here rather than from
+      # .env.production, which is tracked: a committed key is one that has to be
+      # rotated out of git history rather than out of a settings page. It is a
+      # browser key and ends up readable in the bundle either way — what actually
+      # protects it is the HTTP referrer restriction on the key itself. The map ID
+      # is not a secret at all and rides along for the same reason.
       - run: npm run build
+        env:
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
+          VITE_GOOGLE_MAPS_MAP_ID: ${{ secrets.VITE_GOOGLE_MAPS_MAP_ID }}
 
       # Guard against the failure that is invisible until users hit it: Vite
       # loads .env.local during production builds, so a stray local env file
@@ -52,6 +61,27 @@ jobs:
           if grep -qh "sn-pb-repo-[a-z0-9-]*\.fly\.dev" public/assets/*.js; then
             echo "::error::Bundle still references the decommissioned managed backend host"
             exit 1
+          fi
+
+      # Warnings, not failures. A keyless bundle still ships working maps — it
+      # falls back to Leaflet over OpenStreetMap — so neither state is worth
+      # blocking a release that is about something else. What they are worth is
+      # saying out loud, because both are easy to ship without noticing.
+      #
+      # These test the secrets rather than grepping the bundle: the Leaflet chunk
+      # is emitted either way and the Google loader URL is a source literal, so
+      # what a build produced is not a signal. Actions masks the values in logs.
+      - name: Note which map provider this build shipped
+        env:
+          MAPS_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
+          MAPS_ID: ${{ secrets.VITE_GOOGLE_MAPS_MAP_ID }}
+        run: |
+          if [ -z "$MAPS_KEY" ]; then
+            echo "::warning::No Maps API key — production is serving the Leaflet/OpenStreetMap fallback. That works, but it is the development path. Set VITE_GOOGLE_MAPS_API_KEY to ship Google."
+          elif [ -z "$MAPS_ID" ]; then
+            echo "::warning::Maps key set but no map ID — falling back to Google's DEMO_MAP_ID, which is unstyled and for testing only. Set VITE_GOOGLE_MAPS_MAP_ID to carry the tape palette."
+          else
+            echo "Shipping Google Maps with a styled map ID."
           fi
 
       - name: Deploy Worker

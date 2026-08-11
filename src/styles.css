@@ -1334,7 +1334,52 @@ legend { color: var(--tape-text); }
   z-index: 1;
   border-radius: 0;
 }
+/* The map's own element, owned by maps.ts and moved between containers rather than
+   rebuilt per render. Absolutely filling its frame is load-bearing: the three
+   frames it lands in size themselves three different ways — a flex-grown column,
+   a fixed height, an aspect-ratio — and a percentage height would collapse
+   against the two that leave `height` auto. */
+.gmap-host {
+  position: absolute;
+  inset: 0;
+  background: var(--tape-surface);
+}
+.venue-map,
+.place-map,
+.detail-locator-map { position: relative; }
+/* A pin's anchor is a zero-size box at the coordinate, which is what lets the
+   `.map-pin` and `.board-pin` rules below centre themselves the way they did
+   under Leaflet. Clicks belong to the pins, not to this. */
+.gmap-pin-anchor {
+  position: relative;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+/* NO FILTER ON THE MAP. The tape tint used to be a CSS filter over the tile
+   layer; Google renders its logo and attribution in the same canvas, so tinting
+   here would recolour required credits along with the streets. The palette lives
+   in the cloud style behind VITE_GOOGLE_MAPS_MAP_ID instead — see docs/. */
+.gmap-host .gm-style { font-family: var(--tape-prose); }
+/* Google's own controls, squared off to match the app and otherwise left alone.
+   NOT `--tape-surface`, which is what the Leaflet rule this replaced used: those
+   zoom glyphs were `+` and `−` as text, so they took `color` and flipped with the
+   theme. Google draws its glyphs as dark SVGs that ignore `color`, so a dark
+   surface behind them is a control you cannot see. `--tape-cream` is the one
+   palette colour that stays light in both themes, which is what these need. */
+.gmap-host .gm-control-active {
+  border-radius: 0 !important;
+  background: var(--tape-cream) !important;
+}
+
+/* ---- the Leaflet fallback: no Google key, OpenStreetMap tiles ----
+   Only ever on screen in a checkout without VITE_GOOGLE_MAPS_API_KEY, and the
+   stylesheet these override is loaded with the library, on the same condition.
+   The pin rules below are shared with the Google path and are not repeated. */
 .leaflet-container { background: var(--tape-surface); }
+/* The tape tint, which the Google path cannot have: filtering OSM tiles is only
+   recolouring streets, whereas Google draws its logo and required attribution
+   into the same canvas. On that side the palette is a cloud style instead. */
 .leaflet-tile-pane { filter: var(--tape-map-filter); }
 .leaflet-control-attribution {
   padding: 0.1rem 0.45rem;
@@ -1343,6 +1388,8 @@ legend { color: var(--tape-text); }
   font-size: 0.66rem;
 }
 .leaflet-control-attribution a { color: var(--tape-accent); }
+/* Safe to theme the surface here, unlike Google's: Leaflet's zoom glyphs are the
+   characters + and −, so they take `color` and stay legible against it. */
 .leaflet-control-zoom a {
   width: 44px;
   height: 44px;
@@ -3059,8 +3106,14 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
   gap: 0.7rem;
   max-width: none;
 }
-/* Everything but the list keeps its own height; the list takes the slack. */
-.community-import-dialog .community-form > * { flex: 0 0 auto; }
+/* Everything but the list keeps its own height; the list takes the slack.
+   THE `:not()` IS LOAD-BEARING. Without it this selector (0,2,0) outranked
+   `.community-import-list`'s `flex: 1 1 auto` (0,1,0), so the list refused to
+   shrink, grew to its full content height, never became a scrollport, and the
+   rows past the fold — plus the button bar — were clipped by the sheet's
+   `overflow: hidden`. The wheel then found nothing scrollable in the dialogue
+   and scrolled the page behind it instead. */
+.community-import-dialog .community-form > *:not(.community-import-list) { flex: 0 0 auto; }
 .community-import-head { display: grid; gap: 0.3rem; }
 .community-import-actions { display: flex; gap: 0.6rem; margin: 0.2rem 0 0.1rem; }
 .community-import-bulk {

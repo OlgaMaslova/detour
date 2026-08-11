@@ -276,6 +276,91 @@ const PLACE_TYPES = [
   "fooddeliveryservice",
 ];
 
+/**
+ * What kind of place the publication said this is.
+ *
+ * READ, NEVER GUESSED. Both answers come out of the page's own structured data:
+ * the schema.org type it declared, and `servesCuisine` where it named one. A
+ * page with no structured data goes through the heading scraper and gets
+ * nothing — a category inferred from the word "croissant" would be Detour
+ * asserting something nobody asserted, on a place nobody has stood behind.
+ *
+ * The cuisine outranks the bare type, and only the bare type: a Georgian
+ * restaurant is `ethnic_cuisine` because that is the useful fact, while a
+ * Georgian bakery is a bakery — the narrower type is what a member is scanning
+ * for. The word itself is kept either way, because a row that says "Georgian"
+ * beats one that says "Ethnic cuisine".
+ */
+const SCHEMA_CATEGORIES = {
+  bakery: "bakery",
+  cafeorcoffeeshop: "cafe",
+  barorpub: "bar",
+  nightclub: "bar",
+  winery: "wine_bar",
+  brewery: "brewery",
+  icecreamshop: "ice_cream",
+  fooddeliveryservice: "takeaway",
+  restaurant: "restaurant",
+  foodestablishment: "restaurant",
+};
+
+function categoryFromNode(node) {
+  let category = "";
+  for (const type of typesOf(node)) {
+    const mapped = SCHEMA_CATEGORIES[type];
+    // The first recognised type wins, but a specific one replaces the general
+    // `Restaurant` a page often lists alongside it.
+    if (mapped && (!category || category === "restaurant")) category = mapped;
+  }
+  const cuisine = cuisineFromNode(node);
+  if (cuisine && (!category || category === "restaurant")) category = "ethnic_cuisine";
+  return { category, cuisine };
+}
+
+/**
+ * The category options an imported place may carry: the same closed set the
+ * catalogue's three collections use, and nothing else. See
+ * 1787097600_imported_place_category.js.
+ *
+ * It lives here rather than beside the route that writes it because a route
+ * callback runs in its own VM and can see nothing this file's siblings declared
+ * at their top level — only what it required.
+ */
+const IMPORTED_CATEGORIES = [
+  "restaurant",
+  "ethnic_cuisine",
+  "cafe",
+  "bakery",
+  "bar",
+  "cocktail_bar",
+  "wine_bar",
+  "brewery",
+  "food_market",
+  "deli",
+  "dessert_shop",
+  "ice_cream",
+  "takeaway",
+  "other",
+];
+
+/** A category from that set, or "" — anything the app cannot render is dropped. */
+function importedCategory(value) {
+  const category = String(value || "").trim();
+  return IMPORTED_CATEGORIES.indexOf(category) === -1 ? "" : category;
+}
+
+/** `servesCuisine`, as one word. A string, or the first of a list of them. */
+function cuisineFromNode(node) {
+  const raw = node.servesCuisine;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== "string") return "";
+  const cleaned = decodeEntities(value).trim();
+  // A sentence rather than a cuisine — some pages put prose in this field, and
+  // "Modern American cooking with a seasonal bent" is not a label for a row.
+  if (!cleaned || cleaned.length > 40 || cleaned.indexOf(",") !== -1) return "";
+  return cleaned;
+}
+
 function isPlaceNode(node) {
   const types = typesOf(node);
   for (const type of types) {
@@ -370,14 +455,17 @@ function readJsonLd(html) {
     if (seen[key]) return;
     seen[key] = true;
     const address = addressFromNode(node);
+    const kind = categoryFromNode(node);
     places.push({
       name,
       area: "",
       address: address.street,
       city: address.city,
       country: address.country,
-      excerpt: decodeEntities(node.description || "").slice(0, 400),
+      excerpt: trimExcerpt(decodeEntities(node.description || ""), 400),
       image: imageFromNode(node),
+      category: kind.category,
+      cuisine: kind.cuisine,
     });
   };
 
@@ -506,6 +594,9 @@ function readStructured(html) {
       country: "",
       excerpt: entry.excerpt,
       image: entry.image,
+      // The scraper reads prose. Nothing in it declares a kind, so none is set.
+      category: "",
+      cuisine: "",
     });
   }
   if (places.length < MIN_STRUCTURED_PLACES) return null;
@@ -598,7 +689,7 @@ function firstProseParagraph(section) {
     const text = textOf(match[1]);
     if (text.length < 80) continue;
     if (/^[^.:]{1,24}:/.test(text)) continue;
-    return text.slice(0, 400);
+    return trimExcerpt(text, 400);
   }
   return "";
 }
@@ -707,7 +798,13 @@ function readWithModel(html) {
     "and never complete a partial list from your own knowledge. Copy each name " +
     "exactly as written. Give the neighbourhood and street address only when " +
     "the text states them, and null otherwise — never infer either. The " +
-    "excerpt is at most one sentence quoted from the text about that venue. " +
+    "excerpt is the publication's own words about that venue, copied verbatim: " +
+    "its first sentence, and the second and third too when the text has them, " +
+    "up to 400 characters. Never paraphrase, never cut a clause off the front " +
+    "of a sentence, and never join sentences from different parts of the " +
+    "article. LENGTH IS NOT A TEST OF WHETHER A VENUE BELONGS: a venue the " +
+    "text gives a single line to is still on the list, with that line as its " +
+    "excerpt. " +
     "Omit anything that is not a specific venue: cities, neighbourhoods, " +
     "dishes, chefs, and the publication itself. If the text is not a list of " +
     "venues, return an empty array. Respond with only this JSON object and " +
@@ -764,7 +861,9 @@ function readWithModel(html) {
       address: decodeEntities(String(entry.address || "")).slice(0, 300),
       city: decodeEntities(String(entry.city || "")).slice(0, 120),
       country: "",
-      excerpt: decodeEntities(String(entry.excerpt || "")).slice(0, 400),
+      excerpt: trimExcerpt(decodeEntities(String(entry.excerpt || "")), 400),
+      category: "",
+      cuisine: "",
     });
     if (places.length >= MAX_LIST_PLACES) break;
   }
@@ -833,6 +932,8 @@ function withPageFacts(result, html) {
       country: place.country,
       excerpt: place.excerpt || entry.excerpt,
       image: place.image || entry.image,
+      category: place.category || "",
+      cuisine: place.cuisine || "",
     });
   }
   const meta = pageTitleAndSource(html);
@@ -963,6 +1064,10 @@ function placePayload(record) {
     // stays private; this is the one bit of it a member needs.
     locate_tried: Boolean(record.getString("located_at")),
     excerpt: record.getString("excerpt"),
+    // What kind of place the publication said it is, and its own word for the
+    // cuisine. Empty whenever the page declared neither — see the migration.
+    category: record.getString("category"),
+    cuisine: record.getString("cuisine"),
     source_url: record.getString("source_url"),
     image_url: record.getString("image_url"),
     matched_venue: record.getString("matched_venue"),
@@ -1306,6 +1411,32 @@ function cleanText(value, max) {
     .slice(0, max);
 }
 
+/**
+ * An excerpt cut to fit, on a sentence where there is one.
+ *
+ * A hard slice at the cap put "everything comes from the restaurant's own 1,500
+ * square" on a card — which reads as a bug rather than as a quotation, and is
+ * the one thing a quotation may not do. The last whole sentence is preferred;
+ * only when that would throw away most of the allowance does it fall back to
+ * the last whole word, and then it says so with an ellipsis.
+ */
+function trimExcerpt(value, max) {
+  const text = cleanText(value, 4000);
+  if (text.length <= max) return text;
+  const window = text.slice(0, max);
+  let cut = -1;
+  for (const mark of [". ", "! ", "? ", "… ", "." , "!", "?"]) {
+    const at = window.lastIndexOf(mark);
+    if (at > cut) cut = at;
+  }
+  // Any whole sentence beats a longer fragment. Keeping the extra 240 characters
+  // cost this one "everything comes from the restaurant's own 1,500…", and a
+  // quotation that stops inside a number is not a quotation.
+  if (cut >= 80) return window.slice(0, cut + 1).trim();
+  const space = window.lastIndexOf(" ");
+  return (space > 0 ? window.slice(0, space) : window).trim() + "…";
+}
+
 function normalizePlacePart(value) {
   let normalized = cleanText(value, 300);
   if (typeof normalized.normalize === "function") {
@@ -1328,6 +1459,7 @@ module.exports = {
   entryForVenue,
   findImportedPlace,
   findGuideBySource,
+  importedCategory,
   listPageUrl,
   locateImportedPlace,
   locateGuidePlaces,

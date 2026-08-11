@@ -134,7 +134,7 @@ export function importedPlaceOrigin(
     // The piece's own headline, falling back to the member's name for it — which
     // is the headline until they rename it — and then to a phrase that at least
     // says a list was involved.
-    title: list?.source_title.trim() || list?.title.trim() || 'a list you kept',
+    title: list?.source_title.trim() || list?.title.trim() || 'a guide you kept',
     publisher: list ? guideAuthorLabel(list) : importedPlaceSourceLabel(place),
     href: list ? guideHref(list.id) : '',
     importedOn: shortDate(place.created),

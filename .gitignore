@@ -5,6 +5,10 @@ node_modules/
 public/assets/
 LOCAL_DEV.md
 .env
+# Vite loads these ahead of .env and they are where local keys land — a Maps demo
+# key, a local API URL. `.env` was already ignored; these were not, which made
+# the obvious place to put a key the one place that would commit it.
+.env*.local
 .env.backend.local
 pocketbase
 .detour-prod-secrets.env

@@ -376,8 +376,10 @@ function cleanPayload(value: unknown): NetworkDiscovery {
 
 function readableError(error: unknown, fallback: string): string {
   if (error && typeof error === 'object') {
-    const response = error as { response?: { message?: string }; message?: string };
-    return response.response?.message || response.message || fallback;
+    // Only what the server itself said — as in `replyCreateError` below. The
+    // SDK's own `message` is a placeholder on transport failures.
+    const response = error as { response?: { message?: string } };
+    return response.response?.message || fallback;
   }
   return fallback;
 }

@@ -30,6 +30,7 @@ function normalizePlacePart(value) {
 // what publication writes to the public venue category.
 const PLACE_CATEGORY_LABELS = {
   restaurant: "Restaurant",
+  ethnic_cuisine: "Ethnic cuisine",
   cafe: "Café",
   bakery: "Bakery",
   bar: "Bar",

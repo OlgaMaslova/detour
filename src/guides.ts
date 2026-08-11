@@ -37,6 +37,18 @@ export interface ImportedPlace {
   locate_tried: boolean;
   /** One sentence of the publication's own copy. Never presented as a note. */
   excerpt: string;
+  /**
+   * What kind of place the publication said it is, from the closed set the
+   * catalogue uses; '' when the page declared nothing.
+   *
+   * Read from the page's structured data, never inferred from its prose — see
+   * the migration. A fallback for display only: a place that turns out to have a
+   * catalogue record keeps the category a member gave it, because that is the
+   * one somebody stood behind.
+   */
+  category: string;
+  /** The publication's own word for the cuisine — "Georgian"; '' when none. */
+  cuisine: string;
   source_url: string;
   /**
    * The publication's photograph, at their address. Hotlinked, never copied, and
@@ -83,6 +95,9 @@ export interface DraftPlace {
   country: string;
   excerpt: string;
   image_url: string;
+  /** What the page said this place is, carried through the review unchanged. */
+  category: string;
+  cuisine: string;
   /** Detour already has this place, because somebody recommended it. */
   matched: boolean;
   matched_venue: string;
@@ -109,7 +124,7 @@ let items: Guide[] = [];
  *
  * A real state, not an accident: a member who removes a list is asked whether
  * to take its places with it, and "keep the places" leaves exactly these. They
- * show on Wanna go under "Not from a list", beside the saves pressed one at a
+ * show on Wanna go under "Not from a guide", beside the saves pressed one at a
  * time — which is what they now are.
  */
 let ungroupedItems: ImportedPlace[] = [];
@@ -163,6 +178,8 @@ function readPlace(value: unknown): ImportedPlace | null {
     lng: number(row, 'lng'),
     locate_tried: row.locate_tried === true,
     excerpt: text(row, 'excerpt'),
+    category: text(row, 'category'),
+    cuisine: text(row, 'cuisine'),
     source_url: text(row, 'source_url'),
     image_url: text(row, 'image_url'),
     matched_venue: text(row, 'matched_venue'),
@@ -307,7 +324,7 @@ export function importedVenueIds(): Set<string> {
       if (place.matched_venue && !place.skipped) ids.add(place.matched_venue);
     }
   }
-  // Kept places are shown under "Not from a list" as imported cards, so a loose
+  // Kept places are shown under "Not from a guide" as imported cards, so a loose
   // save on the same venue would still be the duplicate this set exists to stop.
   for (const place of ungroupedItems) {
     if (place.matched_venue && !place.skipped) ids.add(place.matched_venue);
@@ -372,7 +389,7 @@ export function importedCoverHref(url: string, width = 640): string {
  * always something, and to a plain phrase when even that is missing.
  */
 export function guideAuthorLabel(list: Guide): string {
-  return list.source_name.trim() || hostLabel(list.source_url) || 'the list you kept';
+  return list.source_name.trim() || hostLabel(list.source_url) || 'the guide you kept';
 }
 
 /**
@@ -383,7 +400,7 @@ export function guideAuthorLabel(list: Guide): string {
  * name that list was carrying.
  */
 export function importedPlaceSourceLabel(place: ImportedPlace): string {
-  return hostLabel(place.source_url) || 'a list you kept';
+  return hostLabel(place.source_url) || 'a guide you kept';
 }
 
 function hostLabel(url: string): string {
@@ -517,6 +534,8 @@ export async function readListLink(url: string, render: () => void): Promise<voi
             country: text(row, 'country'),
             excerpt: text(row, 'excerpt'),
             image_url: text(row, 'image_url'),
+            category: text(row, 'category'),
+            cuisine: text(row, 'cuisine'),
             matched: row.matched === true,
             matched_venue: text(row, 'matched_venue'),
             already_have: alreadyHave,
@@ -529,7 +548,7 @@ export async function readListLink(url: string, render: () => void): Promise<voi
         .filter(Boolean) as DraftPlace[],
     };
     if (!draft.places.length) {
-      failure = 'We could not find a list of places on that page.';
+      failure = 'We could not find any places on that page.';
       draft = null;
     }
   } catch (error) {
@@ -552,7 +571,7 @@ export async function keepImportDraft(render: () => void): Promise<void> {
   }
   const title = draft.title.trim();
   if (!title) {
-    failure = 'Give the list a name.';
+    failure = 'Give the guide a name.';
     render();
     return;
   }
@@ -577,6 +596,8 @@ export async function keepImportDraft(render: () => void): Promise<void> {
           country: place.country,
           excerpt: place.excerpt,
           image_url: place.image_url,
+          category: place.category,
+          cuisine: place.cuisine,
         })),
       },
       requestKey: null,
@@ -588,7 +609,7 @@ export async function keepImportDraft(render: () => void): Promise<void> {
     dialogOpen = false;
     await refreshGuides(render);
   } catch (error) {
-    failure = readError(error, 'That list could not be kept just now. Try again in a moment.');
+    failure = readError(error, 'That guide could not be kept just now. Try again in a moment.');
   } finally {
     keeping = false;
     render();
@@ -612,7 +633,7 @@ export async function removeGuide(
     });
     await refreshGuides(render);
   } catch (error) {
-    failure = readError(error, 'That list could not be removed just now.');
+    failure = readError(error, 'That guide could not be removed just now.');
   } finally {
     removing.delete(id);
     render();
@@ -774,11 +795,19 @@ export function resetGuides(): void {
   removing.clear();
 }
 
-/** The server's own sentence when it sent one — every refusal here is readable. */
+/**
+ * The server's own sentence when it sent one — every refusal here is readable.
+ *
+ * Only `response.message` counts, because only that came from the server. The
+ * SDK fills `error.message` in on every failure, including the ones where
+ * nothing answered at all, and its placeholder there — "Something went wrong." —
+ * is worse than the fallback: it tells the member neither what happened nor that
+ * trying again is the thing to do.
+ */
 function readError(error: unknown, fallback: string): string {
   if (error && typeof error === 'object') {
-    const response = error as { response?: { message?: string }; message?: string };
-    return response.response?.message || response.message || fallback;
+    const response = error as { response?: { message?: string } };
+    return response.response?.message || fallback;
   }
   return fallback;
 }

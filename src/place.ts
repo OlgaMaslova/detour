@@ -287,6 +287,22 @@ export interface PlaceHelpers {
  * The server settles it — see /api/detour/public-recommendations — so nothing
  * here has to ask who is reading before printing a sentence.
  */
+/**
+ * The member notes this reader is actually shown — an empty note or one whose
+ * author cannot be named is not a recommendation anybody can read, and a reader
+ * outside the place's scope is shown none of them at all.
+ *
+ * Asked in two places, so it lives in one: the notes section prints these, and
+ * the hero's origin band stands down because of them.
+ */
+function visibleNotes(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): PlaceNote[] {
+  if (chrome.outsideCircle) return [];
+  return h.notes(v).filter((item) => {
+    const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
+    return Boolean(item.note?.trim() && (item.is_own || recommender));
+  });
+}
+
 function voicesSection(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
   const guideVoices = (chrome.guideVoices ?? []).filter((voice) => voice.excerpt.trim());
   const guideBlocks = guideVoices.map((voice) => guideVoiceBlock(voice, h)).join('');
@@ -310,10 +326,7 @@ function voicesSection(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
       }</p>
     </section>`;
   }
-  const notes = h.notes(v).filter((item) => {
-    const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
-    return Boolean(item.note?.trim() && (item.is_own || recommender));
-  });
+  const notes = visibleNotes(v, chrome, h);
   // The publication having said something is never an answer to whether anybody
   // here has. A page holding one guide line and no notes still says so plainly,
   // under the quote — that absence is the most important thing on it.
@@ -437,10 +450,17 @@ function guideVoiceBlock(voice: PlaceGuideVoice, h: PlaceHelpers): string {
  * how everything below it reads: a reader who does not know this place came off
  * a list will take the sentence under it for somebody's recommendation, and by
  * then it is too late to tell them.
+ *
+ * That is the whole job, so the band goes away once somebody has recommended the
+ * place on Detour: there is no longer a lone guide line to be mistaken for a
+ * recommendation, the real ones are right there under it, and the guide's own
+ * chip already says which piece it came off. A place that is in Detour is in
+ * Detour — how the reader first found it stops being the headline.
  */
-function originBand(chrome: PlaceChrome, h: PlaceHelpers): string {
+function originBand(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
   const origin = chrome.origin;
   if (!origin || !origin.title) return '';
+  if (visibleNotes(v, chrome, h).length > 0) return '';
   // `data-guide`, the same hook the cards' provenance chip uses — a real anchor
   // carrying `?guide=<id>`, so a modified click still opens a tab and a cold load
   // on that address resolves.
@@ -861,7 +881,7 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
               )}
             </div>`
             }
-            ${originBand(chrome, h)}
+            ${originBand(v, chrome, h)}
             ${placeActions(v, chrome, h, alreadyRecommended)}
           </div>
         </div>

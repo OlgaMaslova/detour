@@ -154,7 +154,7 @@ from 11 of 12 located to 8 of 8.
 
 ## The flow
 
-1. **Open.** One button on Wanna go — **Add a list from a link** — opens a modal.
+1. **Open.** One button on Wanna go — **Add a guide from a link** — opens a modal.
 2. **Paste.** The field is the modal's first state.
 3. **Read.** `POST /api/detour/lists/read` fetches the page and reports what it
    found. **It writes nothing** — the member can paste, look, and walk away
@@ -292,6 +292,32 @@ recommended "cafe mutter".
   waiting for a sweep. A private page whose place has since been recommended
   redirects to the real one.
 
+## What kind of place it is
+
+An imported row had a name, a quarter and a sentence, and no answer to the
+question a member scans a city list for: *what is this?*
+
+- **Read from the page's structured data, never inferred from its prose.** The
+  schema.org `@type` the importer already tests against — `Bakery`,
+  `CafeOrCoffeeShop`, `BarOrPub`, `Winery`, `Brewery`, `IceCreamShop`,
+  `Restaurant` — maps one-to-one onto the catalogue's closed category set, and
+  `servesCuisine` gives `ethnic_cuisine` plus the publication's own word for it.
+- **The cuisine word is what a row prints.** "Georgian" tells a planner what
+  "Ethnic cuisine" does not, so both are stored: `category` for filtering,
+  `cuisine` for reading.
+- **A specific type beats a cuisine.** A Georgian bakery is a bakery; a Georgian
+  restaurant is `ethnic_cuisine`.
+- **A page with no structured data gets nothing.** The heading scraper reads
+  prose, and a category inferred from the word "croissant" would be Detour
+  asserting something nobody asserted, about a place nobody has stood behind.
+- **A matched catalogue place keeps its own category.** A member chose that one.
+  The publisher's answer is a display fallback and is never promoted onto a
+  `venues` row — the same rule `image_url` runs on.
+- Server-side the value is checked against the closed set on write; anything
+  else is dropped rather than stored (`pb_hooks/guides.pb.js`,
+  `pb_migrations/1787097600_imported_place_category.js`, which must run after
+  the `ethnic_cuisine` migration).
+
 ## The guide page (`?guide=<id>`)
 
 **The city page's shell, with the guide's own facts in it.** Same crumb, same
@@ -303,7 +329,7 @@ shell once and every collection reads with it. What differs, and nothing more:
   it, so it is said first.
 - **`by <publication> · N places · N to try · N skipped`** under the title, the
   publication linked to the piece.
-- **`Original ↗` and `Remove…`** where the city page's *Add here* sits. Remove
+- **`Original ↗` and `Remove`** where the city page's *Add here* sits. Remove
   opens the same dialogue the wishlist tab would — one wording for one act.
 - **No Source menu.** The page *is* the source; a filter with one answer is
   furniture.
@@ -407,13 +433,13 @@ pins that are never coming.
 
 **It asks, and Wanna go's no-confirmation rule does not carry over.** That rule —
 "a confirmation dialogue on a bookmark is an insult" — is about one bookmark.
-This is up to a hundred places in one tap, it is not undoable, and *Remove list*
+This is up to a hundred places in one tap, it is not undoable, and *Remove guide*
 honestly reads two ways. Both readings are things a member might mean, so both
 are offered:
 
 | | |
 |---|---|
-| **Remove list and places** | the list goes, and every place it was the last to name |
+| **Remove guide and places** | the guide goes, and every place it was the last to name |
 | **Keep the places** | the list goes, its places stay on Wanna go under no heading |
 | **Cancel** | nothing happens |
 

@@ -258,6 +258,7 @@ function contributionCategory(value: unknown): string {
   const category = cleanString(value);
   const labels: Record<string, string> = {
     restaurant: 'Restaurant',
+    ethnic_cuisine: 'Ethnic cuisine',
     cafe: 'Café',
     bakery: 'Bakery',
     bar: 'Bar',
