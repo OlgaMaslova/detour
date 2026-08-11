@@ -109,14 +109,14 @@ The intention was never anybody's to discharge but theirs.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `member` | relation → `members` | Required, cascade delete. |
-| `waitlist` | relation → `community_waitlist_entries` | Required, cascade delete. The entry, matching how recommendations and endorsements attach. |
+| `entry` | relation → `community_place_entries` | Required, cascade delete. The entry, matching how recommendations and endorsements attach. |
 | `source` | select | How it got here: `place_page`, `triage`, `share`, `feed`. `share` is set when a member converts something from their Private shares inbox — including the place a future invitation carries. Feeds the prompt copy and tells you which surface actually produces intent. |
 | `prompted_at` | date | When "been yet?" was last asked about this one, so it is not asked twice in a week. |
 | `created` | autodate | |
 
-- **Unique index on (`member`, `waitlist`)** — the guard against a double tap.
+- **Unique index on (`member`, `entry`)** — the guard against a double tap.
 - **Index on (`member`, `created`)** for the tab, newest first, matching the
-  endorsements collection. Deliberately **no index on `waitlist`
+  endorsements collection. Deliberately **no index on `entry`
   alone**: nothing should ever be counting saves per place, and not building the
   index that would make it cheap is a small structural discouragement.
 - API rules: `member = @request.auth.id` for list, view and delete. **Create and

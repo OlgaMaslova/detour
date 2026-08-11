@@ -139,8 +139,8 @@ function screenImageSubmission(app, imageId) {
   let entry;
   try {
     entry = app.findRecordById(
-      "community_waitlist_entries",
-      image.getString("waitlist")
+      "community_place_entries",
+      image.getString("entry")
     );
   } catch {
     return failScreening(app, image, "The linked place no longer exists.");

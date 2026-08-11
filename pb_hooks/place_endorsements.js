@@ -57,13 +57,13 @@ function resolvePlaceEntry(app, reference) {
   const id = String(reference || "").trim();
   if (!id) return null;
   try {
-    return app.findRecordById("community_waitlist_entries", id);
+    return app.findRecordById("community_place_entries", id);
   } catch {
     // Not an entry id. Fall through to the venue lookup.
   }
   try {
     return app.findFirstRecordByFilter(
-      "community_waitlist_entries",
+      "community_place_entries",
       "published_venue = {:venue}",
       { venue: id }
     );
@@ -92,7 +92,7 @@ function frontingRecommendationId(app, entryId, callerId) {
       .newQuery(
         "SELECT r.id FROM community_recommendations r " +
           "JOIN members m ON m.id = r.member " +
-          "WHERE r.waitlist = {:entry} " +
+          "WHERE r.entry = {:entry} " +
           "AND r.member != {:caller} " +
           "AND " + realMemberSql("m") + " " +
           "AND m.community_status = 'verified' " +
@@ -114,8 +114,8 @@ function findEndorsement(app, memberId, entryId) {
   try {
     return app.findFirstRecordByFilter(
       "community_place_endorsements",
-      "member = {:member} && waitlist = {:waitlist}",
-      { member: memberId, waitlist: entryId }
+      "member = {:member} && entry = {:entry}",
+      { member: memberId, entry: entryId }
     );
   } catch {
     return null;
@@ -136,7 +136,7 @@ function endorsementTotal(app, entryId) {
       .newQuery(
         "SELECT COUNT(*) AS total FROM community_place_endorsements e " +
           "JOIN members m ON m.id = e.member " +
-          "WHERE e.waitlist = {:entry} AND " + realMemberSql("m")
+          "WHERE e.entry = {:entry} AND " + realMemberSql("m")
       )
       .bind({ entry: entryId })
       .one(summary);
@@ -229,7 +229,7 @@ function endorsementSignals(app, callerId) {
           "CASE WHEN " + inGraphSql + " THEN TRUE ELSE FALSE END AS in_graph, " +
           "e.created " +
           "FROM community_place_endorsements e " +
-          "JOIN community_waitlist_entries w ON w.id = e.waitlist " +
+          "JOIN community_place_entries w ON w.id = e.entry " +
           "JOIN members m ON m.id = e.member " +
           "WHERE " + realMemberSql("m") + " " +
           "ORDER BY e.created ASC, e.id ASC"
@@ -295,7 +295,7 @@ function ownEndorsements(app, memberId) {
         "SELECT e.id, " + ENTRY_VENUE_SQL + " AS venue_id, " +
           "w.venue_name, w.city, w.country, e.created " +
           "FROM community_place_endorsements e " +
-          "JOIN community_waitlist_entries w ON w.id = e.waitlist " +
+          "JOIN community_place_entries w ON w.id = e.entry " +
           "WHERE e.member = {:member} " +
           "ORDER BY e.created DESC, e.id DESC LIMIT 500"
       )
@@ -388,7 +388,7 @@ function deliverEndorsementNotices(app) {
         "JOIN community_recommendations r ON r.id = e.recommendation " +
         "JOIN members author ON author.id = r.member " +
         "JOIN members endorser ON endorser.id = e.member " +
-        "JOIN community_waitlist_entries w ON w.id = e.waitlist " +
+        "JOIN community_place_entries w ON w.id = e.entry " +
         "WHERE e.notified_at = {:stamped} " +
         // Neither side may be a fixture or an internal account, and nobody is
         // told they endorsed themselves — the write path already refuses that,

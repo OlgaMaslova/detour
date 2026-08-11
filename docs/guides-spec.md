@@ -45,7 +45,7 @@ deliberately swept away an external-guide catalogue — Michelin, Guía Repsol, 
 Top Pizza, the World's 100 Best Coffee Shops — because a place is public here for
 exactly one reason: a member recommended it. Imported places sit in two
 collections of their own and touch neither `venues` nor
-`community_waitlist_entries`. Nothing about them is public, ranked, counted, or
+`community_place_entries`. Nothing about them is public, ranked, counted, or
 computed for anybody else.
 
 **It is not a recommendation.** No note, no author, no signal, no feed entry, no

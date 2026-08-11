@@ -1743,9 +1743,36 @@ let boardExpanded = false;
 
 /**
  * How many rows the board shows before it asks. Enough to plan a day from,
- * short enough that the map beside it is not a wall of numbered pins.
+ * short enough that a city does not open as a wall of photographs.
  */
 const BOARD_PREVIEW = 8;
+
+/**
+ * What is on screen, and what is on the map beside it.
+ *
+ * THE MAP HOLDS THE WHOLE LIST. The preview cut is a cards rule: eight covers
+ * is a page, forty is a wall, so the grid shows eight and offers the rest. A map
+ * has the opposite problem — every place in the city at once is the reason
+ * somebody pressed Map, and a picture of the first eight names is a picture that
+ * misreports the city. So the cut applies to cards and not to the map, and the
+ * "+N more" line goes with it: on the map there is no more.
+ *
+ * It is also what made the map disappear altogether. Pins came off the eight-row
+ * preview and the map was only drawn when there were pins, so a city whose first
+ * eight rows are imported places with no position of their own lost its map
+ * entirely — while every placed place in the city sat behind "+28 more…".
+ */
+function boardSlice(visible: BoardPlace[]): {
+  shown: BoardPlace[];
+  hidden: number;
+  pins: BoardPlace[];
+  unplaced: number;
+} {
+  const shown =
+    boardView === 'map' || boardExpanded ? visible : visible.slice(0, BOARD_PREVIEW);
+  const pins = shown.filter((row) => row.lat !== null && row.lng !== null);
+  return { shown, hidden: visible.length - shown.length, pins, unplaced: shown.length - pins.length };
+}
 
 function resetBoardFilters(slug: string, status: 'all' | 'to-try' = 'all'): void {
   if (boardSlug === slug) return;
@@ -1924,11 +1951,7 @@ function renderCity(
     a.localeCompare(b)
   );
   const visible = rows.filter(boardRowVisible);
-  const shown = boardExpanded ? visible : visible.slice(0, BOARD_PREVIEW);
-  const hidden = visible.length - shown.length;
-  // The map holds the rows on screen and nothing else.
-  const pins = shown.filter((row) => row.lat !== null && row.lng !== null);
-  const unplaced = shown.length - pins.length;
+  const { shown, hidden, pins, unplaced } = boardSlice(visible);
   // Every menu is offered whenever the list holds something to filter by, and
   // never because of which half of the list a row came from: one list, one row of
   // controls. Counts are of the whole city, so a member reading a narrowed list
@@ -2478,10 +2501,7 @@ function renderGuide(root: HTMLElement, id: string): void {
     a.localeCompare(b)
   );
   const visible = rows.filter(boardRowVisible);
-  const shown = boardExpanded ? visible : visible.slice(0, BOARD_PREVIEW);
-  const hidden = visible.length - shown.length;
-  const pins = shown.filter((row) => row.lat !== null && row.lng !== null);
-  const unplaced = shown.length - pins.length;
+  const { shown, hidden, pins, unplaced } = boardSlice(visible);
   const author = guideAuthorLabel(list);
   const source = safeExternalHref(list.source_url);
 
@@ -3799,7 +3819,7 @@ function renderCatalogueFailure(root: HTMLElement): void {
 
 /**
  * Mirrors the backend's normalizePlacePart so feed entries match published
- * venues by the same place identity the waitlist publication uses.
+ * venues by the same place identity the entry publication uses.
  */
 function normalizePlacePart(value: string): string {
   return value

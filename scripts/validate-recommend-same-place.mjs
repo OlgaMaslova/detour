@@ -143,10 +143,10 @@ async function main() {
     const secondMember = await createMember(adminToken, 2);
 
     const first = await recommend(firstMember);
-    assert(Boolean(first.data?.waitlist), "first recommendation resolves the shared place");
+    assert(Boolean(first.data?.entry), "first recommendation resolves the shared place");
 
     const firstEntry = await request(
-      `/api/collections/community_waitlist_entries/records/${first.data.waitlist}`,
+      `/api/collections/community_place_entries/records/${first.data.entry}`,
       { token: firstMember }
     );
     assert(
@@ -156,10 +156,10 @@ async function main() {
     );
 
     const second = await recommend(secondMember);
-    assert(second.data.waitlist === first.data.waitlist, "the second member reuses the same published place");
+    assert(second.data.entry === first.data.entry, "the second member reuses the same published place");
 
     const secondEntry = await request(
-      `/api/collections/community_waitlist_entries/records/${first.data.waitlist}`,
+      `/api/collections/community_place_entries/records/${first.data.entry}`,
       { token: secondMember }
     );
     assert(

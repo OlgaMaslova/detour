@@ -42,7 +42,7 @@ function collectLaunchNumbers(app) {
         "WHERE COALESCE(internal_member, FALSE) = FALSE " +
         "AND LOWER(TRIM(email)) NOT LIKE '%.invalid'" +
         "), real_recommendations AS (" +
-        "SELECT r.id, r.member, r.waitlist, r.created " +
+        "SELECT r.id, r.member, r.entry, r.created " +
         "FROM community_recommendations r " +
         "JOIN real_members m ON m.id = r.member" +
         "), first_recommendations AS (" +
@@ -50,11 +50,11 @@ function collectLaunchNumbers(app) {
         "FROM real_recommendations GROUP BY member" +
         "), real_published_places AS (" +
         "SELECT DISTINCT w.published_venue AS venue_id, w.published_at " +
-        "FROM community_waitlist_entries w " +
+        "FROM community_place_entries w " +
         "WHERE w.status = 'published' " +
         "AND w.published_venue != '' " +
         "AND EXISTS (" +
-        "SELECT 1 FROM real_recommendations r WHERE r.waitlist = w.id" +
+        "SELECT 1 FROM real_recommendations r WHERE r.entry = w.id" +
         ")" +
         ") " +
         "SELECT " +

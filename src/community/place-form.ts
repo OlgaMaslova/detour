@@ -339,8 +339,8 @@ export function photoFileName(prepared: Blob, original: File): string {
  * attaches it to the caller's own recommendation for this place — it is never
  * applied to the place itself, and never touches another member's photo.
  */
-export async function submitImageForReview(waitlistId: string, photo: File): Promise<void> {
-  if (!waitlistId || !photo) return;
+export async function submitImageForReview(entryId: string, photo: File): Promise<void> {
+  if (!entryId || !photo) return;
   const prepared = await preparePhoto(photo);
   if (prepared.size > PHOTO_MAX_BYTES) {
     throw new Error('That photo is larger than 8 MB even after resizing. Choose a smaller one.');
@@ -348,7 +348,7 @@ export async function submitImageForReview(waitlistId: string, photo: File): Pro
   // Multipart, so the bytes go to the server rather than a link to them. pb.send
   // passes FormData through untouched and sets no JSON content type.
   const body = new FormData();
-  body.set('waitlist', waitlistId);
+  body.set('entry', entryId);
   body.set('photo', prepared, photoFileName(prepared, photo));
   await pb.send('/api/detour/curation/images', { method: 'POST', body, requestKey: null });
 }

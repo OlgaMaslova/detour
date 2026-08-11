@@ -421,9 +421,9 @@ routerAdd(
   "GET",
   "/api/detour/community/place-locks",
   (e) => {
-    const community = require(__hooks + "/community_waitlist.js");
+    const community = require(__hooks + "/place_entries.js");
     const entries = e.app.findRecordsByFilter(
-      "community_waitlist_entries",
+      "community_place_entries",
       "published_venue != ''",
       "-updated",
       5000,
@@ -566,7 +566,7 @@ routerAdd("GET", "/api/detour/public-recommendations", (e) => {
     const joinsAndFilters =
       "FROM community_recommendations r " +
       "JOIN members m ON m.id = r.member " +
-      "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+      "JOIN community_place_entries w ON w.id = r.entry " +
       "JOIN venues v ON v.id = w.published_venue " +
       photos.photoJoin("r") +
       "WHERE w.status = 'published' " +
@@ -718,7 +718,7 @@ routerAdd(
             "SELECT " + recommendationColumns +
               "FROM community_recommendations r " +
               "JOIN members m ON m.id = r.member " +
-              "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+              "JOIN community_place_entries w ON w.id = r.entry " +
               photos.photoJoin("r") +
               "WHERE w.status = 'published' AND w.published_venue != '' " +
               "AND COALESCE(m.internal_member, FALSE) = FALSE " +
@@ -943,7 +943,7 @@ routerAdd(
   (e) => {
     const foundingPolicy = require(__hooks + "/founding_cap.js");
     const scope = require(__hooks + "/circle_scope.js");
-    const { normalizePlacePart } = require(__hooks + "/community_waitlist.js");
+    const { normalizePlacePart } = require(__hooks + "/place_entries.js");
     const callerId = e.auth && e.auth.id ? e.auth.id : "";
     const anonymous = !callerId;
     // Visibility has two clauses, and which one matched is part of the answer.
@@ -994,7 +994,7 @@ routerAdd(
         "CASE WHEN " + visible + " THEN TRUE ELSE FALSE END AS visible_to_caller, " +
         "CASE WHEN " + inGraph + " THEN TRUE ELSE FALSE END AS in_graph " +
         "FROM community_recommendations r " +
-        "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+        "JOIN community_place_entries w ON w.id = r.entry " +
         "JOIN members m ON m.id = r.member " +
         "WHERE LOWER(TRIM(m.email)) NOT LIKE '%.invalid'" +
         ") WHERE venue_id IS NOT NULL AND venue_id != '' AND member_id != ''"
@@ -1254,7 +1254,7 @@ routerAdd(
       .newQuery(
         "SELECT r.member AS member_id, COUNT(DISTINCT w.published_venue) AS places " +
           "FROM community_recommendations r " +
-          "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+          "JOIN community_place_entries w ON w.id = r.entry " +
           "WHERE w.status = 'published' AND w.published_venue != '' " +
           "GROUP BY r.member LIMIT 5000"
       )
@@ -1274,7 +1274,7 @@ routerAdd(
       .newQuery(
         "SELECT DISTINCT r.member AS member_id, v.city AS city " +
           "FROM community_recommendations r " +
-          "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+          "JOIN community_place_entries w ON w.id = r.entry " +
           "JOIN venues v ON v.id = w.published_venue " +
           "WHERE w.status = 'published' AND w.published_venue != '' " +
           "AND TRIM(v.city) != '' LIMIT 5000"
@@ -1300,7 +1300,7 @@ routerAdd(
       .newQuery(
         "SELECT r.member AS member_id, r.venue_name AS venue, MAX(r.created) AS created " +
           "FROM community_recommendations r " +
-          "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+          "JOIN community_place_entries w ON w.id = r.entry " +
           "WHERE w.status = 'published' AND w.published_venue != '' " +
           "GROUP BY r.member LIMIT 5000"
       )
@@ -1601,7 +1601,7 @@ routerAdd(
           "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
           photos.photoColumns() +
           "FROM community_recommendations r " +
-          "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+          "JOIN community_place_entries w ON w.id = r.entry " +
           "JOIN members m ON m.id = r.member " +
           photos.photoJoin("r") +
           "WHERE r.member = {:target} " +
@@ -1832,11 +1832,11 @@ onRecordAfterCreateSuccess((e) => {
 //
 // Nothing in the client needs them. What a member may know about who else stands
 // behind a place comes from their own circle-scoped catalogue count — see
-// waitlistRow in src/community.ts.
+// entryRow in src/community/recommendations.ts.
 onRecordEnrich((e) => {
   e.record.hide("signal_count", "created", "published_at");
   e.next();
-}, "community_waitlist_entries");
+}, "community_place_entries");
 
 // Members may edit their own profile and auth details, but never alter the
 // verification or invitation provenance that is maintained on the server.
@@ -1980,7 +1980,7 @@ onRecordCreateRequest((e) => {
     return e.next();
   }
 
-  const community = require(__hooks + "/community_waitlist.js");
+  const community = require(__hooks + "/place_entries.js");
   community.requireVerifiedMember(e.auth, "recommending a place");
 
   const note = community.validateRecommendationNote(e.record.getString("note"));
@@ -1997,7 +1997,7 @@ onRecordCreateRequest((e) => {
   // place" form sends "second", because arriving from a place page *is* the
   // decision. It is read from the request body rather than the record because it
   // is a routing instruction, not a stored fact about the recommendation.
-  const resolved = community.resolveEntry(e.app, e.record.getString("waitlist"), {
+  const resolved = community.resolveEntry(e.app, e.record.getString("entry"), {
     venueName: e.record.getString("venue_name"),
     city: e.record.getString("city"),
     country: e.record.getString("country"),
@@ -2044,7 +2044,7 @@ onRecordCreateRequest((e) => {
   // Wanna go tab while this note stands, and comes back if the note is ever
   // withdrawn. See ownSaves in pb_hooks/place_saves.js.
   e.record.set("member", e.auth.id);
-  e.record.set("waitlist", resolved.entry.id);
+  e.record.set("entry", resolved.entry.id);
   e.record.set("note", note);
   e.record.set("venue_name", resolved.entry.getString("venue_name"));
   e.record.set("city", resolved.entry.getString("city"));
@@ -2061,9 +2061,9 @@ onRecordCreateRequest((e) => {
 }, "community_recommendations");
 
 onRecordAfterCreateSuccess((e) => {
-  const community = require(__hooks + "/community_waitlist.js");
-  const waitlistId = e.record.getString("waitlist");
-  const publication = community.recalculateAndPublish(e.app, waitlistId);
+  const community = require(__hooks + "/place_entries.js");
+  const entryId = e.record.getString("entry");
+  const publication = community.recalculateAndPublish(e.app, entryId);
   // Publication happened inside the transaction above; the external
   // enrichment runs after it so an outage of OpenStreetMap or of the place's
   // own website can never block or roll back the publish. Members only supply
@@ -2073,7 +2073,7 @@ onRecordAfterCreateSuccess((e) => {
   // and the cover resolver turns those links into a place image. Failures are
   // retried by the nightly sweeps.
   try {
-    const entry = e.app.findRecordById("community_waitlist_entries", waitlistId);
+    const entry = e.app.findRecordById("community_place_entries", entryId);
     const publishedVenue = entry.getString("published_venue");
     if (entry.getString("status") === "published" && publishedVenue) {
       community.geocodeVenue(e.app, publishedVenue);
@@ -2104,7 +2104,7 @@ onRecordAfterCreateSuccess((e) => {
           recipient &&
           !reservedInvalidRecipient
         ) {
-          const claimed = community.claimPublicationNotification(e.app, waitlistId);
+          const claimed = community.claimPublicationNotification(e.app, entryId);
           if (claimed) {
             publicationNotification = {
               memberId,
@@ -2121,8 +2121,8 @@ onRecordAfterCreateSuccess((e) => {
           "Detour publication notification claim failed.",
           "recommendationId",
           e.record.id,
-          "waitlistId",
-          waitlistId,
+          "entryId",
+          entryId,
           "error",
           String(error)
         );
@@ -2226,7 +2226,7 @@ onRecordAfterCreateSuccess((e) => {
   e.next();
 }, "community_recommendations");
 
-// The work-list every enrichment sweep runs over lives in community_waitlist.js
+// The work-list every enrichment sweep runs over lives in place_entries.js
 // (publishedVenuesForSweep). It cannot live here: cronAdd callbacks run in an
 // isolated VM, so a module-scope helper in this file is out of scope by the time
 // a job fires.
@@ -2244,7 +2244,7 @@ cronAdd("detour_daily_launch_numbers", "15 5 * * *", () => {
 // coordinates (geocoder outage, no-match addresses corrected later, …).
 // geocodeVenue exits early for venues that already have coordinates.
 cronAdd("community_geocode_sweep", "0 4 * * *", () => {
-  const community = require(__hooks + "/community_waitlist.js");
+  const community = require(__hooks + "/place_entries.js");
   for (const venue of community.publishedVenuesForSweep($app)) {
     community.geocodeVenue($app, venue.id);
   }
@@ -2255,7 +2255,7 @@ cronAdd("community_geocode_sweep", "0 4 * * *", () => {
 // record gained contact tags later, …). Both steps exit early for venues that
 // already have everything.
 cronAdd("community_cover_sweep", "30 4 * * *", () => {
-  const community = require(__hooks + "/community_waitlist.js");
+  const community = require(__hooks + "/place_entries.js");
   for (const venue of community.publishedVenuesForSweep($app)) {
     community.enrichVenueFromOsm($app, venue.id);
     community.resolveCoverImage($app, venue.id);
@@ -2272,7 +2272,7 @@ cronAdd("community_cover_sweep", "30 4 * * *", () => {
 // found link into a place image — so a member-added place gains its links,
 // pin, and photo within the hour after publishing, with no manual step.
 cronAdd("community_web_discovery_sweep", "0 * * * *", () => {
-  const community = require(__hooks + "/community_waitlist.js");
+  const community = require(__hooks + "/place_entries.js");
   let attempts = 0;
   for (const venue of community.publishedVenuesForSweep($app)) {
     if (attempts >= 2) break;
@@ -2291,7 +2291,7 @@ cronAdd("community_image_screening_retry", "*/15 * * * *", () => {
 });
 
 // A member may correct their own recommendation: the personal note and its
-// category/occasions classification. The identity fields (member, waitlist)
+// category/occasions classification. The identity fields (member, entry)
 // are server-owned and frozen. The place-detail mirrors (venue_name, city,
 // country) are re-synced from the shared entry rather than trusted from the
 // request, so a note edit can never silently rewrite them and they never drift
@@ -2301,7 +2301,7 @@ onRecordUpdateRequest((e) => {
     return e.next();
   }
 
-  const community = require(__hooks + "/community_waitlist.js");
+  const community = require(__hooks + "/place_entries.js");
   community.requireVerifiedMember(e.auth, "editing a recommendation");
   const original = e.record.original();
   if (original.getString("member") !== e.auth.id) {
@@ -2309,7 +2309,7 @@ onRecordUpdateRequest((e) => {
   }
   if (
     e.record.getString("member") !== original.getString("member") ||
-    e.record.getString("waitlist") !== original.getString("waitlist")
+    e.record.getString("entry") !== original.getString("entry")
   ) {
     throw new BadRequestError(
       "A recommendation cannot be moved to another place or member."
@@ -2334,8 +2334,8 @@ onRecordUpdateRequest((e) => {
   // corrected place details.
   try {
     const entry = e.app.findRecordById(
-      "community_waitlist_entries",
-      original.getString("waitlist")
+      "community_place_entries",
+      original.getString("entry")
     );
     e.record.set("venue_name", entry.getString("venue_name"));
     e.record.set("city", entry.getString("city"));
@@ -2356,10 +2356,10 @@ onRecordUpdateRequest((e) => {
 // This also covers account removal: deleting a member cascades their
 // recommendations, so each place only they backed is withdrawn with them.
 onRecordAfterDeleteSuccess((e) => {
-  const community = require(__hooks + "/community_waitlist.js");
-  const waitlistId = e.record.getString("waitlist");
-  community.recalculateAndPublish(e.app, waitlistId);
-  community.withdrawUnbackedEntry(e.app, waitlistId);
+  const community = require(__hooks + "/place_entries.js");
+  const entryId = e.record.getString("entry");
+  community.recalculateAndPublish(e.app, entryId);
+  community.withdrawUnbackedEntry(e.app, entryId);
   e.next();
 }, "community_recommendations");
 
@@ -2400,7 +2400,7 @@ routerAdd(
   "GET",
   "/api/detour/place-identity",
   (e) => {
-    const community = require(__hooks + "/community_waitlist.js");
+    const community = require(__hooks + "/place_entries.js");
     community.requireVerifiedMember(e.auth, "checking whether a place is on the list");
     const query = e.request.url.query();
     const normalizedName = community.normalizePlacePart(query.get("name") || "");
@@ -2433,7 +2433,7 @@ routerAdd(
   "POST",
   "/api/detour/place-link",
   (e) => {
-    const community = require(__hooks + "/community_waitlist.js");
+    const community = require(__hooks + "/place_entries.js");
     const links = require(__hooks + "/map_links.js");
     community.requireVerifiedMember(e.auth, "reading a map link");
     const body = e.requestInfo().body || {};
@@ -2471,14 +2471,14 @@ routerAdd(
   "POST",
   "/api/detour/curation/images",
   (e) => {
-    const community = require(__hooks + "/community_waitlist.js");
+    const community = require(__hooks + "/place_entries.js");
     community.requireVerifiedMember(e.auth, "submitting a place image");
     const body = e.requestInfo().body || {};
-    const waitlistId =
-      typeof body.waitlist === "string" ? body.waitlist.trim() : "";
+    const entryId =
+      typeof body.entry === "string" ? body.entry.trim() : "";
     const entry = e.app.findRecordById(
-      "community_waitlist_entries",
-      waitlistId
+      "community_place_entries",
+      entryId
     );
     // A photo hangs off a recommendation, so the caller must have written one.
     // Being a participant is no longer enough: somebody who only received this
@@ -2498,9 +2498,9 @@ routerAdd(
     try {
       existing = e.app.findFirstRecordByFilter(
         "community_place_images",
-        "submitted_by = {:member} && waitlist = {:waitlist} && " +
+        "submitted_by = {:member} && entry = {:entry} && " +
           "(status = 'screening' || status = 'pending' || status = 'screening_failed')",
-        { member: e.auth.id, waitlist: entry.id }
+        { member: e.auth.id, entry: entry.id }
       );
     } catch {
       existing = null;
@@ -2536,7 +2536,7 @@ routerAdd(
       "community_place_images"
     );
     const image = new Record(collection);
-    image.set("waitlist", entry.id);
+    image.set("entry", entry.id);
     image.set("recommendation", recommendation.id);
     image.set("submitted_by", e.auth.id);
     // An upload has no origin on the public web to record.
@@ -2570,7 +2570,7 @@ routerAdd(
     const saved = e.app.findRecordById("community_place_images", image.id);
     return e.json(201, {
       id: saved.id,
-      waitlist: saved.getString("waitlist"),
+      entry: saved.getString("entry"),
       recommendation: saved.getString("recommendation"),
       status: saved.getString("status"),
     });
@@ -2628,7 +2628,7 @@ routerAdd(
       let entry = null;
       try {
         entry = e.app.findFirstRecordByFilter(
-          "community_waitlist_entries",
+          "community_place_entries",
           "published_venue = {:venue}",
           { venue: venue.id }
         );
@@ -2645,9 +2645,9 @@ routerAdd(
       try {
         const photo = e.app.findFirstRecordByFilter(
           "community_place_images",
-          "waitlist = {:waitlist} && (status = 'approved' || status = 'screening' || " +
+          "entry = {:entry} && (status = 'approved' || status = 'screening' || " +
             "status = 'pending' || status = 'screening_failed')",
-          { waitlist: entryId }
+          { entry: entryId }
         );
         if (photo) hasPhotoInReach[entryId] = true;
       } catch {
@@ -2661,7 +2661,7 @@ routerAdd(
       if (entry && hasPhotoInReach[entry.id]) continue;
       items.push({
         id: venue.id,
-        waitlist: entry ? entry.id : "",
+        entry: entry ? entry.id : "",
         place_name: venue.getString("name"),
         city: venue.getString("city"),
         country: venue.getString("country"),
@@ -2721,7 +2721,7 @@ routerAdd(
     let cover = uploads && uploads.length ? uploads[0] : null;
 
     if (!cover) {
-      const community = require(__hooks + "/community_waitlist.js");
+      const community = require(__hooks + "/place_entries.js");
       const body = e.requestInfo().body || {};
       const claimed = typeof body.source_url === "string" ? body.source_url.trim() : "";
       if (!claimed) {
@@ -2798,7 +2798,7 @@ routerAdd(
   (e) => {
     const founding = require(__hooks + "/founding_cap.js");
     founding.requireFoundingMember(e.app, e.auth, "refreshing a place's photo");
-    const community = require(__hooks + "/community_waitlist.js");
+    const community = require(__hooks + "/place_entries.js");
     const venueId = e.request.pathValue("id");
     let venue;
     try {
@@ -2840,8 +2840,8 @@ routerAdd(
       let submitter;
       try {
         entry = e.app.findRecordById(
-          "community_waitlist_entries",
-          record.getString("waitlist")
+          "community_place_entries",
+          record.getString("entry")
         );
         submitter = e.app.findRecordById(
           "members",
@@ -2987,7 +2987,7 @@ onRecordUpdateRequest((e) => {
     return e.next();
   }
 
-  const community = require(__hooks + "/community_waitlist.js");
+  const community = require(__hooks + "/place_entries.js");
   community.requireVerifiedMember(e.auth, "editing a place");
   const original = e.record.original();
   if (!community.isParticipant(original, e.auth.id)) {
@@ -3063,11 +3063,11 @@ onRecordUpdateRequest((e) => {
     if (normalizedDisambiguator) clashParams.qualifier = normalizedDisambiguator;
     try {
       clash = e.app.findFirstRecordByFilter(
-        "community_waitlist_entries",
+        "community_place_entries",
         "normalized_name = {:name} && normalized_city = {:city} && id != {:id} && " +
           // A bound empty string is dropped by the filter resolver, so the
           // no-qualifier case has to be written literally. See UNQUALIFIED_PLACE
-          // in community_waitlist.js.
+          // in place_entries.js.
           (normalizedDisambiguator
             ? "normalized_disambiguator = {:qualifier}"
             : "(normalized_disambiguator = '' || normalized_disambiguator = null)"),
@@ -3108,7 +3108,7 @@ onRecordUpdateRequest((e) => {
   e.record.set("official_url", links.official_url);
   e.record.set("instagram_url", links.instagram_url);
   e.next();
-}, "community_waitlist_entries");
+}, "community_place_entries");
 
 // Carries a member's corrections on an already-published entry — the place
 // details (name, address, city, country, category) and its links — to the
@@ -3118,7 +3118,7 @@ onRecordUpdateRequest((e) => {
 // authoritative. Best-effort by design: venue enrichment must never fail an
 // entry update, and the nightly sweeps retry.
 onRecordAfterUpdateSuccess((e) => {
-  const community = require(__hooks + "/community_waitlist.js");
+  const community = require(__hooks + "/place_entries.js");
   try {
     const publishedVenue = e.record.getString("published_venue");
     if (e.record.getString("status") === "published" && publishedVenue) {
@@ -3131,7 +3131,7 @@ onRecordAfterUpdateSuccess((e) => {
     // The nightly sweeps cover anything missed here.
   }
   e.next();
-}, "community_waitlist_entries");
+}, "community_place_entries");
 
 // A share sends a place to another member with a personal note. The place is
 // either an existing catalogue venue (referenced directly) or the sender's own
@@ -3142,7 +3142,7 @@ onRecordCreateRequest((e) => {
     return e.next();
   }
 
-  const community = require(__hooks + "/community_waitlist.js");
+  const community = require(__hooks + "/place_entries.js");
   community.requireVerifiedMember(e.auth, "sharing a place");
 
   const recipientId = e.record.getString("recipient");
@@ -3169,13 +3169,13 @@ onRecordCreateRequest((e) => {
     } catch {
       throw new BadRequestError("The shared place is not in the Detour selection.");
     }
-    e.record.set("waitlist", "");
+    e.record.set("entry", "");
     e.record.set("venue_name", venue.getString("name"));
     e.record.set("city", venue.getString("city"));
     e.record.set("country", venue.getString("country"));
     e.record.set("address", venue.getString("address"));
   } else {
-    const resolved = community.resolveEntry(e.app, e.record.getString("waitlist"), {
+    const resolved = community.resolveEntry(e.app, e.record.getString("entry"), {
       venueName: e.record.getString("venue_name"),
       city: e.record.getString("city"),
       country: e.record.getString("country"),
@@ -3186,10 +3186,10 @@ onRecordCreateRequest((e) => {
     const publishedVenue = resolved.entry.getString("published_venue");
     if (resolved.entry.getString("status") === "published" && publishedVenue) {
       e.record.set("venue", publishedVenue);
-      e.record.set("waitlist", "");
+      e.record.set("entry", "");
     } else {
       community.addParticipants(e.app, resolved.entry, [e.auth.id]);
-      e.record.set("waitlist", resolved.entry.id);
+      e.record.set("entry", resolved.entry.id);
     }
     e.record.set("venue_name", resolved.entry.getString("venue_name"));
     e.record.set("city", resolved.entry.getString("city"));
@@ -3225,7 +3225,7 @@ onRecordUpdateRequest((e) => {
   const frozen = [
     "sender",
     "recipient",
-    "waitlist",
+    "entry",
     "venue",
     "personal_note",
     "venue_name",
@@ -3263,7 +3263,7 @@ onRecordCreateRequest((e) => {
     return e.next();
   }
 
-  const community = require(__hooks + "/community_waitlist.js");
+  const community = require(__hooks + "/place_entries.js");
   community.requireVerifiedMember(e.auth, "replying to a shared place");
 
   const shareId = e.record.getString("share");

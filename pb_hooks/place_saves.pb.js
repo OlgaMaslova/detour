@@ -36,7 +36,7 @@ routerAdd(
   "POST",
   "/api/detour/places/{place}/save",
   (e) => {
-    const community = require(__hooks + "/community_waitlist.js");
+    const community = require(__hooks + "/place_entries.js");
     const endorsements = require(__hooks + "/place_endorsements.js");
     const saves = require(__hooks + "/place_saves.js");
     community.requireVerifiedMember(e.auth, "saving a place you want to go to");
@@ -90,7 +90,7 @@ routerAdd(
     const collection = e.app.findCollectionByNameOrId("community_place_saves");
     const record = new Record(collection);
     record.set("member", e.auth.id);
-    record.set("waitlist", entry.id);
+    record.set("entry", entry.id);
     record.set("source", source);
     try {
       e.app.save(record);

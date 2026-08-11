@@ -36,7 +36,7 @@ routerAdd(
   "POST",
   "/api/detour/landing/follow-up/{place}/not-yet",
   (e) => {
-    const community = require(__hooks + "/community_waitlist.js");
+    const community = require(__hooks + "/place_entries.js");
     const endorsements = require(__hooks + "/place_endorsements.js");
     const followUp = require(__hooks + "/landing_followup.js");
     community.requireVerifiedMember(e.auth, "answering a question about your list");

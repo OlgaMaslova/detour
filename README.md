@@ -67,7 +67,7 @@ curl -fsS https://api.takedetour.app/api/detour/ready
     log.
   - `1768100200_seed_launch_selection.js` — the launch selection: five cities
     and the nine places Olga recommends, seeded as a complete recommendation
-    chain (city → venue → waitlist entry → recommendation) because visibility
+    chain (city → venue → place entry → recommendation) because visibility
     is derived from member signal, not set on the venue.
   - `1785315600_add_image_curation.js` — `community_place_images`, the screened
     member-photo lane.
@@ -116,7 +116,7 @@ platform-provisioned or otherwise unmanaged collections in the database.
 | `invite_requests` | requests to join, from the public form |
 | `cities` | the destinations places route under, and how each presents |
 | `venues` | place facts, occasion tags, and the publication marker (`published`, `published_at`, `suppressed`) — no awards, no guide sources |
-| `community_waitlist_entries` | the shared, normalized place identity a recommendation attaches to |
+| `community_place_entries` | the shared, normalized place identity a recommendation attaches to |
 | `community_recommendations` | the recommendation itself — the only reason anything is public on Detour |
 | `community_place_images` | member-supplied photos, screened, hanging off the recommendation that authored them |
 | `community_place_endorsements` | been & loved: one member went somewhere on another's note and would send you too. Corroboration, never authorship — it publishes nothing and gates nothing |

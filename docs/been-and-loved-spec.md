@@ -180,16 +180,16 @@ As built. The `community_` prefix follows the collections already in use.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `member` | relation → `members` | Required, cascade delete. |
-| `waitlist` | relation → `community_waitlist_entries` | Required, cascade delete. The entry, not the venue, so it matches how recommendations attach. |
+| `entry` | relation → `community_place_entries` | Required, cascade delete. The entry, not the venue, so it matches how recommendations attach. |
 | `recommendation` | relation → `community_recommendations` | The note they went on — the fronting one at the time. Nullable: that note may later be withdrawn while this stands. |
 | `notified_at` | date | Claimed before the email sends, so it can never send twice. |
 | `created` | autodate | |
 
-- **Unique index on (`member`, `waitlist`)** — the concurrency guard, in the
+- **Unique index on (`member`, `entry`)** — the concurrency guard, in the
   same spirit as the invite-request index. The explicit lookup in the hook turns
   an ordinary double-tap into a friendly no-op; the index is what makes a racing
   double-tap safe.
-- **Index on (`member`, `created`)** for the tab, on `waitlist` for the count,
+- **Index on (`member`, `created`)** for the tab, on `entry` for the count,
   and a partial index on `notified_at = ''` for the pending-notice sweep.
 - API rules: list, view and delete are `member = @request.auth.id`; **create
   and update are `null`**, so the "not your own place / published only /

@@ -32,7 +32,7 @@ Add future project-specific rules here.
 ## The community module
 
 The member area is a folder, `src/community/`, split by feature (2026-08-11):
-`auth`, `queue` (the recommendation ledger), `shares`, `invites`, `curation`,
+`auth`, `recommendations` (the member's own ledger), `shares`, `invites`, `curation`,
 `endorsements`, `boards` (Wanna go and the destination boards), `settings`,
 `directory` (the pseudo picker), `place-form` (the form machinery onboarding
 shares), `cards` (the doorway to the shared card renderer), `store`, and
@@ -156,7 +156,7 @@ routerAdd("POST", "/api/detour/example", (e) => {
 filename pattern, so `routerAdd`/`onRecord*`/`cronAdd` calls in a plain `.js`
 file under `pb_hooks/` are never seen — the file simply never runs, the route
 404s or the event never fires, and nothing is logged. That is exactly why the
-plain `.js` files here (`community_waitlist.js`, `mailer.js`, `member_profile.js`
+plain `.js` files here (`place_entries.js`, `mailer.js`, `member_profile.js`
 and the rest) contain no registrations at all: they are modules other hooks
 `require()`. A file that registers a hook must be named `<name>.pb.js`.
 
@@ -525,7 +525,7 @@ nobody else, ever. `community_place_saves`, `pb_hooks/place_saves.js`,
 - **There is one read path and it returns the caller's own rows.** No server
   projection exists for this collection and none should be added — that is the
   difference between it and `community_place_endorsements`, which is
-  scoped-public and needs one. There is deliberately **no index on `waitlist`
+  scoped-public and needs one. There is deliberately **no index on `entry`
   alone**, so counting saves per place is not even cheap.
 - **One state per place is a display rule, not a storage rule.** Marking Been &
   loved or writing a recommendation takes a place off the Wanna go tab and leaves
@@ -642,7 +642,7 @@ Specified in `docs/guides-spec.md`.
   swept away Michelin, Guía Repsol, 50 Top Pizza and the rest, because a place is
   public here for exactly one reason: a member recommended it. Imported places
   live in two collections of their own and touch neither `venues` nor
-  `community_waitlist_entries`. Nothing about them may become public, ranked, or
+  `community_place_entries`. Nothing about them may become public, ranked, or
   counted. `position` is in the source data and is deliberately not read — a list
   here is a set of places, not a chart.
 - **Fully private, on the same terms as Wanna go**, since they share a tab. No

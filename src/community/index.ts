@@ -13,11 +13,11 @@ import { esc, loadCommunity, member, memberName, noticeMarkup, store, unseenShar
 import type { DetourTab, MemberTab } from './store';
 import { bindAuth, passwordResetRouted, signedOutPanel } from './auth';
 import {
-  bindQueue,
+  bindRecommendations,
   deleteRecommendationDialogMarkup,
   focusPendingEditEntry,
   recommendationPanel,
-} from './queue';
+} from './recommendations';
 import { bindShares, markIncomingSharesSeen, sharesPanel } from './shares';
 import { bindInvites, invitesPanel } from './invites';
 import { bindCuration, curationPanel, reloadCuration } from './curation';
@@ -199,7 +199,7 @@ export function bindCommunity(
   bindSettings(root, render);
   bindShares(root, render);
   bindAuth(root, render, onAuthed, onJoined);
-  bindQueue(root, render, onPlaceContributed, refreshCatalogue);
+  bindRecommendations(root, render, onPlaceContributed, refreshCatalogue);
   bindEndorsements(root, render);
   bindBoards(root, render);
 
@@ -324,7 +324,7 @@ export { applyInvitationRoute, applyPasswordResetRoute, openSignUp } from './aut
 export { passwordResetRouted };
 export { meaningfulRecommendation, placeCollisionFor, readPlaceLink } from './place-form';
 export type { PlaceCollision, PlaceLinkReading } from './place-form';
-export { openEditRecommendation, openRecommendNewPlace, openRecommendPlace } from './queue';
+export { openEditRecommendation, openRecommendNewPlace, openRecommendPlace } from './recommendations';
 export { openSharePlace } from './shares';
 export { ensureInvitationLink, openInvitationLink } from './invites';
 export { adoptCircleRecipients } from './directory';

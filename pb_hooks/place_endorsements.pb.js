@@ -29,7 +29,7 @@ routerAdd(
   "POST",
   "/api/detour/places/{place}/endorsement",
   (e) => {
-    const community = require(__hooks + "/community_waitlist.js");
+    const community = require(__hooks + "/place_entries.js");
     const endorsements = require(__hooks + "/place_endorsements.js");
     community.requireVerifiedMember(e.auth, "marking a place you have been to");
 
@@ -86,7 +86,7 @@ routerAdd(
     );
     const record = new Record(collection);
     record.set("member", e.auth.id);
-    record.set("waitlist", entry.id);
+    record.set("entry", entry.id);
     record.set("recommendation", recommendation);
     try {
       e.app.save(record);

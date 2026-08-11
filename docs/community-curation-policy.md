@@ -8,7 +8,7 @@
 Detour's active community workflow is a shared private waiting list, not an editorial approval queue.
 
 1. A member proposes a place with a display venue name, city, country, and a meaningful personal recommendation note.
-2. The backend normalizes the venue name and city and creates or reuses one `community_waitlist_entries` record for that normalized pair. Differences in case, spacing, punctuation, or common diacritics must not create parallel queues.
+2. The backend normalizes the venue name and city and creates or reuses one `community_place_entries` record for that normalized pair. Differences in case, spacing, punctuation, or common diacritics must not create parallel queues.
 3. Each member may add at most one `community_recommendations` record to an entry. A qualifying record is one independent signal; repeated attempts by the same member are rejected and do not increase the count.
 4. The first qualifying recommendation from a verified, invitation-based member automatically publishes the place. No curator, editorial approval, founder signal, or multi-member threshold is required for this community-loop publication.
 5. Publication creates or reuses one canonical `venues` record, the `guide_sources` record named **“Detour community”** with slug `detour-community`, and one current `venue_awards` event labelled **“Detour community selection.”** The waiting-list entry is marked `published` only after those public records exist.
@@ -93,7 +93,7 @@ Private shares stay cross-circle by design. A shared place reaches the recipient
 
 The active loop uses intentionally private collections:
 
-- `community_waitlist_entries` stores the safe display name, city, country, normalized deduplication keys, pending/published state, server-maintained signal count, hidden participant relations, and hidden canonical/publication audit relations.
+- `community_place_entries` stores the safe display name, city, country, normalized deduplication keys, pending/published state, server-maintained signal count, hidden participant relations, and hidden canonical/publication audit relations.
 - `community_recommendations` stores the waiting-list relation, hidden member relation, meaningful personal note, and private place-input mirrors used by the standard record-creation path.
 - `community_shares` stores sender and recipient relations visible only within the private sender/recipient-scoped record, the linked waiting-list entry, a private personal note, and private place-input mirrors when needed to create or resolve an entry.
 - `member_place_contributions` keeps member attribution, recommendation prose, normalized keys, and curator notes hidden while exposing only approved records' public discovery fields.

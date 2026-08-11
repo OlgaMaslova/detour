@@ -36,7 +36,7 @@ routerAdd(
   "POST",
   "/api/detour/guides/read",
   (e) => {
-    const community = require(__hooks + "/community_waitlist.js");
+    const community = require(__hooks + "/place_entries.js");
     const lists = require(__hooks + "/guides.js");
     community.requireVerifiedMember(e.auth, "importing a list of places");
 
@@ -167,7 +167,7 @@ routerAdd(
   "POST",
   "/api/detour/guides",
   (e) => {
-    const community = require(__hooks + "/community_waitlist.js");
+    const community = require(__hooks + "/place_entries.js");
     const lists = require(__hooks + "/guides.js");
     community.requireVerifiedMember(e.auth, "keeping a list of places");
 

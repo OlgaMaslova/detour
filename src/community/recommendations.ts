@@ -34,7 +34,7 @@ import type { PlaceCollision } from './place-form';
 import { placeCardMarkup } from './cards';
 import { directoryMarkup, directoryState, dropDirectory } from './directory';
 import { resetEndorsementWithdrawal } from './endorsements';
-import type { WaitlistEntry, RecommendationRecord } from './store';
+import type { PlaceEntry, RecommendationRecord } from './store';
 
 interface PendingRecommendationDeletion {
   recommendationId: string;
@@ -101,7 +101,7 @@ const newPlacePrefill = { name: '', city: '' };
 let deletingRecommendationId = '';
 let pendingRecommendationDeletion: PendingRecommendationDeletion | null = null;
 let pendingCollision: PendingCollision | null = null;
-let highlightedWaitlistId = '';
+let highlightedEntryId = '';
 let queueExpanded = false;
 export function deleteRecommendationDialogMarkup(): string {
   const pending = pendingRecommendationDeletion;
@@ -127,7 +127,7 @@ function labelForOption(options: readonly (readonly [string, string])[], value: 
   return options.find(([key]) => key === value)?.[1] || '';
 }
 function recommendationForEntry(entryId: string): RecommendationRecord | undefined {
-  return store.recommendations.find((rec) => rec.waitlist === entryId);
+  return store.recommendations.find((rec) => rec.entry === entryId);
 }
 
 function placeIdentity(name: string | undefined, city: string | undefined): string {
@@ -135,7 +135,7 @@ function placeIdentity(name: string | undefined, city: string | undefined): stri
   return `${normalize(name)}\u0000${normalize(city)}`;
 }
 
-function publishedVenueForEntry(entry: WaitlistEntry): Venue | undefined {
+function publishedVenueForEntry(entry: PlaceEntry): Venue | undefined {
   const publishedId = entry.published_venue?.trim();
   if (publishedId) {
     const directMatch = store.knownVenues.find((venue) => venue.id === publishedId);
@@ -147,22 +147,22 @@ function publishedVenueForEntry(entry: WaitlistEntry): Venue | undefined {
   return matches.length === 1 ? matches[0] : undefined;
 }
 
-export function entryForVenue(venue: Venue): WaitlistEntry | undefined {
-  const direct = store.waitlistEntries.find((entry) => entry.published_venue?.trim() === venue.id);
+export function entryForVenue(venue: Venue): PlaceEntry | undefined {
+  const direct = store.placeEntries.find((entry) => entry.published_venue?.trim() === venue.id);
   if (direct) return direct;
   const identity = placeIdentity(venue.name, venue.city);
-  const matches = store.waitlistEntries.filter(
+  const matches = store.placeEntries.filter(
     (entry) => placeIdentity(entry.venue_name, entry.city) === identity
   );
   return matches.length === 1 ? matches[0] : undefined;
 }
 
 
-function entryPlaceLocked(entry: WaitlistEntry): boolean {
+function entryPlaceLocked(entry: PlaceEntry): boolean {
   return store.lockedEntryIds.has(entry.id);
 }
 
-function entryEditMarkup(entry: WaitlistEntry): string {
+function entryEditMarkup(entry: PlaceEntry): string {
   // Website and Instagram only. A place has no member-supplied photo of its own
   // any more — a photo belongs to a recommendation — so the entry's legacy
   // `image_url` is not offered here as though it were the place's picture.
@@ -182,7 +182,7 @@ function entryEditMarkup(entry: WaitlistEntry): string {
       ? 'Your edits will carry through if this place becomes live.'
       : 'These details stay with this private entry until it has a recommendation note.';
   return `${hasLinks ? `<p class="community-place-links" aria-label="Destination links">${links.join('<span aria-hidden="true"> · </span>')}</p>` : ''}
-      <form class="community-form community-links-form" data-community-edit data-waitlist="${esc(entry.id)}"${rec ? ` data-recommendation="${esc(rec.id)}"` : ''}>
+      <form class="community-form community-links-form" data-community-edit data-entry="${esc(entry.id)}"${rec ? ` data-recommendation="${esc(rec.id)}"` : ''}>
         <label>Food-and-drink destination name<input name="venue_name" value="${esc(entry.venue_name || '')}" maxlength="200" required placeholder="A restaurant, café, bar, or other food-and-drink destination"${lockedAttribute}></label>
         <label>Address <span class="community-optional">${placeLocked ? 'Verified and locked' : 'Optional'}</span><input name="address" value="${esc(entry.address || '')}" maxlength="300" placeholder="Street and number"${lockedAttribute}></label>
         <div class="community-form-grid community-place-grid">
@@ -219,7 +219,7 @@ function entryEditMarkup(entry: WaitlistEntry): string {
  * else — publication state, facts, links, the private-share form — waits
  * inside the expanded line rather than stacking a card per entry.
  */
-function waitlistRow(entry: WaitlistEntry): string {
+function entryRow(entry: PlaceEntry): string {
   const rec = recommendationForEntry(entry.id);
   const published = entry.status === 'published';
   const publishedVenue = published ? publishedVenueForEntry(entry) : undefined;
@@ -259,7 +259,7 @@ function waitlistRow(entry: WaitlistEntry): string {
   // A just-saved or just-deleted entry is marked and focused, never expanded:
   // opening its pre-filled Edit form would read as an edit the member did not
   // ask for.
-  const highlighted = highlightedWaitlistId === entry.id;
+  const highlighted = highlightedEntryId === entry.id;
   // NO OPEN CONTROL. The card's own title is the link to the place page, the
   // same anchor every other card in the app carries, so a second one underneath
   // would be two ways to do one thing sitting a centimetre apart. A place with
@@ -269,7 +269,7 @@ function waitlistRow(entry: WaitlistEntry): string {
     ? ''
     : `<span class="community-queue-status is-${statusClass}">${statusLabel}</span>`;
   const deleteAction = rec
-    ? `<button class="community-queue-delete" type="button" data-community-delete-recommendation="${esc(rec.id)}" data-waitlist="${esc(entry.id)}" data-place-name="${esc(entry.venue_name || '')}" data-published="${published ? 'true' : 'false'}" ${store.submitting ? 'disabled' : ''}>${deletingRecommendationId === rec.id ? 'Deleting…' : 'Delete'}</button>`
+    ? `<button class="community-queue-delete" type="button" data-community-delete-recommendation="${esc(rec.id)}" data-entry="${esc(entry.id)}" data-place-name="${esc(entry.venue_name || '')}" data-published="${published ? 'true' : 'false'}" ${store.submitting ? 'disabled' : ''}>${deletingRecommendationId === rec.id ? 'Deleting…' : 'Delete'}</button>`
     : '';
   const trailing = `<div class="community-queue-actions">${deleteAction}${status}</div>`;
   const publicationNote = published
@@ -298,7 +298,7 @@ function waitlistRow(entry: WaitlistEntry): string {
           !published
             ? `<details class="community-share-disclosure">
                 <summary>Share with a member</summary>
-                <form class="community-form community-share-form" data-community-share data-waitlist="${esc(entry.id)}">
+                <form class="community-form community-share-form" data-community-share data-entry="${esc(entry.id)}">
                   ${directoryMarkup(directoryKey, 'Share with a member')}
                   <label>Personal note<textarea name="personal_note" rows="3" maxlength="1200" minlength="8" required placeholder="Why you thought of them for this food-and-drink destination"></textarea></label>
                   <button class="secondary-button" type="submit" ${store.submitting ? 'disabled' : ''}>${store.submitting ? 'Sharing…' : 'Share privately'}</button>
@@ -308,7 +308,7 @@ function waitlistRow(entry: WaitlistEntry): string {
         }
       </div>
     </div>`;
-  return `<li class="community-queue-row${highlighted ? ' is-highlighted' : ''}${editing ? ' is-editing' : ''}" id="waitlist-${esc(entry.id)}" tabindex="-1">
+  return `<li class="community-queue-row${highlighted ? ' is-highlighted' : ''}${editing ? ' is-editing' : ''}" id="entry-${esc(entry.id)}" tabindex="-1">
     ${entryCardMarkup(entry, rec)}
     ${editing ? body : strip}
   </li>`;
@@ -328,7 +328,7 @@ function waitlistRow(entry: WaitlistEntry): string {
  * so are in no feed at all. Those render with everything the entry knows and the
  * status line beneath says why there is no page to open.
  */
-function entryCardMarkup(entry: WaitlistEntry, rec: RecommendationRecord | undefined): string {
+function entryCardMarkup(entry: PlaceEntry, rec: RecommendationRecord | undefined): string {
   return placeCardMarkup({
     name: entry.venue_name || 'Unnamed food-and-drink destination',
     city: entry.city || '',
@@ -341,7 +341,7 @@ function entryCardMarkup(entry: WaitlistEntry, rec: RecommendationRecord | undef
       founding_member: store.foundingMember,
       note: rec?.note || '',
       address: entry.address || '',
-      // The entry's own `created` is deliberately not on WaitlistEntry, so an
+      // The entry's own `created` is deliberately not on PlaceEntry, so an
       // entry with no note yet carries no date — and the card simply omits one
       // rather than inventing the day it was typed.
       created: rec?.created || '',
@@ -510,7 +510,7 @@ export function recommendationPanel(): string {
       ${
         store.loadingCommunity || !store.communityLoaded
           ? '<p class="community-loading" role="status">Loading…</p>'
-          : store.waitlistEntries.length
+          : store.placeEntries.length
             ? queueListMarkup()
             // Empty, this tab asks the question rather than describing the
             // absence — and it is the by-heart one the new-member flow opens
@@ -524,7 +524,7 @@ export function recommendationPanel(): string {
       formOpen
         ? `<div class="community-recommend-new" id="community-recommend-new">
             <div class="community-section-heading">
-              <div><h3 id="community-waitlist-title">${draft ? `Recommend ${esc(draft.name)}` : 'Recommend a destination'}</h3></div>
+              <div><h3 id="community-recommend-title">${draft ? `Recommend ${esc(draft.name)}` : 'Recommend a destination'}</h3></div>
               <p>${
                 draft
                   ? 'You are recommending this exact place. Add your own note; its existing details stay attached.'
@@ -545,8 +545,8 @@ export function recommendationPanel(): string {
 // The newest entries first (the ledger is loaded newest-updated first), with
 // the rest a click away.
 function queueListMarkup(): string {
-  const shown = queueExpanded ? store.waitlistEntries : store.waitlistEntries.slice(0, queuePreviewLimit());
-  const hidden = store.waitlistEntries.length - shown.length;
+  const shown = queueExpanded ? store.placeEntries : store.placeEntries.slice(0, queuePreviewLimit());
+  const hidden = store.placeEntries.length - shown.length;
   const toggle =
     hidden > 0
       ? `<button type="button" class="secondary-button community-queue-more" data-queue-toggle aria-expanded="false" aria-controls="community-queue-list">Show ${hidden} more</button>`
@@ -563,7 +563,7 @@ function queueListMarkup(): string {
   // a card should be.
   const columns = recommendationColumnCount();
   return `<ul class="community-queue-cards network-entry-list network-recommendation-grid network-recommendation-grid-${columns}" id="community-queue-list">${shown
-    .map(waitlistRow)
+    .map(entryRow)
     .join('')}</ul>${toggle}`;
 }
 /** Point the member area at the Recommend form, optionally fixed to one published place. */
@@ -609,10 +609,10 @@ export function openEditRecommendation(venue: Venue): void {
   pendingCollision = null;
   store.pendingFormReveal = null;
 }
-export function focusWaitlistEntry(id: string): void {
+export function focusEntryRow(id: string): void {
   if (!id) return;
   window.requestAnimationFrame(() => {
-    const target = document.getElementById(`waitlist-${id}`);
+    const target = document.getElementById(`entry-${id}`);
     target?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     target?.focus({ preventScroll: true });
   });
@@ -625,7 +625,7 @@ export function focusWaitlistEntry(id: string): void {
 export function focusPendingEditEntry(): void {
   if (recommendationIntent === 'edit' && recommendationDraft) {
     const entry = entryForVenue(recommendationDraft);
-    if (entry) focusWaitlistEntry(entry.id);
+    if (entry) focusEntryRow(entry.id);
   }
 }
 
@@ -636,11 +636,11 @@ onCommunityReset(() => {
   pendingCollision = null;
   deletingRecommendationId = '';
   pendingRecommendationDeletion = null;
-  highlightedWaitlistId = '';
+  highlightedEntryId = '';
   queueExpanded = false;
 });
 
-export function bindQueue(
+export function bindRecommendations(
   root: HTMLElement,
   render: () => void,
   onPlaceContributed: () => void,
@@ -673,12 +673,12 @@ export function bindQueue(
   root.querySelector<HTMLButtonElement>('[data-queue-toggle]')?.addEventListener('click', (event) => {
     event.preventDefault();
     if (queueExpanded) return;
-    const firstRevealedId = store.waitlistEntries[queuePreviewLimit()]?.id || '';
+    const firstRevealedId = store.placeEntries[queuePreviewLimit()]?.id || '';
     queueExpanded = true;
     render();
     if (firstRevealedId) {
       window.requestAnimationFrame(() => {
-        const firstRevealed = document.getElementById(`waitlist-${firstRevealedId}`);
+        const firstRevealed = document.getElementById(`entry-${firstRevealedId}`);
         firstRevealed?.scrollIntoView({ block: 'nearest' });
         firstRevealed?.focus({ preventScroll: true });
       });
@@ -691,7 +691,7 @@ export function bindQueue(
   const pendingEditRow = recommendationIntent === 'edit' ? activeEditEntryId() : '';
   if (pendingEditRow) {
     window.requestAnimationFrame(() => {
-      const row = document.getElementById(`waitlist-${pendingEditRow}`);
+      const row = document.getElementById(`entry-${pendingEditRow}`);
       row?.scrollIntoView({ block: 'center' });
     });
   }
@@ -705,7 +705,7 @@ export function bindQueue(
       editingEntryId = entryId;
       render();
       window.requestAnimationFrame(() => {
-        const row = document.getElementById(`waitlist-${entryId}`);
+        const row = document.getElementById(`entry-${entryId}`);
         row?.scrollIntoView({ block: 'nearest' });
         row?.querySelector<HTMLElement>('input, textarea, select')?.focus({ preventScroll: true });
       });
@@ -727,7 +727,7 @@ export function bindQueue(
       render();
       // Back to the control that opened it, rather than leaving focus nowhere.
       window.requestAnimationFrame(() => {
-        const row = entryId ? document.getElementById(`waitlist-${entryId}`) : null;
+        const row = entryId ? document.getElementById(`entry-${entryId}`) : null;
         row?.querySelector<HTMLElement>('[data-entry-edit]')?.focus({ preventScroll: true });
       });
     });
@@ -757,9 +757,9 @@ export function bindQueue(
       pendingCollision = null;
       let photoQueued = false;
       let photoError = '';
-      if (photo && created.waitlist) {
+      if (photo && created.entry) {
         try {
-          await submitImageForReview(created.waitlist, photo);
+          await submitImageForReview(created.entry, photo);
           photoQueued = true;
         } catch (error) {
           photoError = readableError(
@@ -771,7 +771,7 @@ export function bindQueue(
       recommendationDraft = null;
       // Saved: the panel returns to the ledger, where the new line is waiting.
       recommendationFormOpen = false;
-      highlightedWaitlistId = created.waitlist || '';
+      highlightedEntryId = created.entry || '';
       store.notice = { kind: 'success', text: 'Recommendation saved.' };
       onPlaceContributed();
       store.communityLoaded = false;
@@ -783,7 +783,7 @@ export function bindQueue(
           // The card remains truthful when discovery data is temporarily unavailable.
         });
       await Promise.all([loadCommunity(render), catalogueRefresh]);
-      const createdEntry = store.waitlistEntries.find((entry) => entry.id === highlightedWaitlistId);
+      const createdEntry = store.placeEntries.find((entry) => entry.id === highlightedEntryId);
       store.notice = createdEntry?.status === 'published'
         ? { kind: 'success', text: 'Your recommendation is live.' }
         : createdEntry
@@ -801,7 +801,7 @@ export function bindQueue(
       } else if (photoError) {
         store.notice = { kind: 'info', text: `${store.notice?.text || 'Recommendation saved.'} ${photoError}` };
       }
-      focusWaitlistEntry(highlightedWaitlistId);
+      focusEntryRow(highlightedEntryId);
     } catch (error) {
       const askedFor = String(payload.disambiguator || '');
       const collision = await placeCollisionFor(error, { ...held, disambiguator: askedFor });
@@ -885,7 +885,7 @@ export function bindQueue(
     // check they describe the entry being joined.
     await sendRecommendation(
       {
-        waitlist: pending.collision.entry,
+        entry: pending.collision.entry,
         venue_name: pending.venueName,
         city: pending.city,
         note: pending.note,
@@ -941,7 +941,7 @@ export function bindQueue(
   root.querySelectorAll<HTMLFormElement>('[data-community-edit]').forEach((form) => {
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const entryId = form.dataset.waitlist || '';
+      const entryId = form.dataset.entry || '';
       if (!entryId || store.submitting) return;
       const values = new FormData(form);
       const recommendationId = form.dataset.recommendation || '';
@@ -955,7 +955,7 @@ export function bindQueue(
       try {
         // The shared place first, so the recommendation hook re-syncs its
         // display mirrors from the freshly corrected entry.
-        await pb.collection('community_waitlist_entries').update(entryId, {
+        await pb.collection('community_place_entries').update(entryId, {
           venue_name: String(values.get('venue_name') || '').trim(),
           address: String(values.get('address') || '').trim(),
           city: String(values.get('city') || '').trim(),
@@ -991,7 +991,7 @@ export function bindQueue(
         }
         store.communityLoaded = false;
         await loadCommunity(render);
-        highlightedWaitlistId = '';
+        highlightedEntryId = '';
         recommendationDraft = null;
         recommendationIntent = 'add';
         recommendationFormOpen = false;
@@ -1012,7 +1012,7 @@ export function bindQueue(
   root.querySelectorAll<HTMLButtonElement>('[data-community-delete-recommendation]').forEach((button) => {
     button.addEventListener('click', () => {
       const recommendationId = button.dataset.communityDeleteRecommendation || '';
-      const entryId = button.dataset.waitlist || '';
+      const entryId = button.dataset.entry || '';
       if (!recommendationId || !entryId || store.submitting) return;
       pendingRecommendationDeletion = {
         recommendationId,
@@ -1046,7 +1046,7 @@ export function bindQueue(
       pendingRecommendationDeletion = null;
       store.submitting = true;
       deletingRecommendationId = recommendationId;
-      highlightedWaitlistId = entryId;
+      highlightedEntryId = entryId;
       store.notice = null;
       render();
       try {
@@ -1068,7 +1068,7 @@ export function bindQueue(
             ? 'Your recommendation was deleted. The place remains live without your note, photo or attribution.'
             : 'Your recommendation was deleted.',
         };
-        focusWaitlistEntry(entryId);
+        focusEntryRow(entryId);
       } catch (error) {
         store.notice = { kind: 'error', text: readableError(error, 'Your recommendation could not be deleted. Please try again.') };
       } finally {

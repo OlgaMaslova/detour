@@ -128,7 +128,7 @@ function nextTriageCard(app, memberId, skip) {
           " THEN TRUE ELSE FALSE END AS founding_member, " +
           "r.created " +
           "FROM community_recommendations r " +
-          "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+          "JOIN community_place_entries w ON w.id = r.entry " +
           "JOIN members m ON m.id = r.member " +
           "WHERE w.status = 'published' AND COALESCE(w.published_venue, '') != '' " +
           "AND LOWER(TRIM(w.city)) = LOWER(TRIM({:city})) " +
@@ -143,11 +143,11 @@ function nextTriageCard(app, memberId, skip) {
           // answered for this place — by writing about it, by marking it, or by
           // meaning to go — is not asked about it again.
           "AND NOT EXISTS (SELECT 1 FROM community_recommendations mine " +
-          "WHERE mine.waitlist = w.id AND mine.member = {:caller}) " +
+          "WHERE mine.entry = w.id AND mine.member = {:caller}) " +
           "AND NOT EXISTS (SELECT 1 FROM community_place_endorsements e " +
-          "WHERE e.waitlist = w.id AND e.member = {:caller}) " +
+          "WHERE e.entry = w.id AND e.member = {:caller}) " +
           "AND NOT EXISTS (SELECT 1 FROM community_place_saves s " +
-          "WHERE s.waitlist = w.id AND s.member = {:caller}) " +
+          "WHERE s.entry = w.id AND s.member = {:caller}) " +
           (skipped.length
             ? "AND " + ENTRY_VENUE_SQL + " NOT IN (" + skipped.join(", ") + ") "
             : "") +

@@ -152,7 +152,7 @@ async function createMember(adminToken, index, communityStatus = "verified") {
 
 async function getEntry(id, token) {
   return (
-    await request(`/api/collections/community_waitlist_entries/records/${id}`, {
+    await request(`/api/collections/community_place_entries/records/${id}`, {
       token,
       expected: 200,
     })
@@ -225,7 +225,7 @@ async function main() {
       city: "validation city",
       country: "Testland",
     });
-    const entryId = first.data.waitlist;
+    const entryId = first.data.entry;
     assert(Boolean(entryId), "first recommendation resolves a waiting-list entry");
 
     let entry = await getEntry(entryId, members[0].token);
@@ -249,7 +249,7 @@ async function main() {
 
     const weakNote = await createRecommendation(
       members[1].token,
-      { waitlist: entryId, note: "Great place" },
+      { entry: entryId, note: "Great place" },
       400
     );
     assert(weakNote.status === 400, "non-meaningful recommendation notes are rejected");
@@ -258,7 +258,7 @@ async function main() {
       method: "POST",
       token: unverifiedMember.token,
       body: {
-        waitlist: entryId,
+        entry: entryId,
         recipient: members[1].id,
         personal_note: "Please consider this place.",
       },
@@ -273,7 +273,7 @@ async function main() {
       method: "POST",
       token: members[0].token,
       body: {
-        waitlist: entryId,
+        entry: entryId,
         recipient: members[0].id,
         personal_note: "A note addressed to myself.",
       },
@@ -287,7 +287,7 @@ async function main() {
         method: "POST",
         token: members[0].token,
         body: {
-          waitlist: entryId,
+          entry: entryId,
           recipient: "invalidmember01",
           personal_note: "Please consider this place.",
         },
@@ -300,7 +300,7 @@ async function main() {
       method: "POST",
       token: members[3].token,
       body: {
-        waitlist: entryId,
+        entry: entryId,
         recipient: members[1].id,
         personal_note: "Please add your own recommendation.",
       },
@@ -316,7 +316,7 @@ async function main() {
       method: "POST",
       token: members[0].token,
       body: {
-        waitlist: entryId,
+        entry: entryId,
         recipient: members[2].id,
         personal_note: "Please add your own recommendation.",
       },
@@ -333,12 +333,12 @@ async function main() {
       city: " Validation   City ",
       country: "Testland",
     });
-    assert(second.data.waitlist === entryId, "normalized name and city deduplicate proposals");
+    assert(second.data.entry === entryId, "normalized name and city deduplicate proposals");
     entry = await getEntry(entryId, members[1].token);
     assert(entry.signal_count === 2, "second member produces the second signal");
 
-    const third = await createRecommendation(members[2].token, { waitlist: entryId });
-    assert(third.data.waitlist === entryId, "shared recipient recommends the linked entry");
+    const third = await createRecommendation(members[2].token, { entry: entryId });
+    assert(third.data.entry === entryId, "shared recipient recommends the linked entry");
     entry = await getEntry(entryId, members[2].token);
     assert(
       entry.signal_count === 3 && entry.status === "published",
@@ -349,7 +349,7 @@ async function main() {
     // Simulate a response-time publication failure that left the already-saved
     // signals on a pending entry. A duplicate client retry must reconcile and
     // idempotently complete publication before it returns the duplicate error.
-    await request(`/api/collections/community_waitlist_entries/records/${entryId}`, {
+    await request(`/api/collections/community_place_entries/records/${entryId}`, {
       method: "PATCH",
       token: adminToken,
       body: { status: "pending" },
@@ -357,7 +357,7 @@ async function main() {
     });
     const duplicate = await createRecommendation(
       members[0].token,
-      { waitlist: entryId },
+      { entry: entryId },
       400
     );
     assert(
@@ -443,15 +443,15 @@ async function main() {
       country: "Testland",
     });
     const newPlaceThird = await createRecommendation(members[3].token, {
-      waitlist: newPlaceFirst.data.waitlist,
+      entry: newPlaceFirst.data.entry,
     });
     assert(
-      newPlaceSecond.data.waitlist === newPlaceFirst.data.waitlist &&
-        newPlaceThird.data.waitlist === newPlaceFirst.data.waitlist,
+      newPlaceSecond.data.entry === newPlaceFirst.data.entry &&
+        newPlaceThird.data.entry === newPlaceFirst.data.entry,
       "new non-canonical proposals converge before publication"
     );
     const newPublishedEntry = await getEntry(
-      newPlaceFirst.data.waitlist,
+      newPlaceFirst.data.entry,
       members[3].token
     );
     assert(
@@ -486,7 +486,7 @@ async function main() {
       },
       expected: 200,
     });
-    const queueOnlyEntry = await getEntry(queueOnlyShare.data.waitlist, members[3].token);
+    const queueOnlyEntry = await getEntry(queueOnlyShare.data.entry, members[3].token);
     assert(
       queueOnlyEntry.status === "pending" && queueOnlyEntry.signal_count === 0,
       "share without an entry creates a linked queue entry with zero signals"
@@ -515,7 +515,7 @@ async function main() {
     );
 
     for (const collection of [
-      "community_waitlist_entries",
+      "community_place_entries",
       "community_recommendations",
       "community_shares",
     ]) {
@@ -561,7 +561,7 @@ async function main() {
       adminPassword
     );
     const retained = await request(
-      `/api/collections/community_waitlist_entries/records/${entryId}`,
+      `/api/collections/community_place_entries/records/${entryId}`,
       { token: retainedAdminToken, expected: 200 }
     );
     assert(

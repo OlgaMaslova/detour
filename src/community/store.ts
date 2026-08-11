@@ -43,7 +43,7 @@ export interface MemberRecord extends RecordModel {
   home_city?: string;
   home_country?: string;
 }
-export interface WaitlistEntry {
+export interface PlaceEntry {
   id: string;
   venue_name?: string;
   city?: string;
@@ -71,7 +71,7 @@ export interface WaitlistEntry {
 
 export interface RecommendationRecord {
   id: string;
-  waitlist?: string;
+  entry?: string;
   note?: string;
   venue_name?: string;
   city?: string;
@@ -85,7 +85,7 @@ export interface ShareRecord {
   id: string;
   sender?: string;
   recipient?: string;
-  waitlist?: string;
+  entry?: string;
   venue?: string;
   sender_pseudo?: string;
   recipient_pseudo?: string;
@@ -126,9 +126,9 @@ export const store = {
   detourTabChosen: false,
   notice: null as Notice | null,
   knownVenues: [] as Venue[],
-  waitlistEntries: [] as WaitlistEntry[],
+  placeEntries: [] as PlaceEntry[],
   recommendations: [] as RecommendationRecord[],
-  waitlistEntriesLoaded: false,
+  placeEntriesLoaded: false,
   shares: [] as ShareRecord[],
   lockedEntryIds: new Set<string>(),
   communityLoaded: false,
@@ -193,9 +193,9 @@ export function resetCommunityState(): void {
   store.memberTab = 'invitations';
   store.detourTab = 'recommendations';
   store.pendingFormReveal = null;
-  store.waitlistEntries = [];
+  store.placeEntries = [];
   store.recommendations = [];
-  store.waitlistEntriesLoaded = false;
+  store.placeEntriesLoaded = false;
   store.shares = [];
   store.lockedEntryIds = new Set<string>();
   store.communityLoaded = false;
@@ -319,12 +319,12 @@ export function unseenShareCount(): number {
  * not flash the strip for a returning member who already has cards there.
  */
 export function shouldShowLandingCommunityStrip(): boolean {
-  return Boolean(member()) && store.communityLoaded && store.waitlistEntriesLoaded && store.waitlistEntries.length === 0;
+  return Boolean(member()) && store.communityLoaded && store.placeEntriesLoaded && store.placeEntries.length === 0;
 }
 
 /** The compact Feed route replaces the full day-one strip once this list exists. */
 export function shouldShowLandingFeedCta(): boolean {
-  return Boolean(member()) && store.communityLoaded && store.waitlistEntriesLoaded && store.waitlistEntries.length > 0;
+  return Boolean(member()) && store.communityLoaded && store.placeEntriesLoaded && store.placeEntries.length > 0;
 }
 
 /**
@@ -343,7 +343,7 @@ export function shouldShowLandingFeedCta(): boolean {
 function settleLandingTab(): void {
   if (store.detourTabChosen) return;
   store.detourTabChosen = true;
-  if (store.waitlistEntries.length) return;
+  if (store.placeEntries.length) return;
   if (savedPlacesLoaded() && savedPlaces().length) {
     store.detourTab = 'saved';
     return;
@@ -404,17 +404,17 @@ export function expireMemberSession(): void {
 export async function loadCommunity(render: () => void): Promise<void> {
   if (!member() || store.loadingCommunity) return;
   store.loadingCommunity = true;
-  store.waitlistEntriesLoaded = false;
+  store.placeEntriesLoaded = false;
   render();
   const results = await Promise.allSettled([
-    pb.collection('community_waitlist_entries').getFullList<WaitlistEntry>({ sort: '-updated', requestKey: null }),
+    pb.collection('community_place_entries').getFullList<PlaceEntry>({ sort: '-updated', requestKey: null }),
     pb.collection('community_shares').getFullList<ShareRecord>({ sort: '-created', requestKey: null }),
     pb.collection('community_recommendations').getFullList<RecommendationRecord>({ sort: '-created', requestKey: null }),
     pb.send<{ ids?: string[] }>('/api/detour/community/place-locks', { requestKey: null }),
   ]);
 
-  store.waitlistEntriesLoaded = results[0].status === 'fulfilled';
-  if (results[0].status === 'fulfilled') store.waitlistEntries = results[0].value;
+  store.placeEntriesLoaded = results[0].status === 'fulfilled';
+  if (results[0].status === 'fulfilled') store.placeEntries = results[0].value;
   if (results[1].status === 'fulfilled') store.shares = results[1].value;
   if (results[2].status === 'fulfilled') store.recommendations = results[2].value;
   if (results[3].status === 'fulfilled') {

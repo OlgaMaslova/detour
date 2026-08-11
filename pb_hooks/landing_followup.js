@@ -100,7 +100,7 @@ function plausibleCities(app, memberId, homeCity) {
       .db()
       .newQuery(
         "SELECT w.city AS city FROM community_recommendations r " +
-          "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+          "JOIN community_place_entries w ON w.id = r.entry " +
           "WHERE r.member = {:member} " +
           "UNION " +
           "SELECT c.city AS city FROM member_place_contributions c " +
@@ -166,7 +166,7 @@ function candidateSaves(app, memberId, cities) {
         "COALESCE(s.prompted_at, '') AS prompted_at, " +
         "COALESCE(s.prompt_declines, 0) AS prompt_declines " +
         "FROM community_place_saves s " +
-        "JOIN community_waitlist_entries w ON w.id = s.waitlist " +
+        "JOIN community_place_entries w ON w.id = s.entry " +
         "WHERE s.member = {:caller} " +
         "AND w.status = 'published' AND COALESCE(w.published_venue, '') != '' " +
         "AND LOWER(TRIM(w.city)) IN (" + placeholders.join(", ") + ") " +
@@ -175,14 +175,14 @@ function candidateSaves(app, memberId, cities) {
         // already answered. The save row survives — one state per place is a
         // display rule, not a storage rule — it just stops being askable.
         "AND NOT EXISTS (SELECT 1 FROM community_place_endorsements e " +
-        "WHERE e.waitlist = s.waitlist AND e.member = s.member) " +
+        "WHERE e.entry = s.entry AND e.member = s.member) " +
         "AND NOT EXISTS (SELECT 1 FROM community_recommendations mine " +
-        "WHERE mine.waitlist = s.waitlist AND mine.member = s.member) " +
+        "WHERE mine.entry = s.entry AND mine.member = s.member) " +
         // Somebody the member may hear from stands behind it. Without this the
         // card offers a button the endorsement route refuses.
         "AND EXISTS (SELECT 1 FROM community_recommendations r " +
         "JOIN members m ON m.id = r.member " +
-        "WHERE r.waitlist = s.waitlist AND r.member != {:caller} " +
+        "WHERE r.entry = s.entry AND r.member != {:caller} " +
         "AND TRIM(COALESCE(r.note, '')) != '' " +
         "AND " + realMemberSql("m") + " " +
         "AND m.community_status = 'verified' " +

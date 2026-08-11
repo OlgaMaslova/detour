@@ -191,7 +191,7 @@ type VenueRecord = Record<string, unknown> & {
   /**
    * Occasion tags now live on the venue: they are place facts, not properties of
    * a publication event. Publication unions the recommending members' tags onto
-   * the venue (see mergeEntryOccasionsIntoVenue in pb_hooks/community_waitlist.js).
+   * the venue (see mergeEntryOccasionsIntoVenue in pb_hooks/place_entries.js).
    */
   occasions?: string[];
   /**

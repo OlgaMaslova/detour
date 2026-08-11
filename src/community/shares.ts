@@ -213,8 +213,8 @@ export function bindShares(root: HTMLElement, render: () => void): void {
   root.querySelectorAll<HTMLFormElement>('[data-community-share]').forEach((form) => {
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const waitlist = form.dataset.waitlist || '';
-      const selected = directoryState(`share-${waitlist}`).selected;
+      const entryId = form.dataset.entry || '';
+      const selected = directoryState(`share-${entryId}`).selected;
       if (!selected) {
         store.notice = { kind: 'error', text: 'Search for a member and choose their pseudo before sharing this food-and-drink destination.' };
         render();
@@ -226,11 +226,11 @@ export function bindShares(root: HTMLElement, render: () => void): void {
       render();
       try {
         await pb.collection('community_shares').create({
-          waitlist,
+          entry: entryId,
           recipient: selected.id,
           personal_note: String(values.get('personal_note') || '').trim(),
         });
-        dropDirectory(`share-${waitlist}`);
+        dropDirectory(`share-${entryId}`);
         store.notice = { kind: 'success', text: `Shared with ${pseudoLabel(selected.pseudo)}.` };
         store.communityLoaded = false;
         await loadCommunity(render);

@@ -100,7 +100,7 @@ function visibleCityPlaces(app, memberId, city) {
       "SELECT v.id AS venue_id, v.name AS venue_name, v.occasions AS occasions, " +
         "m.pseudo AS recommender, r.created AS created " +
         "FROM community_recommendations r " +
-        "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+        "JOIN community_place_entries w ON w.id = r.entry " +
         "JOIN members m ON m.id = r.member " +
         "JOIN venues v ON v.id = COALESCE(NULLIF(w.published_venue, ''), w.canonical_venue) " +
         "WHERE v.published = TRUE AND v.suppressed != TRUE " +
@@ -129,7 +129,7 @@ function coveredOccasions(app, memberId) {
       .db()
       .newQuery(
         "SELECT v.occasions AS occasions FROM community_recommendations r " +
-          "JOIN community_waitlist_entries w ON w.id = r.waitlist " +
+          "JOIN community_place_entries w ON w.id = r.entry " +
           "JOIN venues v ON v.id = COALESCE(NULLIF(w.published_venue, ''), w.canonical_venue) " +
           "WHERE r.member = {:member} " +
           "UNION ALL " +

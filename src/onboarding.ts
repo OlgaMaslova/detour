@@ -539,7 +539,7 @@ export function bindOnboarding(root: HTMLElement, venues: Venue[], callbacks: Ca
     // and city ride along so the server can still check they describe it.
     await sendPlace(
       {
-        waitlist: place.entry,
+        entry: place.entry,
         venue_name: place.venue_name || draft.name,
         city: place.city || draft.city,
         note: draft.note,

@@ -30,7 +30,7 @@ interface ImageCurationItem {
  */
 interface CoverlessPlace {
   id: string;
-  waitlist: string;
+  entry: string;
   place_name: string;
   city: string;
   country: string;

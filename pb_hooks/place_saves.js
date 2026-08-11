@@ -33,8 +33,8 @@ function findSave(app, memberId, entryId) {
   try {
     return app.findFirstRecordByFilter(
       "community_place_saves",
-      "member = {:member} && waitlist = {:waitlist}",
-      { member: memberId, waitlist: entryId }
+      "member = {:member} && entry = {:entry}",
+      { member: memberId, entry: entryId }
     );
   } catch {
     return null;
@@ -81,13 +81,13 @@ function ownSaves(app, memberId) {
         "SELECT s.id, " + ENTRY_VENUE_SQL + " AS venue_id, " +
           "w.venue_name, w.city, w.country, s.source, s.created " +
           "FROM community_place_saves s " +
-          "JOIN community_waitlist_entries w ON w.id = s.waitlist " +
+          "JOIN community_place_entries w ON w.id = s.entry " +
           "WHERE s.member = {:member} " +
           // Superseded by a higher rung: hidden, never deleted. See the header.
           "AND NOT EXISTS (SELECT 1 FROM community_place_endorsements e " +
-          "WHERE e.waitlist = s.waitlist AND e.member = s.member) " +
+          "WHERE e.entry = s.entry AND e.member = s.member) " +
           "AND NOT EXISTS (SELECT 1 FROM community_recommendations r " +
-          "WHERE r.waitlist = s.waitlist AND r.member = s.member) " +
+          "WHERE r.entry = s.entry AND r.member = s.member) " +
           "ORDER BY s.created DESC, s.id DESC LIMIT 500"
       )
       .bind({ member: memberId })

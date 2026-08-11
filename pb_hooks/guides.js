@@ -748,7 +748,7 @@ function openAiModel() {
 /**
  * The assistant's final text out of a Responses payload.
  *
- * A local copy of the same two helpers community_waitlist.js keeps private for
+ * A local copy of the same two helpers place_entries.js keeps private for
  * its web-discovery pass. Exporting them from there would make that module's
  * surface a general-purpose OpenAI client, which it is not, and the pair is
  * eight lines.
@@ -958,7 +958,7 @@ function cleanTitle(value) {
 /**
  * The published venue this imported place already is, or "".
  *
- * Matched through `community_waitlist_entries` rather than `venues` directly,
+ * Matched through `community_place_entries` rather than `venues` directly,
  * because the entry is what carries publication state and what already holds the
  * normalized name and city the catalogue compares by — the same two columns
  * written here, through the same `normalizePlacePart`, so an imported "Café
@@ -984,7 +984,7 @@ function matchPublishedVenue(app, normalizedName, normalizedCity, fallbackCity) 
     let entry;
     try {
       entry = app.findFirstRecordByFilter(
-        "community_waitlist_entries",
+        "community_place_entries",
         "normalized_name = {:name} && normalized_city = {:city} && status = 'published' && " +
           "published_venue != ''",
         { name: normalizedName, city }
@@ -1010,7 +1010,7 @@ function entryForVenue(app, venueId) {
   if (!venueId) return null;
   try {
     return app.findFirstRecordByFilter(
-      "community_waitlist_entries",
+      "community_place_entries",
       "published_venue = {:venue}",
       { venue: venueId }
     );
@@ -1397,7 +1397,7 @@ function nominatimBaseUrl() {
 
 /* ---------- shared text helpers ---------- */
 //
-// Local copies rather than a require() of community_waitlist.js at module scope:
+// Local copies rather than a require() of place_entries.js at module scope:
 // that module reaches for `$os`, `$http` and the catalogue on load, and this one
 // is required by a route that may only be reading a page. `normalizePlacePart`
 // must stay character-for-character identical to the catalogue's, because it is

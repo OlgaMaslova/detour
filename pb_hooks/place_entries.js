@@ -26,7 +26,7 @@ function normalizePlacePart(value) {
 }
 
 // Optional place facts carried by recommendations. Values mirror the select
-// fields on community_waitlist_entries / community_recommendations; labels are
+// fields on community_place_entries / community_recommendations; labels are
 // what publication writes to the public venue category.
 const PLACE_CATEGORY_LABELS = {
   restaurant: "Restaurant",
@@ -348,7 +348,7 @@ function findEntryByPlace(app, normalizedName, normalizedCity, normalizedDisambi
   if (qualifier) params.qualifier = qualifier;
   try {
     return app.findFirstRecordByFilter(
-      "community_waitlist_entries",
+      "community_place_entries",
       "normalized_name = {:name} && normalized_city = {:city} && " +
         (qualifier ? "normalized_disambiguator = {:qualifier}" : UNQUALIFIED_PLACE),
       params
@@ -456,7 +456,7 @@ function createOrResolveEntry(app, input) {
     return { entry: fillEntryGaps(app, existing, place), created: false };
   }
 
-  const collection = app.findCollectionByNameOrId("community_waitlist_entries");
+  const collection = app.findCollectionByNameOrId("community_place_entries");
   const entry = new Record(collection);
   entry.set("venue_name", place.venueName);
   entry.set("city", place.city);
@@ -496,11 +496,11 @@ function createOrResolveEntry(app, input) {
   }
 }
 
-function resolveEntry(app, waitlistId, input) {
-  if (waitlistId) {
+function resolveEntry(app, entryId, input) {
+  if (entryId) {
     let entry;
     try {
-      entry = app.findRecordById("community_waitlist_entries", waitlistId);
+      entry = app.findRecordById("community_place_entries", entryId);
     } catch {
       throw new BadRequestError("The waiting-list entry does not exist.");
     }
@@ -535,8 +535,8 @@ function findMemberRecommendation(app, memberId, entryId) {
   try {
     return app.findFirstRecordByFilter(
       "community_recommendations",
-      "member = {:member} && waitlist = {:waitlist}",
-      { member: memberId, waitlist: entryId }
+      "member = {:member} && entry = {:entry}",
+      { member: memberId, entry: entryId }
     );
   } catch {
     return null;
@@ -674,7 +674,7 @@ function recalculateAndPublish(app, entryId) {
   app.runInTransaction((txApp) => {
     let entry;
     try {
-      entry = txApp.findRecordById("community_waitlist_entries", entryId);
+      entry = txApp.findRecordById("community_place_entries", entryId);
     } catch {
       return;
     }
@@ -687,9 +687,9 @@ function recalculateAndPublish(app, entryId) {
       .db()
       .newQuery(
         "SELECT COUNT(DISTINCT member) AS signal_count " +
-          "FROM community_recommendations WHERE waitlist = {:waitlist}"
+          "FROM community_recommendations WHERE entry = {:entry}"
       )
-      .bind({ waitlist: entry.id })
+      .bind({ entry: entry.id })
       .one(summary);
 
     const signalCount = Number(summary.signal_count || 0);
@@ -722,7 +722,7 @@ function recalculateAndPublish(app, entryId) {
  * shared entry itself are deleted outright.
  *
  * Private correspondence is deliberately preserved. A member's share note and
- * its replies are not catalogue data, and both the `venue` and `waitlist`
+ * its replies are not catalogue data, and both the `venue` and `entry`
  * relations on community_shares cascade on delete — so shares are detached
  * first. They keep their denormalized venue_name/address and still read
  * correctly after the place is gone.
@@ -742,7 +742,7 @@ function withdrawUnbackedEntry(app, entryId) {
   app.runInTransaction((txApp) => {
     let entry;
     try {
-      entry = txApp.findRecordById("community_waitlist_entries", entryId);
+      entry = txApp.findRecordById("community_place_entries", entryId);
     } catch {
       // Already gone (a concurrent withdrawal, or a cascading member delete).
       return;
@@ -754,9 +754,9 @@ function withdrawUnbackedEntry(app, entryId) {
       .db()
       .newQuery(
         "SELECT COUNT(*) AS total FROM community_recommendations " +
-          "WHERE waitlist = {:waitlist}"
+          "WHERE entry = {:entry}"
       )
-      .bind({ waitlist: entry.id })
+      .bind({ entry: entry.id })
       .one(remaining);
     if (Number(remaining.total || 0) > 0) return;
 
@@ -769,18 +769,18 @@ function withdrawUnbackedEntry(app, entryId) {
       .db()
       .newQuery(
         "SELECT COUNT(*) AS total FROM community_shares " +
-          "WHERE waitlist = {:waitlist} OR (venue != '' AND venue = {:venue})"
+          "WHERE entry = {:entry} OR (venue != '' AND venue = {:venue})"
       )
-      .bind({ waitlist: entry.id, venue: venueId })
+      .bind({ entry: entry.id, venue: venueId })
       .one(detached);
     result.detachedShares = Number(detached.total || 0);
     if (result.detachedShares > 0) {
       txApp
         .db()
         .newQuery(
-          "UPDATE community_shares SET waitlist = '' WHERE waitlist = {:waitlist}"
+          "UPDATE community_shares SET entry = '' WHERE entry = {:entry}"
         )
-        .bind({ waitlist: entry.id })
+        .bind({ entry: entry.id })
         .execute();
       if (venueId) {
         txApp
@@ -802,7 +802,7 @@ function withdrawUnbackedEntry(app, entryId) {
     txApp
       .db()
       .newQuery(
-        "SELECT COUNT(*) AS total FROM community_waitlist_entries " +
+        "SELECT COUNT(*) AS total FROM community_place_entries " +
           "WHERE published_venue = {:venue} OR canonical_venue = {:venue}"
       )
       .bind({ venue: venueId })
@@ -843,7 +843,7 @@ function claimPublicationNotification(app, entryId) {
   app
     .db()
     .newQuery(
-      "UPDATE community_waitlist_entries " +
+      "UPDATE community_place_entries " +
         "SET publication_notification_sent_at = {:claimedAt} " +
         "WHERE id = {:entryId} AND status = 'published' " +
         "AND COALESCE(publication_notification_sent_at, '') = '' " +
