@@ -111,7 +111,7 @@ platform-provisioned or otherwise unmanaged collections in the database.
 
 | Collection | What it holds |
 |---|---|
-| `members` | every account (auth collection); readable only by the member it belongs to. A public signup carries pseudo, email, password and home city, plus an invitation code when there is one — `submitSignup` in `src/community.ts` sends them together. No code means the member starts their own circle: `invited_by` stays empty |
+| `members` | every account (auth collection); readable only by the member it belongs to. A public signup carries pseudo, email, password and home city, plus an invitation code when there is one — `submitSignup` in `src/community/auth.ts` sends them together. No code means the member starts their own circle: `invited_by` stays empty |
 | `invites` | issued invitation codes and who claimed them |
 | `invite_requests` | requests to join, from the public form |
 | `cities` | the destinations places route under, and how each presents |

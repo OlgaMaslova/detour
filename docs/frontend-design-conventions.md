@@ -1,7 +1,7 @@
 # Frontend design conventions
 
 Current visual and route decisions for the Detour frontend (`src/main.ts`,
-`src/community.ts`, and `src/styles.css`). Last revised 2026-08-01. When a
+`src/community/`, and `src/styles.css`). Last revised 2026-08-01. When a
 decision here changes, update this file in the same change.
 
 **There is no "Detourist List".** The name was dropped from all user-facing copy

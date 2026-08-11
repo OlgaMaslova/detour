@@ -5,7 +5,7 @@ else recommended, and would send you there too.*
 
 > **Shipped.** `pb_migrations/1786406400_place_endorsements.js`,
 > `pb_hooks/place_endorsements.pb.js`, `pb_hooks/place_endorsements.js`, and the
-> **Been & loved** tab in My detours (`src/community.ts`). This document is the
+> **Been & loved** tab in My detours (`src/community/endorsements.ts`). This document is the
 > reasoning behind it, kept because the reasoning is what a future change needs
 > and the code does not carry it. Where it describes schema or routes, it
 > describes what exists — **do not write a second migration against

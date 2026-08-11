@@ -29,6 +29,34 @@ Add future project-specific rules here.
 - Detour charges nobody. Do not add a paywall, pricing surface, subscription
   gate, or checkout flow unless the user explicitly asks for one.
 
+## The community module
+
+The member area is a folder, `src/community/`, split by feature (2026-08-11):
+`auth`, `queue` (the recommendation ledger), `shares`, `invites`, `curation`,
+`endorsements`, `boards` (Wanna go and the destination boards), `settings`,
+`directory` (the pseudo picker), `place-form` (the form machinery onboarding
+shares), `cards` (the doorway to the shared card renderer), `store`, and
+`index`. Keep its rules or the split rots back into one file:
+
+- **`index.ts` is the only public face.** Importers say `from './community'`
+  and get the barrel's re-exports; nothing outside the folder deep-imports a
+  feature module. When another surface needs something new, export it from its
+  feature file and add it to the barrel.
+- **State more than one feature writes lives on `store`** in
+  `src/community/store.ts` — a mutable object, because ES module bindings are
+  read-only from outside. State a single feature owns stays a module-level
+  `let` in that feature's file. Do not add a second shared-state bag, and do
+  not promote a field to `store` until a second feature actually writes it.
+- **`store.ts` imports nothing from the folder.** That is what keeps the
+  dependency graph acyclic. Cross-feature calls at teardown go through the
+  `onCommunityReset` registry instead: a feature with session-scoped state
+  registers its own reset at module load, and `resetCommunityState` runs them
+  all. New session-scoped state gets a registration, not a line in a central
+  list.
+- **Each feature binds its own markup.** `bindCommunity` in `index.ts` only
+  composes the per-feature `bindX(root, render)` calls; a handler belongs in
+  the module that renders the element it listens to.
+
 ## Migration safety
 
 Migrations run against persistent data, at boot, before PocketBase serves.
@@ -258,7 +286,7 @@ doors is exactly one field: `invited_by`, which is the graph edge.
   people and nobody else. There is no third membership tier and no reduced
   account — resist adding one, because the reach is already bounded by the graph
   and a second status would have to be honoured by every read path separately.
-- **One submit path serves both cards** (`submitSignup` in src/community.ts) and
+- **One submit path serves both cards** (`submitSignup` in src/community/auth.ts) and
   one create hook serves both payloads (the `members` create hook in
   `pb_hooks/main.pb.js`). They differ only where the code is read. Two copies is
   how the two would quietly stop agreeing about what a pseudo is.
@@ -294,7 +322,7 @@ doors is exactly one field: `invited_by`, which is the graph edge.
 ## The way back in
 
 A forgotten password is answered on the membership card, not on a page of its
-own: `mode` in src/community.ts gains `forgot` (asks for the address, sends the
+own: `mode` in src/community/auth.ts gains `forgot` (asks for the address, sends the
 link) and `reset` (what the emailed link opens). Both are the same card as
 sign-in, because somebody who cannot get in is already looking at it.
 

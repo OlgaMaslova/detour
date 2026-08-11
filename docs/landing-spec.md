@@ -4,7 +4,7 @@
 the feed.*
 
 > **Shipped.** `renderLanding` in `src/main.ts`, `landingPanel` in
-> `src/community.ts`, the triage card in `pb_hooks/landing_triage.js`,
+> `src/community/index.ts`, the triage card in `pb_hooks/landing_triage.js`,
 > `pb_hooks/landing_triage.pb.js` and `src/triage.ts`, the *been yet?* follow-up
 > in `pb_hooks/landing_followup.js`, `pb_hooks/landing_followup.pb.js` and
 > `src/follow-up.ts`, and the answer-slot precedence in
@@ -29,7 +29,7 @@ the feed.*
 
 **My detours is the signed-in landing.** The feed moves to second place.
 
-My detours already exists (`src/community.ts`, `detoursPanel`) with the tabs
+My detours already exists (`src/community/index.ts`, `detoursPanel`) with the tabs
 **Recommendations · Been & loved · Private shares**. This promotes it from a
 panel inside the member area to the thing an invitation and a return visit both
 land on, and adds one tab.
