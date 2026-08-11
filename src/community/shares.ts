@@ -6,10 +6,10 @@
 import { pb } from '../pocketbase';
 import type { Venue } from '../data';
 import { bindMemberShares, markNetworkSharesSeen, memberSharesMarkup } from '../network';
+import { resyncAfterWrite } from '../live';
 import {
   esc,
   incomingShares,
-  loadCommunity,
   member,
   onCommunityReset,
   pseudoLabel,
@@ -232,8 +232,9 @@ export function bindShares(root: HTMLElement, render: () => void): void {
         });
         dropDirectory(`share-${entryId}`);
         store.notice = { kind: 'success', text: `Shared with ${pseudoLabel(selected.pseudo)}.` };
-        store.communityLoaded = false;
-        await loadCommunity(render);
+        // The deck on the landing is drawn from the circle payload, not from the
+        // ledger, so a resync is what puts the share the member just sent into it.
+        await resyncAfterWrite(render);
       } catch (error) {
         store.notice = { kind: 'error', text: readableError(error, 'That share could not be sent. Check the recipient and note, then try again.') };
       } finally {
@@ -280,8 +281,9 @@ export function bindShares(root: HTMLElement, render: () => void): void {
       shareFormOpen = false;
       sharePlacePrefill = '';
       store.notice = { kind: 'success', text: `Shared with ${pseudoLabel(selected.pseudo)}.` };
-      store.communityLoaded = false;
-      await loadCommunity(render);
+      // Sent: the deck is drawn from the circle payload, so it is re-read with
+      // everything else rather than left to show the state before the send.
+      await resyncAfterWrite(render);
     } catch (error) {
       store.notice = { kind: 'error', text: readableError(error, 'That share could not be sent. Check the details and try again.') };
     } finally {

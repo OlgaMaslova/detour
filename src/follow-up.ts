@@ -18,7 +18,7 @@
  */
 
 import { pb } from './pocketbase';
-import { refreshSavedPlaces } from './saved';
+import { resyncAfterWrite } from './live';
 
 /** One follow-up, as the server chose it. */
 export interface FollowUpCard {
@@ -195,9 +195,10 @@ export function bindFollowUpCard(root: HTMLElement, render: () => void): void {
         requestKey: null,
       });
       // The save survives the mark — one state per place is a display rule, not a
-      // storage rule — but the Wanna go tab stops listing it, so the list is
+      // storage rule — but the Wanna go tab stops listing it, and the count on the
+      // place has changed for the catalogue and the feed too, so everything is
       // re-read rather than edited by hand.
-      void refreshSavedPlaces(() => {});
+      void resyncAfterWrite(render);
     });
   });
 

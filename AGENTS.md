@@ -189,6 +189,38 @@ live redeploys as a debug loop.
 - Never deploy temporary diagnostic routes, hooks, or log statements just to
   look at data — that costs two deploys per look.
 
+## Nothing on screen is stale
+
+The client holds six server answers and can reconstruct none of them: the scoped
+catalogue (`state.venues`), the circle feed (`/api/detour/network-discovery`, or
+the public feed for a visitor), the member's ledger, Wanna go, the imported
+guides, and the circle. `src/live.ts` owns keeping all six current.
+
+- **Every write ends in `resyncAfterWrite(render)`.** Not a hand-picked subset of
+  refreshers — a write path does not get to decide which stores its write
+  touched, because that judgement is what went wrong: a new recommendation used
+  to refresh the ledger and the catalogue but not the feed, so the member's own
+  sentence was missing from their own card until a reload. Await it before
+  settling the success notice, so the notice describes what came back.
+- **A new server-backed store gets a `registerLiveSource` line** in
+  `registerLiveSources` in main.ts, and nothing else. That is the whole cost of
+  keeping it current, and it is deliberately cheaper than the alternative.
+- **A refresh never empties what it had.** Every source keeps its current rows
+  when a read fails, stays silent about it — a background read nobody asked for
+  must not raise an error bar over an untouched screen — and re-checks the
+  signed-in identity across its own await, so a session that changed hands
+  mid-flight is answered by its own read.
+- **A re-read nobody asked for does not announce itself.** `loadCommunity` takes
+  `{ quiet: true }` for exactly this, and the feed loaders keep serving the rows
+  already on screen while they refetch. A loading line in place of real content
+  is a worse answer than the content.
+- **Other members' writes arrive over PocketBase realtime**, not by polling.
+  `venues` is the public subscription and does the work: publishing, seconding
+  and withdrawing all write the venue row. The member-scoped subscriptions carry
+  what the server does to this member's own rows afterwards. Treat the stream as
+  best-effort — the visibility, reconnect and post-write passes are what make it
+  safe to lose.
+
 ## Recommendation card consistency
 
 - Render recommendation cards on home, destination, and Explore surfaces through

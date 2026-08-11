@@ -4,7 +4,7 @@
  */
 import { pb } from '../pocketbase';
 import { ENDORSE_LABEL } from '../signal';
-import { refreshSavedPlaces } from '../saved';
+import { resyncAfterWrite } from '../live';
 import { esc, readableError, store } from './store';
 import { placeCardGrid } from './cards';
 
@@ -113,7 +113,13 @@ export function bindEndorsements(root: HTMLElement, render: () => void): void {
         // Withdrawing the mark drops the member back a rung, and a save they had
         // on this place before they went comes back to the Wanna go tab exactly
         // where they left it. Nothing was deleted on the way up.
-        await refreshSavedPlaces(render);
+        //
+        // The whole resync rather than the saved list alone: the mark is a server
+        // count on the place, so the catalogue row, the feed card built from it and
+        // Been & loved are all a mark out of date until they are re-read. The
+        // figures written onto the venue above are what keeps the control the member
+        // pressed honest in the meantime.
+        await resyncAfterWrite(render);
       } catch (error) {
         endorsementFailure.set(
           venueId,

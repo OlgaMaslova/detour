@@ -174,6 +174,16 @@ let memberNewSession = false;
 // as the server settled them. Null when there is nothing to ask — which is the
 // normal case: it wants a member who came back and has never added a place.
 let memberPlacePromptState: PlacePrompt | null = null;
+/**
+ * Whether a ledger read is in flight, as reentrancy bookkeeping.
+ *
+ * Separate from `store.loadingCommunity`, which is the *visible* flag the panel
+ * turns into "Loading…". A background re-read — the live stream noticed a change,
+ * or the tab came back to the front — must not put the member's own list behind a
+ * loading line for nothing, but it still has to be prevented from racing another
+ * read. So the guard and the announcement are two different things now.
+ */
+let communityInFlight = false;
 
 /**
  * What each feature module does with its own state when the session ends.
@@ -401,19 +411,52 @@ export function expireMemberSession(): void {
     text: 'Your session expired, so you have been signed out. Sign in again to see your circle.',
   };
 }
-export async function loadCommunity(render: () => void): Promise<void> {
-  if (!member() || store.loadingCommunity) return;
-  store.loadingCommunity = true;
-  store.placeEntriesLoaded = false;
-  render();
+/**
+ * Read the member's own ledger: their places, their notes, their shares, and which
+ * places the server has locked.
+ *
+ * `quiet` is for a re-read nobody asked for — the live stream saw a change, or the
+ * tab came back after a while. It fetches exactly the same things and says nothing
+ * while it does: the list already on screen is real, so replacing it with a loading
+ * line would be a worse answer than the one it is holding. A read the member set
+ * off themselves is not quiet, because they pressed something and the screen should
+ * admit it is working.
+ *
+ * A failed read leaves every store as it was, quiet or not.
+ */
+export async function loadCommunity(
+  render: () => void,
+  options: { quiet?: boolean } = {}
+): Promise<void> {
+  const signedInAs = member()?.id;
+  if (!signedInAs || communityInFlight) return;
+  communityInFlight = true;
+  if (!options.quiet) {
+    store.loadingCommunity = true;
+    store.placeEntriesLoaded = false;
+    render();
+  }
   const results = await Promise.allSettled([
     pb.collection('community_place_entries').getFullList<PlaceEntry>({ sort: '-updated', requestKey: null }),
     pb.collection('community_shares').getFullList<ShareRecord>({ sort: '-created', requestKey: null }),
     pb.collection('community_recommendations').getFullList<RecommendationRecord>({ sort: '-created', requestKey: null }),
     pb.send<{ ids?: string[] }>('/api/detour/community/place-locks', { requestKey: null }),
   ]);
+  // Released the moment the requests are back: everything below this line is
+  // synchronous, so nothing can interleave with it, and a throw in it must not be
+  // able to leave the guard closed against every later read.
+  communityInFlight = false;
+  // A session that changed hands mid-flight is answered by its own read, never by
+  // this one. Without this the previous member's ledger lands in a store that has
+  // already been cleared for somebody else.
+  if (member()?.id !== signedInAs) return;
 
-  store.placeEntriesLoaded = results[0].status === 'fulfilled';
+  // A quiet re-read that failed keeps the list it already had and stays loaded: it
+  // is the same rows the server last sent, and a background request nobody asked
+  // for must not be able to empty the member's own screen.
+  if (results[0].status === 'fulfilled' || !options.quiet) {
+    store.placeEntriesLoaded = results[0].status === 'fulfilled';
+  }
   if (results[0].status === 'fulfilled') store.placeEntries = results[0].value;
   if (results[1].status === 'fulfilled') store.shares = results[1].value;
   if (results[2].status === 'fulfilled') store.recommendations = results[2].value;
@@ -426,7 +469,10 @@ export async function loadCommunity(render: () => void): Promise<void> {
   }
 
   const failure = results.find((result) => result.status === 'rejected');
-  if (failure?.status === 'rejected') {
+  // And it says nothing about it either. An error bar arriving over an untouched
+  // screen, in answer to nothing the member did, reports a problem they cannot act
+  // on — the next pass will either succeed or the read they do ask for will say so.
+  if (failure?.status === 'rejected' && !options.quiet) {
     store.notice = { kind: 'error', text: readableError(failure.reason, 'Some community details could not be loaded. Please try again.') };
   }
   store.communityLoaded = true;
@@ -434,8 +480,9 @@ export async function loadCommunity(render: () => void): Promise<void> {
   // Writing a place hides any save the member had on it, and deleting the note
   // brings that save back — the row is never destroyed on the way up the ladder.
   // This reload is what every recommendation write ends with, so it is where the
-  // Wanna go list catches up.
-  void refreshSavedPlaces(render);
+  // Wanna go list catches up. A quiet pass skips it: that pass is part of a full
+  // resync, which re-reads the saved list on its own account.
+  if (!options.quiet) void refreshSavedPlaces(render);
   // Now that there is something to look at, the landing can tell whether
   // Recommendations is the right tab to be on.
   settleLandingTab();

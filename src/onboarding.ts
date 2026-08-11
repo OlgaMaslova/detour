@@ -32,6 +32,7 @@
  */
 import { pb } from './pocketbase';
 import { meaningfulRecommendation, placeCollisionFor, readPlaceLink } from './community';
+import { resyncAfterWrite } from './live';
 import type { PlaceCollision } from './community';
 import type { Venue } from './data';
 
@@ -57,7 +58,6 @@ interface Callbacks {
   /** Leaves onboarding for the signed-in feed. */
   onFinished: () => void;
   onPlaceContributed: () => void;
-  refreshCatalogue: () => Promise<Venue[]>;
 }
 
 let step: Step = 'place';
@@ -347,7 +347,7 @@ export function onboardingMarkup(venues: Venue[]): string {
 }
 
 export function bindOnboarding(root: HTMLElement, venues: Venue[], callbacks: Callbacks): void {
-  const { render, onFinished, onPlaceContributed, refreshCatalogue } = callbacks;
+  const { render, onFinished, onPlaceContributed } = callbacks;
 
   // Focus lands on the step's own heading, once per step: `autofocus` does not
   // fire on markup that was injected rather than parsed, and re-focusing on every
@@ -451,11 +451,11 @@ export function bindOnboarding(root: HTMLElement, venues: Venue[], callbacks: Ca
       draft.note = '';
       step = 'saved';
       onPlaceContributed();
-      // The feed this route ends on is drawn from the catalogue, and the place
-      // just published is not in the copy the app is holding.
-      await refreshCatalogue().catch(() => {
-        // The feed stays truthful without the refresh; it reloads on arrival.
-      });
+      // The home page this route ends on is drawn from the catalogue and from the
+      // circle payload, and the place just published is in neither copy the app is
+      // holding. One resync re-reads both, or the member finishes the flow and lands
+      // on a page with no sign of what they just wrote.
+      await resyncAfterWrite(render);
     } catch (error) {
       const askedFor = String(payload.disambiguator || '');
       const found = await placeCollisionFor(error, { ...held, disambiguator: askedFor });

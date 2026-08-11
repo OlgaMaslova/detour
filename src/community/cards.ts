@@ -35,8 +35,18 @@ import type { Venue } from '../data';
  */
 export function placeCardMarkup(place: {
   name: string;
+  /**
+   * The city, and the city alone.
+   *
+   * NOT A COMPOSED LOCATION LINE. This is what `notesForPlace` matches on, so
+   * anything folded in here — a quarter, a street — is a city the feed has never
+   * heard of, and the place stops finding the notes written about it. An
+   * imported row's quarter goes in `area`, which is display only.
+   */
   city: string;
   country: string;
+  /** The quarter, for a card that has no other locating fact — see below. */
+  area?: string;
   fallback?: Partial<DiscoveryRecommendation>;
   emptyNote: string;
   /** An imported place's own private page, when it has one. */
@@ -65,6 +75,11 @@ export function placeCardMarkup(place: {
   // wears a photograph somebody on Detour took, so the imported fallbacks are
   // handed over but will lose to both.
   const notes = notesForPlace(place.name, place.city);
+  // THE QUARTER IS NOT CARRIED ONTO THIS BRANCH. Once a member's note fronts the
+  // card, this is the feed's card for that place and has to read as the same one
+  // — down to the line under the title, which the feed states as the city. The
+  // area is what an imported row offers a card that has nothing else to locate
+  // it by, and a note is something else.
   if (notes.length) return groupedRecommendationCardMarkup(notes, store.landingPlaceResolver, options);
   return groupedRecommendationCardMarkup(
     [
@@ -79,6 +94,7 @@ export function placeCardMarkup(place: {
     store.landingPlaceResolver,
     {
       ...options,
+      area: place.area,
       emptyNote: place.emptyNote,
       byline: place.fallbackByline,
       bylineHref: place.fallbackBylineHref,
@@ -141,6 +157,8 @@ export function placeCardGrid(
     name?: string;
     city?: string;
     country?: string;
+    /** The quarter, display only — see `placeCardMarkup`. */
+    area?: string;
     emptyNote: string;
     footer?: string;
     fallback?: Partial<DiscoveryRecommendation>;
@@ -164,6 +182,7 @@ export function placeCardGrid(
             name: item.venue?.name || item.name || 'A place',
             city: item.venue?.city || item.city || '',
             country: item.venue?.country || item.country || '',
+            area: item.area,
             emptyNote: item.emptyNote,
             fallback: item.fallback,
             fallbackHref: item.fallbackHref,

@@ -14,7 +14,8 @@
  */
 
 import { pb } from './pocketbase';
-import { refreshSavedPlaces, toggleSavedPlace } from './saved';
+import { toggleSavedPlace } from './saved';
+import { resyncAfterWrite } from './live';
 
 /** One card, as the server chose it. */
 export interface TriageCard {
@@ -219,10 +220,11 @@ export function bindTriageCard(root: HTMLElement, render: () => void): void {
         method: 'POST',
         requestKey: null,
       });
-      // A save on this place stops showing on the Wanna go tab now that the
-      // member has reached a higher rung — the row survives, so the list is
-      // re-read rather than edited by hand.
-      void refreshSavedPlaces(() => {});
+      // A mark is a count on the place, so it reaches further than this card: the
+      // Wanna go tab stops listing a save the member has now passed — the row
+      // survives, so the list is re-read rather than edited by hand — and the
+      // catalogue row and feed card both carry the figure that just changed.
+      void resyncAfterWrite(render);
     });
   });
 

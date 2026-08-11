@@ -146,6 +146,14 @@ interface NetworkDiscovery {
 let status: DiscoveryStatus = 'idle';
 let loadedFor = '';
 let errorMessage = '';
+/**
+ * Which circle-feed request is the current one.
+ *
+ * A forced reload runs even while another load is in flight — a write that just
+ * landed cannot wait for a request that was sent before it — so two responses can
+ * be outstanding at once and the older one must not overwrite the newer.
+ */
+let discoveryRequest = 0;
 let recommendationsExpanded = false;
 /**
  * Whether the landing feed includes the founding circle's places. On by default —
@@ -184,6 +192,15 @@ interface PublicRecommendationFeed {
   error: string;
   request: number;
   recommendations: PublicRecommendation[];
+  /**
+   * The city as it was asked for, not as it is keyed.
+   *
+   * The map key is normalised so two spellings of one city share a feed; the
+   * request needs the name the caller actually used, because that is what goes to
+   * the server and appears in the sentence when the read fails. Re-reading from the
+   * key would send a lower-cased city name and quote it back at the reader.
+   */
+  city: string;
 }
 
 const publicRecommendationFeeds = new Map<string, PublicRecommendationFeed>();
@@ -568,6 +585,7 @@ function publicRecommendationFeed(city = ''): PublicRecommendationFeed {
     error: '',
     request: 0,
     recommendations: [],
+    city,
   };
   publicRecommendationFeeds.set(key, feed);
   return feed;
@@ -640,6 +658,9 @@ export function resetNetworkDiscovery(): void {
   status = 'idle';
   loadedFor = '';
   errorMessage = '';
+  // Abandons any circle request already in flight: after a reset its payload
+  // describes the member who was signed in when it was sent.
+  discoveryRequest += 1;
   publicRecommendationRequest += 1;
   publicRecommendationFeeds.clear();
   replyStates.clear();
@@ -792,6 +813,16 @@ function recommendationCardMarkup(
     venueName: string;
     city?: string;
     country?: string;
+    /**
+     * The quarter, printed ahead of the city — "Astoria, New York".
+     *
+     * DISPLAY ONLY, AND SEPARATE FROM `city` ON PURPOSE. The city is what
+     * identifies the place: it resolves the title's link, keys the placeholder
+     * tint, and upstream it is what matches a place to the notes written about
+     * it. An area folded into it made a card of the same place stop matching its
+     * own feed row, so the locating detail travels in its own field.
+     */
+    area?: string;
     note?: string;
     created?: string;
     bylineHtml: string;
@@ -830,7 +861,7 @@ function recommendationCardMarkup(
   resolvePlace?: NetworkPlaceResolver
 ): string {
   const when = view.created ? formatDate(view.created) : '';
-  const whereabouts = [view.city, view.country].filter(Boolean).join(', ');
+  const whereabouts = [view.area, view.city, view.country].filter(Boolean).join(', ');
   const place = view.venueName && resolvePlace ? resolvePlace(view.venueName, view.city || '') : null;
   // A published place is a link to its own page, so a feed card behaves like
   // every other card in the app — and can be opened in a new tab.
@@ -939,6 +970,8 @@ export function groupedRecommendationCardMarkup(
     selected?: boolean;
     markRecent?: boolean;
     emptyNote?: string;
+    /** The quarter, printed ahead of the city. See `recommendationCardMarkup`. */
+    area?: string;
     /** See `recommendationCardMarkup` — these are for imported places. */
     fallbackHref?: string;
     fallbackCoverHref?: string;
@@ -1005,6 +1038,7 @@ export function groupedRecommendationCardMarkup(
       venueName: fronting.venue_name || 'Recommended food-and-drink destination',
       city: fronting.city,
       country: fronting.country,
+      area: options.area,
       note: fronting.note,
       created: fronting.created,
       bylineHtml,
@@ -1573,12 +1607,26 @@ export function networkDiscoveryMarkup(
   </section>`;
 }
 
-async function loadPublicRecommendations(render: () => void, city = ''): Promise<void> {
+/**
+ * Reads the safely scoped public feed for one city.
+ *
+ * `reload` is the after-something-changed call, and behaves like the member feed's:
+ * it goes out even mid-flight and leaves the notes already on screen where they
+ * are. A city page is what most visitors see, and a live update that blanked every
+ * note on it for the length of a request would be a worse page than the one it was
+ * correcting.
+ */
+async function loadPublicRecommendations(
+  render: () => void,
+  city = '',
+  reload = false
+): Promise<void> {
   const feed = publicRecommendationFeed(city);
-  if (memberRecord() || feed.status === 'loading') return;
+  if (memberRecord() || (feed.status === 'loading' && !reload)) return;
   const request = ++publicRecommendationRequest;
   feed.request = request;
-  feed.status = 'loading';
+  const keepShowing = reload && feed.status === 'ready';
+  if (!keepShowing) feed.status = 'loading';
   feed.error = '';
   const cityQuery = city.trim();
   render();
@@ -1597,34 +1645,80 @@ async function loadPublicRecommendations(render: () => void, city = ''): Promise
     feed.status = 'ready';
   } catch {
     if (memberRecord() || feed.request !== request || publicRecommendationFeeds.get(publicRecommendationKey(city)) !== feed) return;
-    feed.recommendations = [];
-    feed.status = 'error';
-    feed.error = cityQuery
-      ? `Member notes for ${cityQuery} are unavailable right now. The published places are still here.`
-      : 'The live recommendation sample is unavailable right now. Membership requests and sign-in still work.';
+    // A failed refresh keeps the notes it had, for the same reason it did not blank
+    // them on the way out.
+    if (!keepShowing) {
+      feed.recommendations = [];
+      feed.status = 'error';
+      feed.error = cityQuery
+        ? `Member notes for ${cityQuery} are unavailable right now. The published places are still here.`
+        : 'The live recommendation sample is unavailable right now. Membership requests and sign-in still work.';
+    }
   }
   render();
 }
 
-async function loadNetworkDiscovery(render: () => void): Promise<void> {
-  if (status === 'loading') return;
+/**
+ * Reads the circle feed.
+ *
+ * `reload` is the after-a-write call: it goes out even if a load is already in
+ * flight, and it leaves the rows already on screen in place while it waits. The
+ * feed is what every card's words, byline and photograph come from, so flipping to
+ * `loading` would empty every card in the member's own lists for the length of one
+ * request — a screenful of places blinking out because they added one.
+ */
+async function loadNetworkDiscovery(render: () => void, reload = false): Promise<void> {
+  if (status === 'loading' && !reload) return;
   const identity = memberRecord()?.id || '';
-  status = 'loading';
+  const request = ++discoveryRequest;
+  const keepShowing = reload && status === 'ready';
+  if (!keepShowing) status = 'loading';
   loadedFor = identity || '@anonymous';
   errorMessage = '';
   render();
   try {
     const payload = await pb.send<unknown>('/api/detour/network-discovery', { requestKey: null });
-    if ((memberRecord()?.id || '') !== identity) return;
+    if (request !== discoveryRequest || (memberRecord()?.id || '') !== identity) return;
     discovery = cleanPayload(payload);
     status = 'ready';
   } catch (error) {
-    if ((memberRecord()?.id || '') !== identity) return;
-    discovery = { recommendations: [], shares: [] };
-    status = 'error';
-    errorMessage = readableError(error, 'The Detour circle is unavailable right now. Please try again shortly.');
+    if (request !== discoveryRequest || (memberRecord()?.id || '') !== identity) return;
+    // A failed refresh keeps what was already there: the rows are still the ones
+    // the server last sent, and blanking them would lose more than it corrects.
+    if (!keepShowing) {
+      discovery = { recommendations: [], shares: [] };
+      status = 'error';
+      errorMessage = readableError(error, 'The Detour circle is unavailable right now. Please try again shortly.');
+    }
   }
   render();
+}
+
+/**
+ * Re-read the circle feed now, and resolve once it has landed.
+ *
+ * For the surfaces that write: a member who has just added, edited or deleted a
+ * recommendation is looking at the screen it changed, and the feed behind that
+ * screen is a per-member payload the server assembles — so the only way the new
+ * place, the corrected words or the removed note can appear is to ask again.
+ * Awaitable, unlike `resetNetworkDiscovery`, so a caller can hold its success
+ * notice until the data behind it is actually there.
+ */
+export async function reloadNetworkDiscovery(render: () => void): Promise<void> {
+  if (!memberRecord()) {
+    // A signed-out visitor reads the public feed instead, one per city they have
+    // looked at this visit — and those go stale for exactly the same reason: a
+    // member publishing a place in Lisbon changes what the Lisbon page should say.
+    // Only the cities already read are re-read; asking for one nobody has opened
+    // would be inventing work.
+    await Promise.all(
+      [...publicRecommendationFeeds.values()].map((feed) =>
+        loadPublicRecommendations(render, feed.city, true)
+      )
+    );
+    return;
+  }
+  await loadNetworkDiscovery(render, true);
 }
 
 function showReplyFeedback(form: HTMLFormElement, state: ReplyState, message: string, error: boolean, validationError: boolean): void {

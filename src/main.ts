@@ -22,6 +22,7 @@ import {
   ensureMemberFlags,
   expireMemberSession,
   landingPanel,
+  loadCommunity,
   markDetoursHaveContent,
   memberPlacePrompt,
   openDetoursTab,
@@ -51,6 +52,7 @@ import {
   resetOnboarding,
 } from './onboarding';
 import { pb } from './pocketbase';
+import { registerLiveSource, resyncAfterWrite, startLiveUpdates, stopLiveUpdates } from './live';
 import {
   ensureSavedPlaces,
   isSavedPlace,
@@ -72,6 +74,7 @@ import {
   importedPlace,
   guideAuthorLabel,
   guideHref,
+  refreshGuides,
   removingImported,
   setImportedPlaceSkipped,
   loadGuide,
@@ -88,6 +91,7 @@ import {
   circleMarkup,
   circleRecipientGroups,
   ensureCircle,
+  refreshCircle,
   resetCircle,
 } from './circle';
 import {
@@ -103,6 +107,7 @@ import {
   networkPlaceNotes,
   networkPlaceNotesState,
   recommendationPhotoHref,
+  reloadNetworkDiscovery,
   resetNetworkDiscovery,
   retryNetworkPlaceNotes,
   NOTE_PHOTO_THUMB,
@@ -1297,12 +1302,14 @@ function bindPlaceEndorsement(root: HTMLElement, v: Venue): void {
       .then((result) => {
         const endorsed = result.endorsed === true;
         v.endorsedByCaller = endorsed;
-        // The Wanna go list is re-read either way. Marking hides a save the
-        // member had on this place — the tab shows the highest rung they have
-        // reached — and withdrawing brings it back, because the row was never
-        // deleted. Only the server knows which, so it is asked rather than
-        // guessed.
-        void refreshSavedPlaces(() => render(root));
+        // Everything the mark reaches is re-read: the Wanna go list either way —
+        // marking hides a save the member had on this place, because the tab shows
+        // the highest rung they have reached, and withdrawing brings it back, and
+        // only the server knows which — along with the catalogue row and the feed
+        // card that carry the count. Not awaited: the figures written onto the venue
+        // below settle the button the member pressed immediately, and the rest of the
+        // app catches up behind them.
+        void resyncAfterWrite(() => render(root));
         v.endorsementTotal =
           typeof result.total === 'number' && Number.isFinite(result.total)
             ? Math.max(0, Math.floor(result.total))
@@ -3284,11 +3291,64 @@ function failCatalogue(root: HTMLElement, error: unknown, settle: () => void): v
 }
 
 async function refreshCatalogue(): Promise<Venue[]> {
+  const signedInAs = pb.authStore.isValid ? pb.authStore.record?.id || '' : '';
   const { venues } = await loadLiveCatalogue();
+  // The catalogue is one member's scoped list, so a session that changed hands
+  // mid-flight is answered by its own read and never by this one. Signing out while
+  // a resync was reading would otherwise put the previous member's places back on a
+  // page that had already dropped them.
+  if ((pb.authStore.isValid ? pb.authStore.record?.id || '' : '') !== signedInAs) {
+    return state.venues;
+  }
   state.mode = 'live';
   catalogueFailure = null;
   state.venues = venues;
   return venues;
+}
+
+/**
+ * WHAT "NOT STALE" CONSISTS OF. Every store the app fills from the server, and the
+ * one call that re-reads it — declared here because this is the wiring layer and
+ * the only module that can see all five.
+ *
+ * A write path asks `resyncAfterWrite` for a catch-up without knowing what is on
+ * this list, and the realtime stream asks for the same one when the database says a
+ * visible row changed. Adding a sixth store to the app means adding it here; that
+ * is the whole cost of keeping it current, and it is deliberately cheaper than
+ * making every write path decide for itself which ones it touched.
+ */
+function registerLiveSources(): void {
+  // The published catalogue. `state.venues` is the only copy kept here: the member
+  // area's `store.knownVenues` is handed to it from this list on every render — see
+  // `landingPanel` and `communityPanel` — so the render a resync ends with is what
+  // carries the new catalogue across to it.
+  //
+  // A failed refresh keeps the list it had — deliberately not `failCatalogue`,
+  // which empties `state.venues` and puts the error page up. That is the right
+  // answer for a boot with nothing to show and the wrong one for a re-read: the
+  // places on screen are still real, and a background request nobody asked for must
+  // not be able to replace a working page with an apology. The one exception is a
+  // token the API has started refusing, which is not a failed read but a dead
+  // session, and saying so is the only way the public surfaces come back.
+  registerLiveSource('catalogue', async () => {
+    try {
+      await refreshCatalogue();
+    } catch (error) {
+      noteCatalogueFailure(error);
+      if (catalogueFailure === 'auth' && pb.authStore.isValid) expireMemberSession();
+    }
+  });
+  // The scoped circle feed — every card's words, byline and photograph.
+  registerLiveSource('feed', (render) => reloadNetworkDiscovery(render));
+  // The member's own ledger: their entries, their notes, their shares, their locks.
+  registerLiveSource('ledger', (render) => loadCommunity(render, { quiet: true }));
+  // Wanna go, which the ladder moves places on and off without being asked.
+  registerLiveSource('saved', (render) => refreshSavedPlaces(render));
+  // Imported guides and the private places on them.
+  registerLiveSource('guides', (render) => refreshGuides(render));
+  // Who is in the member's circle, and how many invitations they have left —
+  // somebody claiming a code is a write this member did not make and can see.
+  registerLiveSource('circle', (render) => refreshCircle(render));
 }
 
 /**
@@ -3352,7 +3412,6 @@ function renderAccount(root: HTMLElement): void {
     () => render(root),
     () => showHome(root),
     noteFirstPlace,
-    refreshCatalogue,
     () => {
       openOnboarding();
       showWelcome(root);
@@ -3391,7 +3450,6 @@ function renderWelcome(root: HTMLElement): void {
     render: () => render(root),
     onFinished: () => showHome(root),
     onPlaceContributed: noteFirstPlace,
-    refreshCatalogue,
   });
   bindRouteLinks(root);
 }
@@ -4160,7 +4218,6 @@ function renderLanding(root: HTMLElement): void {
     () => render(root),
     () => showHome(root),
     noteFirstPlace,
-    refreshCatalogue,
     () => {
       openOnboarding();
       showWelcome(root);
@@ -4593,6 +4650,9 @@ function requestNearestDestination(root: HTMLElement): void {
 
 const root = document.querySelector('#app');
 if (root instanceof HTMLElement) {
+  // Declared before the first read, so a write or a realtime event that arrives
+  // during boot already knows what to re-read.
+  registerLiveSources();
   let authIdentity = pb.authStore.isValid ? pb.authStore.record?.id || '' : '';
   pb.authStore.onChange((_token, record) => {
     const nextIdentity = pb.authStore.isValid ? record?.id || '' : '';
@@ -4601,6 +4661,10 @@ if (root instanceof HTMLElement) {
     // Signing in is what opens the new-member flow — the invitation card does it
     // on the way in — so its state survives that; signing out ends onboarding.
     if (!nextIdentity) resetOnboarding();
+    // The stream is scoped by the session that opened it: the member-scoped
+    // subscriptions belong to whoever was signed in, and a pending re-read
+    // scheduled for them must not run for the next one.
+    stopLiveUpdates();
     resetNetworkDiscovery();
     resetCircle();
     // The catalogue is now one member's list, not a shared one, so it cannot
@@ -4613,9 +4677,17 @@ if (root instanceof HTMLElement) {
     refreshCatalogue()
       .then(() => render(root))
       .catch((error) => failCatalogue(root, error, () => render(root)));
+    // The new session gets its own subscriptions: a signed-in member watches their
+    // own rows as well as the public catalogue, a signed-out browser only the
+    // catalogue. Started after the reset above, so nothing it schedules can land in
+    // the previous member's cleared state.
+    startLiveUpdates(() => render(root));
   }, false);
   applyRouteFromUrl(root);
   window.addEventListener('popstate', () => applyRouteFromUrl(root));
+  // Watching the database from the first frame, rather than from the first write:
+  // a page left open on a city list is exactly the case this is for.
+  startLiveUpdates(() => render(root));
   refreshCatalogue()
     .then(() => {
       applyRouteFromUrl(root);

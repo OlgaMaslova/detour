@@ -4,8 +4,7 @@
  */
 import { pb } from '../pocketbase';
 import type { RecordModel } from 'pocketbase';
-import type { Venue } from '../data';
-import { resetNetworkDiscovery } from '../network';
+import { resyncAfterWrite } from '../live';
 import { esc, focusNotice, member, onCommunityReset, readableError, store } from './store';
 import { PHOTO_MAX_BYTES, chosenPhoto, photoFileName, preparePhoto } from './place-form';
 
@@ -226,11 +225,12 @@ onCommunityReset(() => {
   coverUploadingId = '';
 });
 
-export function bindCuration(
-  root: HTMLElement,
-  render: () => void,
-  refreshCatalogue: () => Promise<Venue[]>
-): void {
+/**
+ * No catalogue refresher is passed in any more: every write here ends in
+ * `resyncAfterWrite`, which re-reads the catalogue along with the feed and
+ * everything else the write touched. See src/live.ts.
+ */
+export function bindCuration(root: HTMLElement, render: () => void): void {
   root.querySelectorAll<HTMLFormElement>('[data-image-curation]').forEach((form) => {
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -258,9 +258,10 @@ export function bindCuration(
               : 'Photo rejected.',
         };
         if (decision === 'approve') {
-          // Only the circle feed changes: photos live on recommendations, so an
-          // approval leaves the venue catalogue exactly as it was.
-          resetNetworkDiscovery();
+          // The photo now belongs to a member's recommendation, so it is the circle
+          // feed that changed and the cards built from it that are wrong. Awaited
+          // like every other write, so the queue and the feed settle together.
+          await resyncAfterWrite(render);
         }
       } catch (error) {
         store.notice = {
@@ -317,16 +318,9 @@ export function bindCuration(
         });
         coverlessPlaces = coverlessPlaces.filter((place) => place.id !== venueId);
         store.notice = { kind: 'success', text: 'Cover set. It is live on the place now.' };
-        // The catalogue holds the old coverless venue, and the feed holds cards
+        // The catalogue holds the old coverless venue and the feed holds the cards
         // built from it, so both have to be re-read for the cover to appear.
-        resetNetworkDiscovery();
-        void refreshCatalogue()
-          .then((venues) => {
-            store.knownVenues = venues;
-          })
-          .catch(() => {
-            // The cover is saved either way; the next load will show it.
-          });
+        await resyncAfterWrite(render);
       } catch (error) {
         store.notice = { kind: 'error', text: readableError(error, 'That cover could not be saved.') };
       } finally {
@@ -353,7 +347,7 @@ export function bindCuration(
           // re-read for the cover to appear on its card.
           coverlessPlaces = coverlessPlaces.filter((place) => place.id !== venueId);
           store.notice = { kind: 'success', text: 'Found a photo. It is live on the place now.' };
-          resetNetworkDiscovery();
+          await resyncAfterWrite(render);
         } else {
           // Links the pass may have discovered even without a cover are worth
           // showing: they are where a person would look next.

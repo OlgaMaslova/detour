@@ -220,6 +220,8 @@ async function loadCircle(render: () => void): Promise<void> {
   render();
 }
 
+export { refreshInvitations as refreshCircle };
+
 /** Loads the circle once per signed-in member. Safe to call on every render. */
 export function ensureCircle(render: () => void): void {
   const identity = memberId();
@@ -281,6 +283,11 @@ export function resetCircle(): void {
  * Re-reads the projection in place after a code is created, so the allowance line
  * under the button stays true. Deliberately quiet: no 'loading' status, because
  * the page is already drawn and only three numbers are changing.
+ *
+ * Exported as `refreshCircle` as well, because the same quiet re-read is what a
+ * resync wants: somebody claiming an invitation changes who is in this member's
+ * circle, and the page showing the old circle is stale in exactly the way the
+ * catalogue and the feed are. Nothing is emptied if it fails.
  */
 async function refreshInvitations(render: () => void): Promise<void> {
   const identity = memberId();

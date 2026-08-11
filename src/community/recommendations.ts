@@ -6,12 +6,12 @@
 import { pb } from '../pocketbase';
 import type { Venue } from '../data';
 import { OCCASION_OPTIONS } from '../occasions';
-import { recommendationColumnCount, resetNetworkDiscovery } from '../network';
+import { recommendationColumnCount } from '../network';
+import { resyncAfterWrite } from '../live';
 import {
   cleanCount,
   esc,
   focusNotice,
-  loadCommunity,
   member,
   onCommunityReset,
   readableError,
@@ -640,11 +640,15 @@ onCommunityReset(() => {
   queueExpanded = false;
 });
 
+/**
+ * No catalogue refresher is passed in any more: every write here ends in
+ * `resyncAfterWrite`, which re-reads the catalogue along with everything else the
+ * write touched. See src/live.ts.
+ */
 export function bindRecommendations(
   root: HTMLElement,
   render: () => void,
-  onPlaceContributed: () => void,
-  refreshCatalogue: () => Promise<Venue[]>
+  onPlaceContributed: () => void
 ): void {
   root.querySelector<HTMLButtonElement>('[data-recommend-open]')?.addEventListener('click', () => {
     recommendationFormOpen = true;
@@ -774,15 +778,14 @@ export function bindRecommendations(
       highlightedEntryId = created.entry || '';
       store.notice = { kind: 'success', text: 'Recommendation saved.' };
       onPlaceContributed();
-      store.communityLoaded = false;
-      const catalogueRefresh = refreshCatalogue()
-        .then((venues) => {
-          store.knownVenues = venues;
-        })
-        .catch(() => {
-          // The card remains truthful when discovery data is temporarily unavailable.
-        });
-      await Promise.all([loadCommunity(render), catalogueRefresh]);
+      // Everything the server holds, re-read before the notice below is settled —
+      // and settled from what came back rather than from what was sent. A new
+      // recommendation moves more than the ledger: it publishes or seconds a place
+      // in the catalogue, it enters the circle feed every card's words, byline and
+      // photograph come from, and it takes any save the member had on that place off
+      // Wanna go. Deciding which of those to refresh per write path is what left the
+      // member's own sentence missing from their own card.
+      await resyncAfterWrite(render);
       const createdEntry = store.placeEntries.find((entry) => entry.id === highlightedEntryId);
       store.notice = createdEntry?.status === 'published'
         ? { kind: 'success', text: 'Your recommendation is live.' }
@@ -973,7 +976,6 @@ export function bindRecommendations(
             occasions,
           });
         }
-        resetNetworkDiscovery();
         store.notice = { kind: 'success', text: 'Recommendation updated.' };
         if (proposedPhoto) {
           try {
@@ -989,8 +991,11 @@ export function bindRecommendations(
             };
           }
         }
-        store.communityLoaded = false;
-        await loadCommunity(render);
+        // An edit changes the place as well as the note — its name, its city, its
+        // category — so the catalogue row and the feed card built from it are as out
+        // of date as the ledger line. Awaited, so "updated" appears over the
+        // corrected data rather than a beat ahead of it.
+        await resyncAfterWrite(render);
         highlightedEntryId = '';
         recommendationDraft = null;
         recommendationIntent = 'add';
@@ -1052,16 +1057,13 @@ export function bindRecommendations(
       try {
         await pb.collection('community_recommendations').delete(recommendationId);
         store.recommendations = store.recommendations.filter((recommendation) => recommendation.id !== recommendationId);
-        store.communityLoaded = false;
-        const catalogueRefresh = refreshCatalogue()
-          .then((venues) => {
-            store.knownVenues = venues;
-          })
-          .catch(() => {
-            // The member ledger can still reflect the deletion while discovery
-            // data is temporarily unavailable.
-          });
-        await Promise.all([loadCommunity(render), catalogueRefresh]);
+        // A deletion reaches as far as a creation: the place may have been withdrawn
+        // from the catalogue entirely if nobody else stood behind it, the feed still
+        // holds the note that is now gone — and it is what the cards are built from,
+        // so the member's own words would stay on screen after they removed them —
+        // and any save they had on the place before they recommended it comes back to
+        // Wanna go.
+        await resyncAfterWrite(render);
         store.notice = {
           kind: 'success',
           text: published

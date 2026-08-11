@@ -191,7 +191,6 @@ export function bindCommunity(
   render: () => void,
   onAuthed: () => void,
   onPlaceContributed: () => void,
-  refreshCatalogue: () => Promise<Venue[]>,
   /** A joined-and-signed-in member: opens the new-member flow at its first place. */
   onJoined: () => void
 ): void {
@@ -199,7 +198,7 @@ export function bindCommunity(
   bindSettings(root, render);
   bindShares(root, render);
   bindAuth(root, render, onAuthed, onJoined);
-  bindRecommendations(root, render, onPlaceContributed, refreshCatalogue);
+  bindRecommendations(root, render, onPlaceContributed);
   bindEndorsements(root, render);
   bindBoards(root, render);
 
@@ -274,7 +273,7 @@ export function bindCommunity(
     });
   });
 
-  bindCuration(root, render, refreshCatalogue);
+  bindCuration(root, render);
   bindInvites(root, render);
   bindDirectories(root);
 
@@ -312,6 +311,8 @@ export function bindCommunity(
 export {
   ensureMemberFlags,
   expireMemberSession,
+  // The wiring layer registers the ledger as one of the stores a resync re-reads.
+  loadCommunity,
   markDetoursHaveContent,
   memberPlacePrompt,
   memberSession,

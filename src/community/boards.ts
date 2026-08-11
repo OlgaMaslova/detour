@@ -919,10 +919,16 @@ function importedPlaceCard(
   const busy = removingImported(place.id);
   return {
     name: place.name,
-    // The area is the only locating fact most of these carry, and
-    // on a card it belongs where the city goes — "Astoria, New
-    // York" is what the member needs to place it.
-    city: [place.area, place.city].filter(Boolean).join(', ') || place.city,
+    // THE CITY STAYS THE CITY. The area used to be folded in here, because on a
+    // card it does read as part of the location — "Astoria, New York" is what
+    // the member needs to place it. But the card builder matches this place to
+    // the notes written about it by city, and the feed's rows say "Lausanne",
+    // not "Boulevard de Grancy, Lausanne": every imported place carrying an area
+    // silently failed to find its own member note and drew the publication's
+    // card instead, beside a feed showing the member's own words and photograph
+    // for the same place. The quarter still prints; it travels in `area`.
+    city: place.city,
+    area: place.area,
     country: place.country,
     // The publication's own sentence, in the quote a member's note
     // would occupy — it is why the place was kept, and reading the
