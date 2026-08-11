@@ -38,6 +38,7 @@ import {
   openRecommendNewPlace,
   openRecommendPlace,
   openSharePlace,
+  setPlaceResolver,
   shouldShowLandingFeedCta,
   shouldShowLandingCommunityStrip,
   signOutMember,
@@ -160,17 +161,17 @@ type AppView =
   /** The new-member flow: handle and city, then the first place. */
   | 'welcome'
   | 'survey';
-/**
- * The two ways to read one city — and they are lenses on a single page, never
- * two pages.
+/*
+ * ONE CITY, ONE LIST — there is no `CityLens` any more.
  *
- * GEOGRAPHY IS THE ONLY HIERARCHY. A city is a place in the world; "everybody's
- * picks" and "what I hold here" are two readings of it, so they share a route, a
- * layout and a map, and the switch between them is a chip. Two pages for one
- * city was the older answer, and it made a member choose which New York they
+ * GEOGRAPHY IS THE ONLY HIERARCHY, and a city is a place in the world rather
+ * than two readings of one. It had two: everybody's recommendations, and what the
+ * member holds here, switched by a pair of chips above the filters. Both are now
+ * one list, and where each place came from is the Source menu's answer — which is
+ * the same question the chips were asking, in a control that was already there.
+ * Before that it was two routes, which made a member choose which New York they
  * wanted before they could look at either.
  */
-type CityLens = 'picks' | 'yours';
 
 interface UserLocation {
   lat: number;
@@ -214,12 +215,6 @@ interface State {
   /** What the last "use my location" attempt has to say; '' when it has nothing. */
   geoStatus: string;
   geoBusy: boolean;
-  /**
-   * Which reading of the city page is on screen. In the URL as `lens=yours`,
-   * unlike the board's chips: it decides what the page is showing and what its
-   * own crumb says, so a reload or a Back must land on the same reading.
-   */
-  cityLens: CityLens;
 }
 
 const state: State = {
@@ -239,7 +234,6 @@ const state: State = {
   guide: null,
   venues: [],
   occasionFilters: [],
-  cityLens: 'picks',
   userLocation: null,
   geoStatus: '',
   geoBusy: false,
@@ -513,7 +507,6 @@ function activePlace(): Venue | null {
 
 function resetDestinationState(): void {
   state.occasionFilters = [];
-  state.cityLens = 'picks';
   state.geoStatus = '';
   state.geoBusy = false;
   resetBoardView();
@@ -543,13 +536,11 @@ function routeHref(
   if (view === 'guide' && state.guide) {
     url.searchParams.set('guide', state.guide);
   } else url.searchParams.delete('guide');
-  // One city, one route. `lens=yours` is the member's own reading of it — their
-  // wishlist, what they have been to, the guides that fed it — and the default,
-  // unmarked, is what the members of Detour recommend there. It replaced a
-  // second route (`?dest=`) that was the same city with a different layout.
-  if (view === 'destination' && slug && state.cityLens === 'yours') {
-    url.searchParams.set('lens', 'yours');
-  } else url.searchParams.delete('lens');
+  // One city, one route, one list. `lens=yours` and `?dest=` were the two older
+  // answers — a second reading of the city, and a second page for it — and both
+  // are dropped from the address rather than resolved, since the city page shows
+  // everything either of them used to show.
+  url.searchParams.delete('lens');
   url.searchParams.delete('dest');
   if (view === 'country' && country) url.searchParams.set('country', country);
   else url.searchParams.delete('country');
@@ -704,22 +695,6 @@ function openDestination(root: HTMLElement, slug: string, pendingName: string | 
   state.place = null;
   updateRoute('destination', slug, 'push');
   pendingFocus = '#destination-title';
-  render(root);
-}
-
-/**
- * The city page, opened on a named lens.
- *
- * The same route `openDestination` uses — there is only one city page — with the
- * reading stated rather than inherited. A crumb under WANNA GO steps up to the
- * member's own reading of the city; one under EXPLORE steps up to everybody's.
- * `resetDestinationState` would otherwise put every arrival back on the picks
- * lens, so the lens is set after it.
- */
-function openCity(root: HTMLElement, slug: string, lens: CityLens): void {
-  openDestination(root, slug);
-  state.cityLens = memberCanExplore() ? lens : 'picks';
-  updateRoute('destination', slug, 'replace');
   render(root);
 }
 
@@ -991,10 +966,6 @@ function applyRouteFromUrl(root: HTMLElement): void {
   const requestedCity = requested || legacyBoard;
   if (state.destination !== requestedCity) resetDestinationState();
   state.destination = requestedCity;
-  state.cityLens =
-    memberCanExplore() && (legacyBoard || url.searchParams.get('lens') === 'yours')
-      ? 'yours'
-      : 'picks';
   state.country = requested ? null : requestedCountry;
   state.pendingDestination = null;
   state.place = requestedPlace;
@@ -1038,14 +1009,11 @@ function applyRouteFromUrl(root: HTMLElement): void {
 
 /* ---------- filters ---------- */
 
-function filteredVenues(): Venue[] {
-  const list = destinationVenues().filter((v) =>
-    state.occasionFilters.every((occasion) => venueOccasions(v).includes(occasion))
-  );
-  return [...list].sort(
-    (a, b) => a.name.localeCompare(b.name) || a.city.localeCompare(b.city) || a.address.localeCompare(b.address)
-  );
-}
+// No `filteredVenues` any more. The occasion filter used to be applied here, to
+// the catalogue's venues, before the city page turned them into rows — which is
+// why it did nothing to the member's own places. It is one clause in
+// `boardRowVisible` now, beside Source and Area, and narrows every row on the
+// city's one list by the same rule.
 
 interface ActiveFilter {
   kind: 'occasion';
@@ -1454,39 +1422,82 @@ function readablePlaceError(error: unknown, fallback: string): string {
 }
 
 /**
- * The trail over one place: the list it belongs to, the city inside that list,
- * and the place itself.
+ * EXPLORE — the root of every trail in the app, because geography is the only
+ * hierarchy. See `PlaceCrumb`.
+ */
+function exploreCrumb(): PlaceCrumb {
+  return { label: 'Explore', href: exploreHref(), attrs: 'data-explore' };
+}
+
+/**
+ * The steps above any city: EXPLORE, then the country when one is known.
  *
- * THE CRUMB IS OWNERSHIP, NOT JOURNEY — see `PlaceCrumb`. The root is decided by
- * the reader's own relationship to the place and by nothing else, least of all
- * by the page they came from:
+ * Only the catalogue knows a city's country — a country is derived from the
+ * destinations under it — so a city the member holds but the catalogue does not
+ * publish yet hangs directly under Explore rather than under a guess.
+ */
+function countryTrail(catalogue: Destination | null): PlaceCrumb[] {
+  const country = catalogue ? destinationCountry(catalogue) : null;
+  if (!country) return [exploreCrumb()];
+  return [
+    exploreCrumb(),
+    {
+      label: country.name,
+      href: countryHref(country.slug),
+      attrs: `data-country="${esc(country.slug)}"`,
+    },
+  ];
+}
+
+/**
+ * The steps above anything that stands in a city: EXPLORE / <country> / <city>.
  *
- *   RECOMMENDATIONS / New York / Katz's  they wrote about it — it is in the tab
- *                                        of their own recommendations
- *   BEEN & LOVED    / New York / Katz's  they marked it and said no more
- *   WANNA GO        / New York / Zimmi's it is on their wishlist, whichever door
- *                                        it came through
- *   EXPLORE         / Zimmi's            none of those, so there is no list of
- *                                        theirs for it to sit in
+ * THE CRUMB IS GEOGRAPHY — see `PlaceCrumb`. What list the reader keeps a place
+ * on, which tab they were last on, and which door they came through have no say
+ * here: a place in New York sits under New York whether it is recommended,
+ * wanna-go, been, or none of the three.
  *
- * IN THAT ORDER, HIGHEST RUNG FIRST, because a place can satisfy more than one
- * and the crumb names one list. Been & loved is not the answer for a place they
- * recommended: they never pressed that button — the page hides it once they have
- * written — so the crumb would point at a tab their place is not in and claim a
- * mark they never made. Their recommendation is where it actually is.
+ * There is one city page, so there is one city step. It opens on the catalogue's
+ * reading where the catalogue publishes that city, and on the member's own
+ * reading where it does not — the same page either way, and never a step that
+ * leads nowhere: a city with neither reading is dropped rather than linked.
+ */
+function cityTrail(cityName: string, destinationSlug?: string): PlaceCrumb[] {
+  const city = cityName.trim();
+  const slug = (destinationSlug || (city ? citySlug(city) : '')).trim();
+  const catalogue = slug ? destinationBySlug(slug) : null;
+  const above = countryTrail(catalogue);
+  if (catalogue) {
+    return [
+      ...above,
+      {
+        label: catalogue.name,
+        href: destinationHref(catalogue.slug),
+        attrs: `data-open-destination="${esc(catalogue.slug)}"`,
+      },
+    ];
+  }
+  // No catalogue page for this city, so the member's own board is the city page
+  // — derived, and alive only while they hold a place there.
+  const board = slug ? wannaGoDestinations().find((entry) => entry.slug === slug) : undefined;
+  if (!board) return above;
+  return [
+    ...above,
+    {
+      label: board.name,
+      href: destinationBoardHref(board.slug),
+      attrs: `data-wanna-destination="${esc(board.slug)}"`,
+    },
+  ];
+}
+
+/**
+ * The trail over one place: where on earth it is, and then the place itself.
  *
- * Climbing a rung moves the root with the place, which is the whole point of
- * tying it to standing rather than to a route: the trail keeps naming the list
- * the place is actually in.
- *
- * A guide is never a step here. It is a lens over places, not a container of
- * them — the city is the parent even for a place that arrived on somebody's list
- * of the year's best restaurants, and the piece is credited in *How it got here*
- * where the origin story belongs.
- *
- * The city step is only ever offered where a city page of the right kind exists:
- * the member's own board under WANNA GO, the catalogue's city under BEEN & LOVED.
- * A step that leads nowhere is worse than one step fewer.
+ * EXPLORE / United States / New York / Katz's — for every reader and every
+ * place, published or imported. A guide is never a step: it is a lens over
+ * places rather than a container of them, and the piece is credited in *How it
+ * got here* where the origin story belongs.
  */
 function placeCrumbs(
   v: Venue,
@@ -1494,73 +1505,9 @@ function placeCrumbs(
     cityName: string;
     /** The catalogue destination's slug, when this place has a catalogue page. */
     destinationSlug?: string;
-    /** They have written their own recommendation here — the top rung. */
-    recommended: boolean;
-    been: boolean;
-    onWishlist: boolean;
   }
 ): PlaceCrumb[] {
-  const here: PlaceCrumb = { label: v.name, href: '' };
-  const city = context.cityName.trim();
-  // The member's own board for this city, which exists only while they hold a
-  // place in it — derived, like every destination in Wanna go.
-  const board = city ? wannaGoDestinations().find((entry) => entry.slug === citySlug(city)) : undefined;
-  // Their own board first: it holds everything they have in this city — been and
-  // recommended included — so it is the city page that actually contains this
-  // place. The catalogue's city stands in where they hold nothing else there: a
-  // real page about the same city, if not one of theirs.
-  const standingCity: PlaceCrumb[] = board
-    ? [
-        {
-          label: board.name,
-          href: destinationBoardHref(board.slug),
-          attrs: `data-wanna-destination="${esc(board.slug)}"`,
-        },
-      ]
-    : city && context.destinationSlug
-      ? [
-          {
-            label: city,
-            href: destinationHref(context.destinationSlug),
-            attrs: `data-open-destination="${esc(context.destinationSlug)}"`,
-          },
-        ]
-      : [];
-  if (context.recommended) {
-    return [
-      { label: 'Recommendations', href: homeHref(), attrs: 'data-detours-tab="recommendations"' },
-      ...standingCity,
-      here,
-    ];
-  }
-  if (context.been) {
-    return [
-      { label: 'Been & loved', href: homeHref(), attrs: 'data-detours-tab="endorsements"' },
-      ...standingCity,
-      here,
-    ];
-  }
-  if (context.onWishlist) {
-    const ownCity: PlaceCrumb[] = board
-      ? [
-          {
-            label: board.name,
-            href: destinationBoardHref(board.slug),
-            attrs: `data-wanna-destination="${esc(board.slug)}"`,
-          },
-        ]
-      : [];
-    return [
-      { label: 'Wanna go', href: homeHref(), attrs: 'data-detours-tab="saved"' },
-      ...ownCity,
-      here,
-    ];
-  }
-  // Neither list holds it, so the catalogue is the only place it lives. Two steps
-  // and no city: Explore is a search across cities rather than an index of them,
-  // and a city step under it would be the journey — how this reader happened to
-  // arrive — rather than where the place belongs.
-  return [{ label: 'Explore', href: exploreHref(), attrs: 'data-explore' }, here];
+  return [...cityTrail(context.cityName, context.destinationSlug), { label: v.name, href: '' }];
 }
 
 /**
@@ -1614,26 +1561,17 @@ function renderPlace(
     ? allImportedPlaces().find((entry) => entry.matched_venue === v.id)
     : undefined;
 
-  // Has this reader written here. Asked once and used three times below, because
-  // the crumb, the mark and the wishlist control must never disagree about it:
-  // the two controls switch off on a place the member has written about, so if
-  // the crumb did not also count that as having been, the place would sit under
-  // WANNA GO with nothing left on the page able to move it. The same rule runs
-  // the city board — see `beenThere` in community.ts.
+  // Has this reader written here. Asked once and used by both controls below,
+  // which must never disagree about it: a member who has written about a place
+  // has already said more than either button can. The same rule runs the city
+  // board — see `beenThere` in community.ts.
   const ownNote = placeNotesForVenue(v).some((item) => item.is_own);
 
   const chrome: PlaceChrome = {
     crumbs: placeCrumbs(v, {
       cityName: destination.name,
       destinationSlug: destination.slug,
-      recommended: ownNote,
-      been: v.endorsedByCaller === true,
-      onWishlist: isSavedPlace(v.id) || Boolean(importedAs),
     }),
-    // Nothing above the title on a catalogue place: the crumb states the list it
-    // belongs to, and the standing that is not in the crumb — how many Detourists
-    // are behind it — is the signal's job further down the hero.
-    statusChips: [],
     // Acting, not browsing. A visitor reaches Explore, the city and the country
     // the same way a member does — what differs is which places are in them, and
     // the server settled that before this render started.
@@ -1776,12 +1714,19 @@ function renderPlace(
  */
 let boardSlug = '';
 /**
- * Two states and no "all", which is the point: every place here is one or the
- * other, and a member arrives wanting the ones they have not been to. Been is
- * one press away and holds the city's memory.
+ * Where the reader stands with a place, as a filter.
+ *
+ * "All" exists again, and has to: the city page shows every place in the city in
+ * one list now, and most of them are ones the reader has said nothing about.
+ * WANNA GO is what they pressed the button on, BEEN is where they have been, and
+ * neither is the answer for a recommendation they have not touched — so a pair
+ * with no "all" would hide the majority of the city behind a control that looked
+ * like it was only sorting it. A guide's own page starts on WANNA GO instead:
+ * every place on a guide is on the list by definition, so there "all" and "wanna
+ * go plus been" are the same set.
  */
-let boardStatus: 'to-try' | 'been' | 'skipped' = 'to-try';
-/** 'all', 'feed', 'manual', or `guide:<id>` — the menu names pieces, not kinds. */
+let boardStatus: 'all' | 'to-try' | 'been' | 'skipped' = 'all';
+/** 'all', 'detour', or `guide:<id>` — and 'feed' / 'manual' on a guide's page. */
 let boardSource = 'all';
 let boardArea = 'all';
 /**
@@ -1802,10 +1747,10 @@ let boardExpanded = false;
  */
 const BOARD_PREVIEW = 8;
 
-function resetBoardFilters(slug: string): void {
+function resetBoardFilters(slug: string, status: 'all' | 'to-try' = 'all'): void {
   if (boardSlug === slug) return;
   boardSlug = slug;
-  boardStatus = 'to-try';
+  boardStatus = status;
   boardSource = 'all';
   boardArea = 'all';
   boardExpanded = false;
@@ -1814,14 +1759,28 @@ function resetBoardFilters(slug: string): void {
 /** Whether a row survives the filters currently set. */
 function boardRowVisible(row: BoardPlace): boolean {
   // Skipped is a state of its own, and it is the only one that shows a skipped
-  // place at all: "to try" and "been" are about places still on the list.
+  // place at all: the other three are about places still on the list.
   if (boardStatus === 'skipped') {
     if (!row.skipped) return false;
-  } else if (row.skipped || (boardStatus === 'to-try' ? row.been : !row.been)) return false;
-  if (boardSource.startsWith('guide:')) {
+  } else if (row.skipped) return false;
+  // WANNA GO IS THE BUTTON, NOT THE ABSENCE OF BEEN. On a city's one list most
+  // rows are recommendations the reader has never touched; counting those as
+  // "to try" would put the whole city under a control that claims they had all
+  // said they meant to go.
+  else if (boardStatus === 'to-try' && (row.been || !row.saved)) return false;
+  else if (boardStatus === 'been' && !row.been) return false;
+  if (boardSource === 'detour') {
+    if (!row.venue) return false;
+  } else if (boardSource.startsWith('guide:')) {
     if (!row.guideIds.includes(boardSource.slice('guide:'.length))) return false;
   } else if (boardSource !== 'all' && row.provenance.kind !== boardSource) return false;
   if (boardArea !== 'all' && row.area !== boardArea) return false;
+  // Occasions are a fact the catalogue keeps about a place, so a row with no
+  // catalogue record cannot match one — and is not shown as if it might.
+  if (state.occasionFilters.length) {
+    const carried = row.venue ? venueOccasions(row.venue) : [];
+    if (!state.occasionFilters.every((occasion) => carried.includes(occasion))) return false;
+  }
   return true;
 }
 
@@ -1951,14 +1910,16 @@ function renderCity(
   const name = catalogue?.name || board?.name || destinationLabel() || 'This city';
   ensureNetworkDiscovery(() => render(root), name);
 
-  // A visitor has no reading of their own, so there is one lens and no switch.
   const mine = memberCanExplore();
-  const lens: CityLens = mine && state.cityLens === 'yours' ? 'yours' : 'picks';
-  const picks = catalogue ? cityPickPlaces(filteredVenues()) : [];
-  const yours = mine ? wannaGoBoardPlaces(slug, allVenues()) : [];
-  const rows = lens === 'yours' ? yours : picks;
-  const been = rows.filter((row) => row.been).length;
-  const saved = rows.filter((row) => row.saved).length;
+  // ONE LIST PER CITY. There were two readings behind a pair of chips —
+  // everybody's recommendations, or the member's own places — and the chips were
+  // asking the question the Source menu already answers, in twice the space and
+  // with two different filter rows underneath. Everything the city holds is in
+  // one list; Source says where each row came from.
+  const rows = cityRows(
+    mine ? wannaGoBoardPlaces(slug, allVenues()) : [],
+    catalogue ? cityPickPlaces(destinationVenues()) : []
+  );
   const areas = [...new Set(rows.map((row) => row.area).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b)
   );
@@ -1968,63 +1929,58 @@ function renderCity(
   // The map holds the rows on screen and nothing else.
   const pins = shown.filter((row) => row.lat !== null && row.lng !== null);
   const unplaced = shown.length - pins.length;
-  const guidesHere = lens === 'yours' ? board?.guides ?? [] : [];
-  const occasions = lens === 'picks' && catalogue && destinationHasOccasions()
-    ? cityOccasionOptions()
-    : [];
-  const sources = citySourceOptions(rows, guidesHere);
+  // Every menu is offered whenever the list holds something to filter by, and
+  // never because of which half of the list a row came from: one list, one row of
+  // controls. Counts are of the whole city, so a member reading a narrowed list
+  // is still told what each option would leave.
+  const occasions = cityOccasionOptions(rows);
+  const sources = citySourceOptions(rows, board?.guides ?? []);
 
   syncDocumentMeta(name);
   root.innerHTML = `
     <a class="skip-link" href="#destination-title">Skip to this city</a>
     ${mastheadMarkup('other')}
-    ${crumbTrailMarkup(cityCrumbs(name, lens, catalogue), esc)}
+    ${crumbTrailMarkup(cityCrumbs(name, catalogue), esc)}
     <article class="place-page board-page">
       <header class="board-head">
+        <!-- The title and nothing under it. A line here restated figures the
+             chips below already carry — "4 places to try · 1 been" directly over
+             plates reading WANNA GO · 4 and BEEN · 1 — and the counts belong to
+             the controls that act on them. The guide credit it also carried is
+             gone with it; the source menu names every guide feeding this city. -->
         <div class="board-head-copy">
           <h1 id="destination-title" tabindex="-1">${esc(name)}</h1>
-          <p class="board-counts">${cityCountLine(rows, lens, mine)}</p>
         </div>
         ${
+          // Both doors into this city, since the one list holds both kinds: adding
+          // a place to your own plans, and putting one in front of every member.
           !mine
             ? ''
-            : lens === 'yours'
-              ? '<button class="primary-button board-add" type="button" data-board-add>+ Add here</button>'
-              : `<a class="primary-button board-add" href="${esc(
+            : `<div class="board-head-actions">
+                <a class="primary-button board-add" href="${esc(
                   accountHref()
-                )}" data-community-route="recommend-place">+ Recommend a place</a>`
+                )}" data-community-route="recommend-place">+ Recommend a place</a>
+                <button class="secondary-button" type="button" data-board-add>+ Add to my list</button>
+              </div>`
         }
       </header>
-      ${
-        mine
-          ? `<div class="board-lens" role="group" aria-label="Which reading of this city">
-              ${boardChip(
-                lens === 'picks',
-                'data-city-lens="picks"',
-                'Members’ picks',
-                // The whole city, not what the filters have left: a lens says how
-                // much is behind it, and a member reading a narrowed list must
-                // still be told what switching would give them.
-                catalogue ? destinationVenues().length : 0,
-                'board-lens-chip'
-              )}
-              ${boardChip(
-                lens === 'yours',
-                'data-city-lens="yours"',
-                'Yours',
-                yours.length,
-                'board-lens-chip'
-              )}
-            </div>`
-          : ''
-      }
       <div class="board-filters">
-        <div class="board-chips board-status" role="group" aria-label="Filter by whether you have been">
+        ${
+          // A visitor has no been-to history for this to filter by, so the pair
+          // would offer them a question about themselves the app cannot answer —
+          // and a BEEN · 0 plate as the evidence.
+          !mine
+            ? ''
+            : `<div class="board-chips board-status" role="group" aria-label="Show the whole city, places you want to go to, or places you have been to">
+          ${boardChip(boardStatus === 'all', 'data-board-status="all"', 'All', rows.length)}
           ${boardChip(
             boardStatus === 'to-try',
             'data-board-status="to-try"',
-            'To try',
-            rows.filter((row) => !row.been).length
+            // The app's own verb. A member puts a place here by pressing "Wanna
+            // go" on it, so the filter that shows them back says the same words;
+            // "To try" was a third name for the one act.
+            'Wanna go',
+            rows.filter((row) => row.saved && !row.been).length
           )}
           ${boardChip(
             boardStatus === 'been',
@@ -2032,7 +1988,13 @@ function renderCity(
             'Been',
             rows.filter((row) => row.been).length
           )}
-        </div>
+        </div>`
+        }
+        <!-- The three menus are one group and stay on one line: Source, Occasion
+             and Area ask the same kind of question of the same list, and a row
+             that breaks between them reads as two rows of unrelated controls.
+             They wrap as a block if the width runs out, never one at a time. -->
+        <div class="board-menus">
         ${
           sources.length > 2
             ? `<label class="board-select">
@@ -2069,7 +2031,11 @@ function renderCity(
             : ''
         }
         ${
-          areas.length > 1
+          // Offered on one area as well as on twelve. A city with a single named
+          // quarter still has places with no area at all, so the menu narrows to
+          // something — and a control that comes and goes with the shape of the
+          // data is a control a member cannot learn.
+          areas.length
             ? `<label class="board-select">
                 <span class="visually-hidden">Filter by neighbourhood</span>
                 <select data-board-area>
@@ -2086,6 +2052,7 @@ function renderCity(
               </label>`
             : ''
         }
+        </div>
         <div class="board-view" role="group" aria-label="Read this city as cards or on the map">
           ${boardViewTab('cards', 'Cards', '▦')}
           ${boardViewTab('map', 'Map', '◉')}
@@ -2095,13 +2062,13 @@ function renderCity(
         boardView === 'cards' ? ' is-cards' : ''
       }">
         <div class="board-list-side">
-          ${lens === 'picks' ? recommendationLoadStatus(name) : ''}
+          ${recommendationLoadStatus(name)}
           ${
             shown.length
               ? boardView === 'cards'
                 ? boardCardsMarkup(shown)
                 : `<ul class="board-rows">${shown.map(boardRowMarkup).join('')}</ul>`
-              : `<p class="community-empty">${esc(cityEmptyLine(lens, rows.length > 0, name))}</p>`
+              : `<p class="community-empty">${esc(cityEmptyLine(mine, rows.length > 0, name))}</p>`
           }
           ${
             hidden > 0
@@ -2146,11 +2113,11 @@ function renderCity(
         }
       </div>
       ${
-        guidesHere.length
+        (board?.guides ?? []).length
           ? `<section class="board-guides" aria-labelledby="board-guides-title">
               <h2 id="board-guides-title">Guides here</h2>
               <ul>
-                ${guidesHere
+                ${(board?.guides ?? [])
                   .map((guide) => {
                     const held = rows.filter((row) => row.guideIds.includes(guide.id));
                     const toTry = held.filter((row) => !row.been).length;
@@ -2207,112 +2174,96 @@ function renderCity(
 }
 
 /**
- * The city's own trail. One page, so one crumb — and it names the reading on
- * screen, which is the list this city is being read as: everybody's, or theirs.
+ * The city's own trail: EXPLORE / <country> / <city>.
  *
- * The country step survives only on the catalogue's own reading, where there is
- * a country index to step through. A member's own city sits under their own
- * list and nowhere else — Wanna go has no countries in it.
+ * The country step appears wherever the catalogue knows this city; a city only
+ * the member holds has no country to step through.
  */
-function cityCrumbs(name: string, lens: CityLens, catalogue: Destination | undefined): PlaceCrumb[] {
-  if (lens === 'yours') {
-    return [
-      { label: 'Wanna go', href: homeHref(), attrs: 'data-detours-tab="saved"' },
-      { label: name, href: '' },
-    ];
-  }
-  const country = catalogue ? destinationCountry(catalogue) : null;
-  return [
-    { label: 'Explore', href: exploreHref(), attrs: 'data-explore' },
-    ...(country
-      ? [
-          {
-            label: country.name,
-            href: countryHref(country.slug),
-            attrs: `data-country="${esc(country.slug)}"`,
-          },
-        ]
-      : []),
-    { label: name, href: '' },
-  ];
+function cityCrumbs(name: string, catalogue: Destination | undefined): PlaceCrumb[] {
+  return [...countryTrail(catalogue ?? null), { label: name, href: '' }];
 }
 
-/** What to say where the rows would be. Four absences, and they differ. */
-function cityEmptyLine(lens: CityLens, filtered: boolean, name: string): string {
+/**
+ * THE CITY'S ONE LIST: everything the member holds here, plus every Detour
+ * recommendation in the city that is not already one of those.
+ *
+ * The member's row wins a tie, and ties are the common case — a place they
+ * pressed Wanna go on is a catalogue place too. Their row is the richer one: it
+ * carries the guide it arrived on, the sentence the publication printed, and
+ * whether they have been. The catalogue's row carries none of that.
+ *
+ * Matched by key first — the venue id, where a row has one — and by name as the
+ * backstop, because an imported row that never matched a catalogue record would
+ * otherwise stand beside the same restaurant twice, once from each half.
+ *
+ * Sorted by name: the two halves have no shared order to keep. Imports arrive in
+ * a publication's order and recommendations in the catalogue's, and alphabetical
+ * is the only arrangement that reads the same whichever half a row came from.
+ */
+function cityRows(held: BoardPlace[], published: BoardPlace[]): BoardPlace[] {
+  const keys = new Set(held.map((row) => row.key));
+  const names = new Set(held.map((row) => row.name.trim().toLowerCase()));
+  const rows = [...held];
+  for (const row of published) {
+    if (keys.has(row.key) || names.has(row.name.trim().toLowerCase())) continue;
+    rows.push(row);
+  }
+  return rows.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** What to say where the rows would be. Three absences, and they differ. */
+function cityEmptyLine(mine: boolean, filtered: boolean, name: string): string {
   if (filtered) return 'Nothing in this city matches those filters.';
-  if (lens === 'yours') {
-    return 'Nothing of yours here yet. Open a place you mean to get to and press “Wanna go”, or add a guide you have been reading.';
+  if (mine) {
+    return `Nothing in ${name} yet. Recommend a place you know, press “Wanna go” on one you mean to get to, or add a guide you have been reading.`;
   }
   return `No published places in ${name} yet — Detour grows wherever its members eat well.`;
 }
 
 /**
- * The line under the city's name.
+ * The source menu's options: who put each place in this city in front of you.
  *
- * It leads with the figure a planner wants — how many are still to try — and
- * then says the one structural thing about where they came from that is worth a
- * sentence: that they all came off the same piece. A city held entirely from one
- * guide is a common shape and the interesting fact about it; a mixed city says
- * nothing here, because the source menu is right below and answers it properly.
- */
-function cityCountLine(rows: BoardPlace[], lens: CityLens, mine: boolean): string {
-  const been = rows.filter((row) => row.been).length;
-  if (lens !== 'yours') {
-    const head = `${esc(String(rows.length))} place${
-      rows.length === 1 ? '' : 's'
-    } members recommend`;
-    return been && mine
-      ? `${head} <span aria-hidden="true">·</span> ${esc(String(been))} you have been to`
-      : head;
-  }
-  const toTry = rows.length - been;
-  const head = `${esc(String(toTry))} place${toTry === 1 ? '' : 's'} to try`;
-  const marked = been ? ` <span aria-hidden="true">·</span> ${esc(String(been))} been` : '';
-  // Every one of them off the same piece, and that piece still held. A mixed
-  // city says nothing here — the source menu below answers it properly.
-  const ids = new Set(rows.flatMap((row) => row.guideIds));
-  const shared =
-    ids.size === 1 && rows.every((row) => row.guideIds.length === 1) ? [...ids][0] : '';
-  const only = shared ? guides().find((entry) => entry.id === shared) : undefined;
-  const from = only
-    ? ` <span aria-hidden="true">·</span> all from <a href="${esc(
-        guideHref(only.id)
-      )}" data-guide>${esc(only.title)}</a>`
-    : '';
-  return `${head}${marked}${from}`;
-}
-
-/**
- * The source menu's options: every guide that put places here, then the two
- * doors that are not guides.
+ * THE MENU THE LENS CHIPS TURNED INTO. Detour, and each guide that brought places
+ * here — which is the whole of what the pair above the filters used to ask, in one
+ * control that also says how much sits behind each answer.
  *
- * A menu rather than a plate per guide, and it carries its own counts — a filter
- * that does not say how much it holds makes a member open it to find out. The
- * caller renders nothing when there is only the "any" option: a city fed by one
- * door has no source question to ask.
+ * TWO KINDS OF SOURCE AND NO THIRD. There was a "Not on Detour" option for rows
+ * with no catalogue record, which is not a source at all: those places came off a
+ * guide like the rest of that guide's places, and all it added was a second,
+ * smaller count of the same list — a member reading "The best restaurants in
+ * Annecy · 5" beside "Not on Detour · 4" has to work out that the four are inside
+ * the five. Whether Detour publishes a place is a fact about the place, and its
+ * card says so.
+ *
+ * "From Detour" is a row with a catalogue record, so a guide's place that Detour
+ * also publishes is under both its guide and Detour. That overlap is the truth
+ * about the place, and each count says what pressing that option would leave.
+ *
+ * The caller renders nothing when there is only the "any" option: a city fed by
+ * one door has no source question to ask.
  */
 function citySourceOptions(
   rows: BoardPlace[],
   guidesHere: Guide[]
 ): { value: string; label: string }[] {
   const options = [{ value: 'all', label: 'Source' }];
+  const onDetour = rows.filter((row) => row.venue).length;
+  if (onDetour) options.push({ value: 'detour', label: `From Detour · ${onDetour}` });
   for (const guide of guidesHere) {
     const held = rows.filter((row) => row.guideIds.includes(guide.id)).length;
     if (held) options.push({ value: `guide:${guide.id}`, label: `${guide.title} · ${held}` });
   }
-  for (const [kind, label] of [
-    ['feed', 'From the feed'],
-    ['manual', 'Added by you'],
-  ] as const) {
-    const held = rows.filter((row) => row.provenance.kind === kind).length;
-    if (held) options.push({ value: kind, label: `${label} · ${held}` });
-  }
   return options;
 }
 
-/** The occasions this city's places actually carry, with what each would leave. */
-function cityOccasionOptions(): { value: string; label: string; count: number }[] {
-  const venues = destinationVenues();
+/**
+ * The occasions the places on screen actually carry, with what each would leave.
+ *
+ * Read off the rows rather than the catalogue, because the list holds places the
+ * catalogue has never heard of. Those carry no occasions and count towards none.
+ */
+function cityOccasionOptions(rows: BoardPlace[]): { value: string; label: string; count: number }[] {
+  const venues = rows.flatMap((row) => (row.venue ? [row.venue] : []));
   return OCCASION_OPTIONS.map(([value, label]) => ({
     value,
     label,
@@ -2328,8 +2279,8 @@ function bindBoardControls(root: HTMLElement): void {
     // the top of the document each time they narrow the list.
     render(root);
   };
-  // A segmented pair, not a set of toggles: every place is one or the other, so
-  // pressing the pressed half would leave the page showing nothing.
+  // A segmented set, not a row of toggles: one of them is always pressed, and
+  // the pressed one is where the reader stands with these places.
   root.querySelectorAll<HTMLButtonElement>('[data-board-status]').forEach((button) => {
     button.addEventListener('click', () => {
       const next =
@@ -2337,7 +2288,9 @@ function bindBoardControls(root: HTMLElement): void {
           ? 'been'
           : button.dataset.boardStatus === 'skipped'
             ? 'skipped'
-            : 'to-try';
+            : button.dataset.boardStatus === 'all'
+              ? 'all'
+              : 'to-try';
       if (next === boardStatus) return;
       boardStatus = next;
       boardExpanded = false;
@@ -2383,30 +2336,14 @@ function bindBoardControls(root: HTMLElement): void {
   // eight lines of places into a control panel. Every act about a place lives on
   // that place's own page, which the whole row now opens — and *Been* is still
   // right here as the other half of the filter above the list.
-  // The lens: which reading of this city is on screen. In the route, unlike the
-  // chips beside it, because it decides what the page holds and what its own
-  // crumb says — a reload must not quietly hand back the other city.
-  root.querySelectorAll<HTMLButtonElement>('[data-city-lens]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const next: CityLens = button.dataset.cityLens === 'yours' ? 'yours' : 'picks';
-      if (next === state.cityLens) return;
-      state.cityLens = next;
-      // The filters belong to the reading that was on screen when they were
-      // set: "from Eater" means nothing among everybody's picks, and an occasion
-      // means nothing on a list of imported places.
-      boardStatus = 'to-try';
-      boardSource = 'all';
-      boardArea = 'all';
-      boardExpanded = false;
-      state.occasionFilters = [];
-      updateRoute('destination', state.destination, 'push');
-      pendingFocus = `[data-city-lens="${next}"]`;
-      render(root);
-    });
-  });
-  // Occasions, on everybody's reading only — a fact the catalogue keeps about a
-  // place. One at a time now that it is a menu: composing them as AND needed
-  // eleven plates on screen to be usable, and the third one never got pressed.
+  // No `[data-city-lens]` hook: the pair of chips that chose between the city's
+  // two readings is gone with the readings themselves — see the note where
+  // `CityLens` used to be declared.
+  //
+  // Occasions — a fact the catalogue keeps about a place, so a place it has never
+  // heard of matches none of them. One at a time now that it is a menu: composing
+  // them as AND needed eleven plates on screen to be usable, and the third one
+  // never got pressed.
   root.querySelector<HTMLSelectElement>('[data-board-occasion]')?.addEventListener('change', (event) => {
     const value = (event.currentTarget as HTMLSelectElement).value;
     state.occasionFilters = value ? [value] : [];
@@ -2472,38 +2409,21 @@ function openBoardPlace(root: HTMLElement, row: BoardPlace): void {
 /**
  * The trail over one guide, which sits where its places sit.
  *
- * A guide about one city hangs under that city's board — WANNA GO / New York /
- * Best Restaurants NYC — because a reader planning New York should be able to
- * step up from the piece to everything else they hold there. A guide spanning
- * several cities has no single parent city to claim it and sits one level up,
- * directly under WANNA GO.
+ * A guide about one city hangs under that city — EXPLORE / United States / New
+ * York / Best Restaurants NYC — so a reader planning New York can step up from
+ * the piece to everything else in it. A guide spanning several cities has no
+ * single parent on the map and hangs directly under Explore.
  *
- * The city named is the board's, not the piece's own idea of itself: a list of
- * "NYC" places belongs beside every other New York place the member holds, and
- * the board is what tells us how that city is spelled here.
+ * The city named is the city page's, not the piece's own idea of itself: a list
+ * of "NYC" places belongs beside every other New York place, and `cityTrail`
+ * knows how that city is spelled here.
  */
 function guideCrumbs(list: Guide): PlaceCrumb[] {
   const here: PlaceCrumb = { label: list.title, href: '' };
-  const slugs = new Set(
-    list.places.map((place) => citySlug(place.city.trim())).filter(Boolean)
-  );
-  const board =
-    slugs.size === 1
-      ? wannaGoDestinations().find((entry) => entry.slug === [...slugs][0])
-      : undefined;
-  return [
-    { label: 'Wanna go', href: homeHref(), attrs: 'data-detours-tab="saved"' },
-    ...(board
-      ? [
-          {
-            label: board.name,
-            href: destinationBoardHref(board.slug),
-            attrs: `data-wanna-destination="${esc(board.slug)}"`,
-          },
-        ]
-      : []),
-    here,
-  ];
+  const cities = list.places.map((place) => place.city.trim()).filter(Boolean);
+  const slugs = new Set(cities.map((city) => citySlug(city)).filter(Boolean));
+  if (slugs.size !== 1) return [exploreCrumb(), here];
+  return [...cityTrail(cities[0]), here];
 }
 
 /** The list already asked for in full, so its read happens once per list. */
@@ -2524,7 +2444,10 @@ function renderGuide(root: HTMLElement, id: string): void {
   destroyMap();
   root.dataset.restyle = 'destination';
   applyTapeTheme();
-  resetBoardFilters(`guide:${id}`);
+  // WANNA GO rather than ALL, which the city page opens on: every place on a
+  // guide is on the member's list already, so the two would show the same rows
+  // and a reader opening a piece wants the ones still ahead of them.
+  resetBoardFilters(`guide:${id}`, 'to-try');
 
   if (guideRequested !== id) {
     guideRequested = id;
@@ -2599,11 +2522,12 @@ function renderGuide(root: HTMLElement, id: string): void {
         </div>
       </header>
       <div class="board-filters">
-        <div class="board-chips board-status" role="group" aria-label="Filter by where you are with these places">
+        <div class="board-chips board-status" role="group" aria-label="Show places you want to go to, places you have been to, or places you skipped">
           ${boardChip(
             boardStatus === 'to-try',
             'data-board-status="to-try"',
-            'To try',
+            // One name for one act, everywhere — see the city page's pair.
+            'Wanna go',
             kept.length - been
           )}
           ${boardChip(boardStatus === 'been', 'data-board-status="been"', 'Been', been)}
@@ -2834,25 +2758,13 @@ function renderPrivatePlace(root: HTMLElement, id: string): void {
   syncDocumentMeta(null, false, v);
 
   const chrome: PlaceChrome = {
-    // WANNA GO / <city> / <place>, exactly as for a saved catalogue place. An
-    // imported place is on the wishlist by definition, and the city is its
-    // parent — not the guide it arrived on, which is a lens rather than a
-    // container and gets its credit in How it got here instead. The crumb used to
-    // read My detours / <place>, which named a screen rather than a list.
-    crumbs: placeCrumbs(v, {
-      cityName: place.city,
-      // Nobody has written here — this page exists only for a place that is not
-      // on Detour yet, and the moment somebody recommends it the route redirects
-      // to the published page above.
-      recommended: false,
-      been: false,
-      onWishlist: true,
-    }),
-    // The one fact about this place's standing that neither the crumb nor the
-    // signal states — the signal is switched off here precisely because there is
-    // nothing to count. It replaces the rotated NOT ON DETOUR stamp that used to
-    // shout the same thing over the top of the page.
-    statusChips: ['Not on Detour'],
+    // EXPLORE / <country> / <city> / <place>, exactly as for a published place:
+    // a place not on Detour yet still stands somewhere on earth, and that is the
+    // only question the crumb answers. Not the guide it arrived on, which is a
+    // lens rather than a container and gets its credit in How it got here.
+    // No catalogue slug — this city may have no catalogue page at all, and
+    // `cityTrail` falls back to the member's own reading of it.
+    crumbs: placeCrumbs(v, { cityName: place.city }),
     // A member, so the page offers Recommend — the ordinary form, and the only
     // way this place ever becomes one anybody else can see.
     isMember: true,
@@ -3094,15 +3006,17 @@ function bindRouteLinks(root: HTMLElement): void {
   // and a cold load on that address resolves — this only saves the round trip.
   // One imported list, its places and their map. A real anchor carrying
   // `?guide=<id>`, so a modified click still opens a tab.
-  // One destination's board. A real anchor carrying `?dest=<slug>`, so a
-  // modified click still opens a tab and a cold load on that address resolves.
+  // A city reached from the member's own places — the Wanna go tab's cards, a
+  // crumb's city step. The same page every other city link opens: there is one
+  // city page and one list on it, so this hook and `data-open-destination`
+  // differ only in which markup happens to carry them.
   root.querySelectorAll<HTMLAnchorElement>('[data-wanna-destination]').forEach((link) => {
     link.addEventListener('click', (event) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const slug = link.dataset.wannaDestination || '';
       if (!slug) return;
       event.preventDefault();
-      openCity(root, slug, 'yours');
+      openDestination(root, slug);
     });
   });
   root.querySelectorAll<HTMLAnchorElement>('[data-guide]').forEach((link) => {
@@ -3189,19 +3103,11 @@ function bindRouteLinks(root: HTMLElement): void {
       else if (openedTab) render(root);
     });
   });
-  // A crumb root: My detours, opened on the list this page belongs to. A real
-  // anchor carrying the home href, so a modified click still opens a tab and a
-  // cold load resolves — the tab itself is not in the URL, so that load lands on
-  // My detours and the landing picks a list, which is the honest fallback.
-  root.querySelectorAll<HTMLAnchorElement>('[data-detours-tab]').forEach((link) => {
-    link.addEventListener('click', (event) => {
-      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      event.preventDefault();
-      openDetoursTab(link.dataset.detoursTab || '');
-      if (state.view !== 'home' || !memberCanExplore()) showHome(root);
-      else render(root);
-    });
-  });
+  // No `[data-detours-tab]` hook any more: the only markup that carried it was
+  // the crumb, whose roots were My detours' three lists. Trails are geography
+  // now — see `PlaceCrumb` — so nothing links at a tab, and a binding for a
+  // hook no page emits is a route that cannot be reached or noticed when it
+  // breaks. `openDetoursTab` itself stays: the city page still calls it.
   root.querySelectorAll<HTMLAnchorElement>('[data-return-discovery]').forEach((link) => {
     link.addEventListener('click', (event) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -3230,7 +3136,12 @@ function bindRouteLinks(root: HTMLElement): void {
       if (!(event instanceof MouseEvent) || event.button !== 0) return;
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest('a, button, input, select, textarea, [role="button"]')) return;
-      const link = card.querySelector<HTMLAnchorElement>('.network-entry-place[data-place]');
+      // Any place anchor the title carries, not only a catalogue one: a place
+      // that is not on Detour yet links to the member's own page for it
+      // (`data-private-place`), and on those cards the body used to swallow the
+      // click and leave the title as the only live target on a card that looks
+      // clickable all over.
+      const link = card.querySelector<HTMLAnchorElement>('.network-entry-place');
       if (!link) return;
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
         window.open(link.href, '_blank', 'noopener');
@@ -3800,11 +3711,7 @@ function renderCountry(root: HTMLElement): void {
     <a class="skip-link" href="#country-title">Skip to ${esc(country.name)}</a>
     ${mastheadMarkup('explore')}
     <main class="explore-page country-page">
-      <nav class="explore-breadcrumb" aria-label="Breadcrumb">
-        <a href="${esc(exploreHref())}" data-explore>Explore</a>
-        <span aria-hidden="true">/</span>
-        <span aria-current="page">${esc(country.name)}</span>
-      </nav>
+      ${crumbTrailMarkup([exploreCrumb(), { label: country.name, href: '' }], esc)}
       <header class="explore-hero country-hero">
         <p class="network-kicker">${country.destinations.length} ${
           country.destinations.length === 1 ? 'city' : 'cities'
@@ -4033,11 +3940,15 @@ function renderFoundingRequest(root: HTMLElement): void {
     <a class="skip-link" href="#network-membership-title">Skip to the request</a>
     ${mastheadMarkup('other')}
     <main class="founding-page">
-      <nav class="explore-breadcrumb" aria-label="Breadcrumb">
-        <a href="${esc(homeHref())}" data-home>Home</a>
-        <span aria-hidden="true">/</span>
-        <span aria-current="page">Founding membership</span>
-      </nav>
+      ${crumbTrailMarkup(
+        [
+          // Not a geography page, so the one crumb the app has that is not a
+          // city is the one here: membership hangs off the front door.
+          { label: 'Home', href: homeHref(), attrs: 'data-home' },
+          { label: 'Founding membership', href: '' },
+        ],
+        esc
+      )}
       <div class="network-invitation-action" data-invite-request-section>
         ${inviteRequestFormMarkup(accountHref())}
       </div>
@@ -4355,6 +4266,11 @@ function render(root: HTMLElement) {
   // founding member — so the standing behind that decision is read once for the
   // session here, rather than only when the member area happens to be opened.
   void ensureMemberFlags(() => render(root));
+  // Before any markup is built: a place card is a link to its own page on every
+  // surface that draws one, and only this module knows the catalogue and the
+  // routes it takes to resolve that. Set here rather than by the landing alone,
+  // which left the city page's cards as dead text on a cold load.
+  setPlaceResolver(resolveNetworkPlace);
   // Mixtape design scope: every view tags itself so styles.css can target
   // views individually; the theme attribute rides along app-wide.
   applyTapeTheme();

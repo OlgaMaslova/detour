@@ -80,15 +80,20 @@ export interface PlaceGuideVoice {
 /**
  * One step in the trail above the title.
  *
- * ONE RULE: THE CRUMB IS OWNERSHIP, NOT JOURNEY. A page has exactly one path —
- * where the thing lives — and never the route the reader took to reach it. The
- * back button owns the journey and *How it got here* owns the origin story, so
- * neither needs a say in this. A crumb that changed with the door a reader came
- * through would be a second, contradictory answer to "where am I".
+ * ONE RULE: THE CRUMB IS GEOGRAPHY. Every trail in the app is EXPLORE / country
+ * / city / here, and nothing else gets a say in it — not the list the reader
+ * keeps the place on, not the tab they came from, not the guide it arrived on.
+ * The back button owns the journey and *How it got here* owns the origin story.
  *
- * The consequence worth stating: a guide never appears inside a place's crumb.
- * A guide is a lens over places, not a container of them — the city is the
- * parent, whichever piece put the place in the reader's hands.
+ * It used to be ownership: a place sat under RECOMMENDATIONS, BEEN & LOVED or
+ * WANNA GO depending on the reader's standing, which meant the same place had
+ * four possible parents and the trail changed under a reader who pressed a
+ * button. One place is in one city, and that is the answer the crumb gives.
+ *
+ * Two consequences worth stating. A guide never appears inside a place's crumb:
+ * it is a lens over places, not a container of them. And a member's own reading
+ * of a city is not a level — there is one city page with two readings, chosen by
+ * the control under its title, not by the trail above it.
  */
 export interface PlaceCrumb {
   label: string;
@@ -105,22 +110,13 @@ export interface PlaceCrumb {
 /** Shell furniture — hrefs and fragments main.ts already renders elsewhere. */
 export interface PlaceChrome {
   /**
-   * The whole trail, root first, this page last — built by main.ts, which is the
-   * only module that knows both the routes and what the reader's relationship to
-   * this place is. The page used to assemble it here from an explore href, a
-   * country and a destination, which hard-coded one root for every place; the
-   * root is now the list this place belongs to, and there are three of them.
+   * The whole trail, Explore first, this page last — built by main.ts, which is
+   * the only module that knows the routes and which city pages actually exist.
+   * The page used to assemble it here from an explore href, a country and a
+   * destination; main.ts builds every trail in the app now, so the place page,
+   * the city, the country and a guide cannot drift into four shapes.
    */
   crumbs: PlaceCrumb[];
-  /**
-   * Short marks for the slot above the title, or none.
-   *
-   * What lives there is standing, never navigation: the eyebrow used to read
-   * "My detours", which the crumb now says one line above it and better. A fact
-   * the crumb already carries must not be repeated here — a place whose root is
-   * WANNA GO does not also wear a Wanna go chip.
-   */
-  statusChips?: string[];
   /**
    * Whether this reader has an account. The gate on everything that writes, and
    * on the invitation offered to whoever does not.
@@ -768,10 +764,10 @@ function visitorInvitation(chrome: PlaceChrome, h: PlaceHelpers): string {
  * The trail above the title — exported, because the place page is not the only
  * page that has one.
  *
- * A destination board and a guide page sit under the same root as the places
- * they hold, and three surfaces hand-rolling the same `<nav>` is how one of them
- * quietly ends up with a different separator, a different aria-label, or a last
- * step that is still a link.
+ * Every page with a trail renders it through here — place, city, country, guide,
+ * and the one non-geography page that has one. Surfaces hand-rolling the same
+ * `<nav>` is how one of them quietly ends up with a different separator, a
+ * different aria-label, or a last step that is still a link.
  *
  * The last step is never a link and always carries `aria-current`: it is the
  * page the reader is on, and offering it as somewhere to go is a small lie that
@@ -799,20 +795,14 @@ export function crumbTrailMarkup(
   </nav>`;
 }
 
-/**
- * The slot above the title, which used to hold an eyebrow repeating the crumb.
- *
- * Standing only, and only what the crumb does not already state — a place under
- * the WANNA GO root wearing a "Wanna go" chip would be the same fact twice, an
- * inch apart. Most places have nothing to say here and the slot collapses.
+/*
+ * NOTHING ABOVE THE TITLE. The slot that lived here held an eyebrow repeating the
+ * crumb, then a chip for standing the crumb did not state — which came down to
+ * one chip on one kind of page, NOT ON DETOUR on an imported place. A label
+ * naming what a place is not, over a page whose every band already says nobody
+ * has written here, was the third telling of it. Both pages now start at the
+ * title, and `statusChips` is gone from `PlaceChrome`.
  */
-function statusChipsMarkup(chips: string[] | undefined, esc: (value: string) => string): string {
-  const marks = (chips ?? []).filter(Boolean);
-  if (!marks.length) return '';
-  return `<p class="place-status-chips">${marks
-    .map((chip) => `<span class="place-status-chip">${esc(chip)}</span>`)
-    .join('')}</p>`;
-}
 
 /**
  * Container the locator map mounts into. Shared with main.ts so the map is
@@ -850,7 +840,6 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
     <article class="place-page">
       <header class="place-hero">
         <div class="place-hero-copy">
-          ${statusChipsMarkup(chrome.statusChips, h.esc)}
           <h1 id="place-title" tabindex="-1">${h.esc(v.name)}</h1>
           <div class="place-hero-details">
             ${meta ? `<p class="place-meta">${h.esc(meta)}</p>` : ''}

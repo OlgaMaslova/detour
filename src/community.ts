@@ -377,9 +377,13 @@ let withdrawingEndorsementId = '';
 let endorsementFailure = new Map<string, string>();
 // How a place name becomes a link to its own page. Owned by main.ts, which holds
 // the catalogue; passed in rather than rebuilt here so a card in My detours
-// resolves exactly as the same card does in the feed. Undefined until the
-// landing has rendered once, which is the only surface that sets it — in the
-// member area the ledger's cards are unlinked, as they were before.
+// resolves exactly as the same card does in the feed.
+//
+// SET EVERY RENDER, from main.ts — see `setPlaceResolver`. It used to be set only
+// by `landingPanel`, so whether a card was a link depended on whether the member
+// had passed through My detours earlier in the session: the city page's cards
+// opened fine after a click through home and were dead text on a cold load of
+// the same address, which is not a state any page should be able to be in.
 let landingPlaceResolver: NetworkPlaceResolver | undefined;
 let recommendationDraft: Venue | null = null;
 let recommendationIntent: 'add' | 'edit' = 'add';
@@ -2257,6 +2261,17 @@ function destinationSlugOf(city: string): string {
  * dropped: it is on the wishlist, and a member who cannot find it would
  * reasonably conclude the import lost it.
  */
+/**
+ * Tell this module how to turn a place's name into a link to its own page.
+ *
+ * Called by main.ts at the top of every render, because a card is a link on every
+ * surface or it is a bug on one of them: the resolver needs the catalogue and the
+ * routes, both of which live there, and a card's own markup cannot ask for it.
+ */
+export function setPlaceResolver(resolve: NetworkPlaceResolver | undefined): void {
+  landingPlaceResolver = resolve;
+}
+
 export function wannaGoDestinations(): WannaGoDestination[] {
   const byKey = new Map<string, WannaGoDestination>();
   const add = (rawCity: string, guide?: Guide) => {
@@ -3438,7 +3453,9 @@ function signedInPanel(): string {
  */
 export function landingPanel(venues: Venue[], resolvePlace?: NetworkPlaceResolver): string {
   knownVenues = venues;
-  landingPlaceResolver = resolvePlace;
+  // Still accepted here, since this panel is handed the catalogue anyway, but no
+  // longer the only setter: `setPlaceResolver` runs on every render.
+  if (resolvePlace) landingPlaceResolver = resolvePlace;
   if (!member()) return '';
   // No `community-area` id or class here, deliberately: that is the member
   // area's skip-link target and its own 1080px column, and the landing already

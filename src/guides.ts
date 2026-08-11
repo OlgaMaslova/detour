@@ -697,18 +697,19 @@ export async function removeImportedPlace(id: string, render: () => void): Promi
 }
 
 /**
- * The route of one city, on the member's own reading of it — what they hold
- * there, and the map of it.
+ * The route of one city — every place it holds, and the map of them.
  *
  * A slug rather than an id, because a city has no record to carry one: it is
  * derived from the places that name it, and it exists only while at least one of
  * them does.
+ *
+ * The plain `?d=` route and nothing else. It carried `&lens=yours` while the
+ * city page had two readings and this link meant the member's own; the page
+ * shows both in one list now, so there is no reading left to name. `?dest=`, the
+ * separate page that came before that, still resolves here too.
  */
 export function destinationBoardHref(slug: string): string {
-  // The city page, on the member's own lens. There is one city page — geography
-  // is the only hierarchy — so this is `?d=` with the reading named, not the
-  // `?dest=` route it used to be. That old address still resolves here.
-  return `?d=${encodeURIComponent(slug)}&lens=yours`;
+  return `?d=${encodeURIComponent(slug)}`;
 }
 
 /**

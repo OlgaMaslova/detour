@@ -76,6 +76,13 @@
   --tape-screw: #2f3a4e;
   --tape-shell-gloss: rgba(255, 255, 255, 0.07); /* glass edge highlight */
   --tape-sticker: var(--tape-cream);
+  /* A PRESSED PLATE: the fill under the chip, tab or filter that is currently on.
+     It is a light plate on the dark ground here, and it cannot simply be
+     `--tape-cream` at the call site — that is the paper colour of the light
+     theme, where a cream plate on cream paper made the pressed control the only
+     invisible one in the row. */
+  --tape-pressed: var(--tape-cream);
+  --tape-pressed-ink: var(--tape-ink);
   --tape-map-filter: invert(1) hue-rotate(190deg) saturate(0.5) brightness(0.92) contrast(0.92);
   /* Thinned strokes flatter light type on a dark ground; on paper the same
      setting drains dark type to grey, so the light theme opts out. */
@@ -144,6 +151,10 @@
     --tape-screw: rgba(34, 42, 59, 0.45);
     --tape-shell-gloss: rgba(255, 255, 255, 0.65);
     --tape-sticker: #fffdf6;
+    /* Ink on paper, the other way up: the navy plate is the one that reads as
+       pressed against cream, and paper-white type on it carries the count. */
+    --tape-pressed: var(--tape-slate);
+    --tape-pressed-ink: #fffdf6;
     --tape-map-filter: saturate(0.85) sepia(0.08);
     --tape-smoothing: auto;
     --tape-wordmark-stroke: 0.4px;
@@ -175,6 +186,8 @@
   --tape-screw: rgba(34, 42, 59, 0.45);
   --tape-shell-gloss: rgba(255, 255, 255, 0.65);
   --tape-sticker: #fffdf6;
+  --tape-pressed: var(--tape-slate);
+  --tape-pressed-ink: #fffdf6;
   --tape-map-filter: saturate(0.85) sepia(0.08);
   --tape-smoothing: auto;
   --tape-wordmark-stroke: 0.4px;
@@ -2848,32 +2861,10 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 .place-hero-copy,
 .place-hero-details { gap: 10px; }
 .place-hero-copy { display: grid; min-width: 0; }
-/* The slot above the title. It held an eyebrow naming the city — or, on an
-   imported place, "My detours" — until the crumb above it started saying where
-   the place lives; the same fact twice, an inch apart, is one too many. What
-   stands here now is standing: short marks for what the crumb cannot say, and
-   nothing at all on the ordinary place, where the slot collapses. */
-.place-status-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin: 0;
-}
-.place-status-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.25rem 0.5rem;
-  /* Dashed, like the manual provenance chip: this is a fact about the place's
-     standing that nobody outside this member's own account asserted. */
-  border: 2px dashed var(--tape-hairline-strong);
-  color: var(--tape-muted);
-  font-family: var(--tape-mono);
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  line-height: 1.1;
-  text-transform: uppercase;
-}
+/* Nothing above the title. The slot here held an eyebrow naming the city, then a
+   chip for standing — which came down to NOT ON DETOUR on an imported place, a
+   label naming what a place is not, over a page that already says in words that
+   nobody has written about it. Both kinds of place page start at the title. */
 /* Own size, or the generic display-h1 clamp (up to 54px) wins and a long name
    runs past the plate. Breaks mid-word as a last resort, like the card titles. */
 .place-page h1 {
@@ -3266,9 +3257,9 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 }
 .wanna-chip:hover { border-color: var(--tape-chrome); }
 .wanna-chip.is-active {
-  color: var(--tape-ink);
-  background: var(--tape-cream);
-  border-color: var(--tape-cream);
+  color: var(--tape-pressed-ink);
+  background: var(--tape-pressed);
+  border-color: var(--tape-pressed);
 }
 /* The source filter is a native select wearing the chip's clothes.
    `appearance: none` is the whole point: without it the browser draws its own
@@ -3456,12 +3447,9 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
-/* The lens: which reading of this city is on screen. Above the filters and
-   apart from them, because it is not a filter — it changes which set of places
-   the page is about, and every chip below re-scopes underneath it. Wider plates
-   than those chips, so the two rows cannot be mistaken for one. */
-.board-lens { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.board-lens-chip { padding: 0.6rem 1.1rem; font-size: 0.78rem; }
+/* No `.board-lens` any more: the city page held two readings behind a pair of
+   plates above the filters, and it holds one list now with Source saying where
+   each row came from. One row of controls, so there is one row to style. */
 .board-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.7rem; }
 .board-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 /* The same hard-bordered plate the wishlist tab's filters wear. One language for
@@ -3481,16 +3469,31 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 }
 .board-chip:hover { border-color: var(--tape-chrome); }
 .board-chip.is-active {
-  color: var(--tape-ink);
-  background: var(--tape-cream);
-  border-color: var(--tape-cream);
+  color: var(--tape-pressed-ink);
+  background: var(--tape-pressed);
+  border-color: var(--tape-pressed);
 }
 /* Source, occasion and area are menus rather than rows of plates. A filter row
    six chips wide reads as the page's content; these cost one click and no width,
-   and they sit at the far end so the one filter in the open — To try / Been —
-   keeps the left edge to itself. */
+   and they sit at the far end so the filters in the open — All / Wanna go / Been
+   — keep the left edge to themselves.
+
+   ONE LINE, ALL THREE. The group holds them together and takes the auto margin
+   itself, so the menus can never break across two lines one at a time: either
+   all three sit at the far end of the filter row, or the group wraps whole. */
+.board-menus {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+  max-width: 100%;
+}
+/* A select is as wide as its longest option, and the longest option here is a
+   publication's full title. Capped and clipped, so one long guide name cannot
+   push the group off the row it is being kept on. */
+.board-menus select { max-width: 13rem; text-overflow: ellipsis; }
 .board-select { position: relative; display: inline-flex; }
-.board-select:first-of-type { margin-left: auto; }
 .board-select::after {
   content: '▾';
   position: absolute;
@@ -3540,9 +3543,9 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 .board-view-tab + .board-view-tab { border-left-width: 0; }
 .board-view-tab:hover { border-color: var(--tape-chrome); }
 .board-view-tab.is-active {
-  color: var(--tape-ink);
-  background: var(--tape-cream);
-  border-color: var(--tape-cream);
+  color: var(--tape-pressed-ink);
+  background: var(--tape-pressed);
+  border-color: var(--tape-pressed);
 }
 .board-select select option { color: var(--tape-ink); background: var(--tape-cream); }
 /* One control in two halves, so it reads as a single either/or rather than as
@@ -3789,7 +3792,13 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
   .board-body { grid-template-columns: minmax(0, 1fr); }
   /* The map is no longer pinned beside anything, so it stops sticking. */
   .board-map-side { position: static; }
-  .board-select:first-of-type { margin-left: 0; }
+  /* The menus keep their own line under the chips rather than being pushed to a
+     far edge that is only a phone's width away — still all three together, and
+     still in one row: three narrow selects fit a phone, which is why the group
+     is allowed to shrink here rather than wrap. */
+  .board-menus { margin-left: 0; min-width: 0; }
+  .board-menus .board-select { min-width: 0; }
+  .board-menus select { min-width: 0; }
 }
 
 /* Wanna go → the index of guides. One line each, no cards: a list of
