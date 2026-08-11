@@ -12,10 +12,11 @@
  *
  *   the hero        falls back to the place's `imageUrl`, which is the
  *                   publication's photograph, hotlinked
- *   the notes       nobody has written any, so the notes section says so
+ *   the notes       nobody has written any, so What people say says so — under
+ *                   the publication's own line, which this module supplies
  *   Recommend       offered, because `isMember` is true — the ordinary form, and
  *                   the only way this place ever becomes a real one
- *   afterHero       the provenance band: where it came from, and who can see it
+ *   origin          how it got here: the piece, its publisher, when it was kept
  *
  * WHAT IS TURNED OFF, and why each one:
  *
@@ -36,8 +37,15 @@
  */
 
 import type { Venue } from './data';
-import { importedCoverHref } from './guides';
-import type { ImportedPlace } from './guides';
+import {
+  guideAuthorLabel,
+  guideHref,
+  guides,
+  importedCoverHref,
+  importedPlaceSourceLabel,
+} from './guides';
+import type { Guide, ImportedPlace } from './guides';
+import type { PlaceGuideVoice, PlaceOrigin } from './place';
 
 /**
  * An imported place as the catalogue's own shape.
@@ -88,75 +96,74 @@ export function importedPlaceAsVenue(place: ImportedPlace): Venue {
   };
 }
 
+// NO "NOT ON DETOUR / YOUR LIST ONLY" STAMP. It was a rotated rubber stamp above
+// the title, carrying two structural facts — this place is not in the catalogue,
+// and it is yours alone — because the muted sentence that carried them before
+// went unread. Both facts now have plainer homes: How it got here says the place
+// came off somebody else's list, and What people say says, in the space where the
+// recommendations would be, that nobody on Detour has recommended it. A shouted
+// mark over the top of two sentences that already say it is one statement too
+// many, and it was the loudest thing on the page.
+
 /**
- * The stamp over the hero: this place is yours alone, and Detour does not have
- * it.
+ * Where this place came from, as the shared page's own `origin` field.
  *
- * Two structural facts, and they used to be a muted sentence under the title
- * that nobody read — which is the wrong instrument. A page says what kind of
- * document it is through its form, so this is a rubber stamp across the corner
- * of the cover: rotated, hard-bordered, unmissable, and read before any of the
- * words around it.
+ * IT ANSWERS FOR BOTH DOORS NOW, which is why it takes an `ImportedPlace` and
+ * nothing about which page is asking. A place a member kept off a list is the
+ * same fact whether Detour has a published record of it or not — before, only
+ * the private page said so, and the moment somebody recommended the place the
+ * member was redirected to a catalogue page where every trace of where they got
+ * it had vanished.
  *
- * Both facts in one mark, in order of what a member needs first. *Not on Detour*
- * is the one that changes what they can do with the place — nobody has stood
- * behind it, so there is nothing to trust and nothing to send on. *Your list
- * only* is the reassurance underneath it.
+ * Typed data rather than the markup this used to return. Two callers rendering
+ * the same band by hand is how one fact acquires two spellings.
  *
- * `aria-label` carries the whole thing as a sentence, because the visual joke of
- * a stamp is not available to a screen reader and two shouted fragments are not
- * a substitute for one clear statement.
+ * The publication is the attribution; the member's name for the list is only
+ * where they filed it — "NYC trip, October" wrote nothing, so it is not the
+ * credit. The title links to the guide's own page inside Detour rather than out
+ * to the article: the reader is one of that list's places, and the rest of them
+ * is the useful thing to offer. The article itself is a click away in the quote
+ * below, where the words that came out of it are.
  */
-export function importedPlaceStampMarkup(esc: (value: string) => string): string {
-  return `<p class="place-import-stamp" role="note" aria-label="${esc(
-    'Not on Detour. This place is on your list only — nobody has recommended it.'
-  )}">
-    <strong aria-hidden="true">Not on Detour</strong>
-    <span aria-hidden="true">your list only</span>
-  </p>`;
+export function importedPlaceOrigin(
+  place: ImportedPlace,
+  shortDate: (value: string | undefined) => string
+): PlaceOrigin {
+  const list = owningGuides(place)[0];
+  return {
+    // The piece's own headline, falling back to the member's name for it — which
+    // is the headline until they rename it — and then to a phrase that at least
+    // says a list was involved.
+    title: list?.source_title.trim() || list?.title.trim() || 'a list you kept',
+    publisher: list ? guideAuthorLabel(list) : importedPlaceSourceLabel(place),
+    href: list ? guideHref(list.id) : '',
+    importedOn: shortDate(place.created),
+  };
 }
 
 /**
- * The line under the hero that says where this place came from and who can see
- * it — the one thing the shared page has no field for, because no catalogue
- * place needs it.
+ * The publication's sentence about this place, if the piece carried one.
  *
- * Returned as markup and handed to the page template's `afterHero` slot, so
- * `place.ts` stays a template for published places and gains no branch for a
- * case only this module has. It used to be injected into the rendered DOM
- * instead, anchored on a class that page does not have — the whole band silently
- * never appeared, and nothing threw. A slot the template renders cannot miss.
+ * A list at most: the excerpt is stored on the imported row, so a place kept off
+ * two lists still has the one sentence, and the row's own `source_url` is where
+ * it was read from.
  */
-export function importedPlaceProvenanceMarkup(
-  place: ImportedPlace,
-  source: { label: string; listTitles: string[] },
-  esc: (value: string) => string
-): string {
-  // The publication is the attribution; the list title is only where the member
-  // filed it. Credit the first and mention the second, never the other way
-  // round — "NYC trip, October" did not write this sentence.
-  const credit = place.source_url
-    ? `<a href="${esc(place.source_url)}" target="_blank" rel="noopener noreferrer">${esc(
-        source.label
-      )}</a>`
-    : esc(source.label);
-  const filedUnder = source.listTitles.length
-    ? ` · on ${source.listTitles.map((title) => `“${esc(title)}”`).join(' and ')}`
-    : '';
-  // NO "Only you can see this. Nobody on Detour has recommended it." — it was
-  // here, and it was two structural facts (private; not in the catalogue)
-  // carried by a muted sentence nobody reads. Those facts belong to the page's
-  // form, not its copy; the treatment that states them is chosen in styles.css
-  // and this band is only the attribution.
-  return `<div class="private-place-provenance-band">
-    ${
-      place.excerpt
-        ? // The publication's own words, in the block a member's note would take
-          // on any other place page — attributed to them, and to nobody here.
-          `<blockquote class="private-place-excerpt"><p>${esc(
-            place.excerpt
-          )}</p><footer>${credit}${filedUnder}</footer></blockquote>`
-        : `<p class="private-place-from">From ${credit}${filedUnder}.</p>`
-    }
-  </div>`;
+export function importedPlaceVoices(place: ImportedPlace): PlaceGuideVoice[] {
+  if (!place.excerpt.trim()) return [];
+  const list = owningGuides(place)[0];
+  return [
+    {
+      publisher: list ? guideAuthorLabel(list) : importedPlaceSourceLabel(place),
+      guideTitle: list?.source_title.trim() || list?.title.trim() || '',
+      excerpt: place.excerpt,
+      // The place's own link before the list's: a good guide deep-links each
+      // entry, and the entry is what this quote came from.
+      sourceHref: place.source_url || list?.source_url || '',
+    },
+  ];
+}
+
+/** Every list this place sits on that the member still holds, newest first. */
+function owningGuides(place: ImportedPlace): Guide[] {
+  return guides().filter((list) => place.guides.includes(list.id));
 }

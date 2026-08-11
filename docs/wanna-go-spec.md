@@ -151,6 +151,80 @@ No read path exists for anyone else's saves, and none should be added.
   one person's voice; anything aggregate or personal-to-the-viewer belongs on
   the place page. Same rule that keeps *Been & loved* off cards.
 
+## The city page (`?d=<city>`, `&lens=yours`)
+
+**One city page, and geography is the only hierarchy.** "What members recommend
+here" and "what I hold here" are two readings of the same place in the world, so
+they share one route, one layout and one map, and the switch between them is a
+chip — never a second page. `?dest=<city>`, the wishlist board's old route,
+resolves to `?d=<city>&lens=yours`.
+
+The member's own lens holds **everything they have in that city** — places kept
+off a guide, places saved one at a time, and places already been to. The last of
+those is why it is not simply the wishlist: a city you have half-eaten your way
+through showed only the half you had not.
+
+- **A list against a map, tied by the hover.** A row and its pin light each
+  other and the caption under the map names whichever is lit. There were numbers
+  once, on both; eight orange plates down a column read as a ranking, which is
+  the thing this product will not do, so the pin is a dot and the tie is stated
+  only when somebody is looking for it.
+- **The map takes the larger share of the width**, on a wider column than the
+  rest of the app reads at, and stays sticky while the list scrolls. It grew
+  across rather than down: a city is a shape, and a taller map only pushes the
+  list it belongs to off the screen.
+- **Cards or map, and cards lead.** A segmented switch at the end of the filter
+  bar. Cards take the full width and are **the app's own recommendation card** —
+  `groupedRecommendationCardMarkup`, the same renderer the feed and Explore use,
+  per the rule in AGENTS.md; the city page adds no card of its own. The map
+  reading is the list-and-map split, where a row is compact enough to sit
+  eight-deep beside it. Same places, same filters, same order; only how much of
+  each is shown changes. It is a preference, not a filter, so it survives a
+  change of city.
+- **The page keeps the app's column.** The masthead and the footer rule define
+  that width; the map takes its extra room from the split, never from running
+  past them.
+- **A row is a picture, a name, its quarter, its kind, and one cut line of why**
+  — and the whole row is the link. No controls: a city list is scanned, not
+  operated, and every act about a place lives on that place's own page. The
+  quote is cut to one line on purpose; the whole of it is a click away, beside
+  everything else anybody said.
+- **The quoted note is the newest one the reader can see**, and their own when
+  they wrote one — the same newest-first order the cards sort by, with ties
+  broken on the recommendation id so the answer never flickers. It used to be
+  whichever note the payload happened to list first, which is an order nothing
+  promises.
+- **A member's name over their own sentence is a byline, never "via".** They are
+  its author, not the route it travelled; *via* belongs to the provenance chip
+  (`Feed · via @marta`), where the question is which door a place came through.
+- **Three filters, and two of them are menus.** In the open: *To try / Been*, a
+  segmented pair with no "all" — every place is one or the other, and a planner
+  arrives wanting the first. In menus at the far end: **Source** (a line per
+  guide that put places here, plus the feed and their own hand) on the member's
+  lens, **Occasion** on everybody's, and **Area** on both. A filter row six
+  plates wide read as the page's content rather than its controls.
+- **Everything re-scopes together.** The map fits what the filters leave, so
+  "Chelsea, still to try" zooms to Chelsea. Switching lens clears them all —
+  "from Eater" means nothing among everybody's picks.
+- **The line under the city name** leads with what is still to try, and says
+  *all from <guide>* when every place came off one piece — the common shape, and
+  the interesting fact about it.
+- **Counts on every chip**, taken from the whole city rather than from what the
+  other chips have left, so a chip says what pressing it would give you.
+- **Filters are module state, never the route.** They are how a member is reading
+  the city right now, not where they are: in the URL they would make Back step
+  through chip presses, and would make a private list linkable. **The lens is the
+  exception** — it decides what the page holds and what its own crumb says, so it
+  rides in the URL and survives a reload.
+- **Wanna go is offered from the row** on everybody's lens, where a stranger's
+  pick is the thing a member might want; on their own lens every row is already
+  theirs, so the mark would be a column of one word.
+- **No removal here.** A member tidies their own list on My detours and nowhere
+  else.
+- **Guides are named at the foot as sources**, with what each holds in this city
+  (`4 places · 2 to try`) — never as containers, and never as a step in a
+  place's crumb.
+
 ## The prompt hook
 
 The follow-up is the reason this state exists in the ladder.

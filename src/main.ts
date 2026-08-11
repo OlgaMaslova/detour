@@ -3,7 +3,8 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { citySlug, coverTint, loadLiveCatalogue, venueCitySlug, venuePlaceSlug } from './data';
 import type { Venue } from './data';
-import type { ImportedPlace } from './guides';
+import type { Guide, ImportedPlace } from './guides';
+import type { BoardPlace, WannaGoDestination } from './community';
 import { GLOBAL_META_DESCRIPTION, GLOBAL_META_TITLE } from './cities';
 import { OCCASION_OPTIONS, occasionLabel } from './occasions';
 import {
@@ -18,13 +19,16 @@ import {
   landingPanel,
   markDetoursHaveContent,
   memberPlacePrompt,
+  openDetoursTab,
   openEditRecommendation,
   openMemberArea,
   openSignUp,
-  bindWannaGoCards,
-  guideCardsMarkup,
-  wannaGoDestinationCardsMarkup,
-  wannaGoDestinationPlaces,
+  bindImportedRemoval,
+  boardCardsMarkup,
+  cityPickPlaces,
+  guideBoardPlaces,
+  guideRemovalDialogMarkup,
+  wannaGoBoardPlaces,
   wannaGoDestinations,
   openRecommendNewPlace,
   openRecommendPlace,
@@ -50,20 +54,27 @@ import {
   toggleSavedPlace,
 } from './saved';
 import {
+  allImportedPlaces,
+  destinationBoardHref,
   ensureGuides,
-  guide,
   guides,
+  importedCoverHref,
+  openImportDialog,
+  privatePlaceHref,
+  guide,
   guidesLoaded,
   importedPlace,
   guideAuthorLabel,
   guideHref,
+  removingImported,
+  setImportedPlaceSkipped,
   loadGuide,
   loadImportedPlace,
 } from './guides';
 import {
   importedPlaceAsVenue,
-  importedPlaceProvenanceMarkup,
-  importedPlaceStampMarkup,
+  importedPlaceOrigin,
+  importedPlaceVoices,
 } from './private-place';
 import {
   bindCircle,
@@ -93,13 +104,13 @@ import {
 } from './network';
 import type { DiscoveryRecommendation, NetworkPlaceResolver } from './network';
 import { defaultSurveyForm, renderSurvey, surveyFormFromPath, surveyMeta, surveyPath } from './survey';
-import { PLACE_MAP_ID, placeIsLocated, placePageMarkup } from './place';
+import { PLACE_MAP_ID, crumbTrailMarkup, placeIsLocated, placePageMarkup } from './place';
 import { placePromptMarkup } from './place-prompt';
 import { bindFollowUpCard, followUpCardMarkup } from './follow-up';
 import { bindTriageCard, triageCardMarkup } from './triage';
-import { detouristSignalBadge, detouristSignalText } from './signal';
+import { ENDORSE_LABEL, detouristSignalBadge, detouristSignalText } from './signal';
 import { absoluteUrl } from './site';
-import type { PlaceChrome, PlaceHelpers } from './place';
+import type { PlaceChrome, PlaceCrumb, PlaceHelpers } from './place';
 
 type DataMode = 'loading' | 'live' | 'error';
 type AppView =
@@ -140,14 +151,21 @@ type AppView =
   | 'private-place'
   /** One imported list, its places and a map of them. See renderGuide. */
   | 'guide'
-  /** One destination: a city's places on the wishlist, and their map. */
-  | 'wanna-destination'
   | 'account'
   /** The new-member flow: handle and city, then the first place. */
   | 'welcome'
   | 'survey';
-/** The two ways a destination's places can be browsed. */
-type CityView = 'list' | 'map';
+/**
+ * The two ways to read one city — and they are lenses on a single page, never
+ * two pages.
+ *
+ * GEOGRAPHY IS THE ONLY HIERARCHY. A city is a place in the world; "everybody's
+ * picks" and "what I hold here" are two readings of it, so they share a route, a
+ * layout and a map, and the switch between them is a chip. Two pages for one
+ * city was the older answer, and it made a member choose which New York they
+ * wanted before they could look at either.
+ */
+type CityLens = 'picks' | 'yours';
 
 interface UserLocation {
   lat: number;
@@ -182,20 +200,21 @@ interface State {
   privatePlace: string | null;
   /** The imported list the `list` search param names; null on every other view. */
   guide: string | null;
-  /** The destination slug the `dest` search param names; null elsewhere. */
-  wannaDestination: string | null;
   /** Every loaded place, across all destinations. Never rendered directly — see destinationVenues(). */
   venues: Venue[];
   /** Multi-select occasion browsing; selected values compose as AND. */
   occasionFilters: string[];
-  selectedId: string | null;
-  /** Whether the last selection came from a map pin or a list card — used to restore focus on close. */
-  selectedVia: 'pin' | 'card' | null;
-  /** How a destination is being browsed. The list leads; the map is one click away. */
-  cityView: CityView;
+  /** The reader's own position, once they have offered it on Explore. */
   userLocation: UserLocation | null;
+  /** What the last "use my location" attempt has to say; '' when it has nothing. */
   geoStatus: string;
   geoBusy: boolean;
+  /**
+   * Which reading of the city page is on screen. In the URL as `lens=yours`,
+   * unlike the board's chips: it decides what the page is showing and what its
+   * own crumb says, so a reload or a Back must land on the same reading.
+   */
+  cityLens: CityLens;
 }
 
 const state: State = {
@@ -213,12 +232,9 @@ const state: State = {
   place: null,
   privatePlace: null,
   guide: null,
-  wannaDestination: null,
   venues: [],
   occasionFilters: [],
-  selectedId: null,
-  selectedVia: null,
-  cityView: 'list',
+  cityLens: 'picks',
   userLocation: null,
   geoStatus: '',
   geoBusy: false,
@@ -237,9 +253,6 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-function cssToken(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
 
 /* ---------- helpers ---------- */
 
@@ -284,44 +297,13 @@ function brandMark(): string {
 
 /* ---------- public member-list framing ---------- */
 
-/**
- * The aggregate member signal — how many Detourists put this place on the list,
- * and how many of them are in this member's circle. Both the badge and its
- * plain-text form come from signal.ts, so the pair reads identically on a card,
- * in the map preview and on the place page. Shares are private and never counted
- * or named here.
- *
- * The total falls back to the circle figure when the server sent no total, so a
- * badge can never claim fewer recommenders than the member can already read.
- *
- * `own` comes from the notes the member can actually read, which is the only
- * honest source for it: the scoped count includes them, so without this the badge
- * would describe a member as their own circle.
- */
-function venueSignalCounts(v: Venue) {
-  return {
-    total: v.detouristTotal ?? v.detouristCount,
-    circle: v.circleCount,
-    founders: v.founderCount,
-    own: recommendationNotesForVenue(v).some((item) => item.is_own),
-  };
-}
 
-function venueSignalBadge(v: Venue): string {
-  return detouristSignalBadge(venueSignalCounts(v), 'inline');
-}
 
-function venueSignalText(v: Venue): string {
-  return detouristSignalText(venueSignalCounts(v));
-}
 
 function venueOccasions(v: Venue): string[] {
   return v.occasions ?? [];
 }
 
-function occasionSummary(v: Venue): string {
-  return venueOccasions(v).map(occasionLabel).join(', ');
-}
 
 /* ---------- destination scoping (derived purely from place data) ---------- */
 
@@ -438,9 +420,6 @@ function activeDestination(): Destination | null {
   return state.destination ? destinationBySlug(state.destination) : null;
 }
 
-function isShortListDestination(destination: Destination | null = activeDestination()): boolean {
-  return Boolean(destination && destination.count <= SHORT_LIST_DESTINATION_MAX);
-}
 
 /** Display name for the active destination, covering uncovered searches too. */
 function destinationLabel(): string {
@@ -529,9 +508,7 @@ function activePlace(): Venue | null {
 
 function resetDestinationState(): void {
   state.occasionFilters = [];
-  state.selectedId = null;
-  state.selectedVia = null;
-  state.cityView = 'list';
+  state.cityLens = 'picks';
   state.geoStatus = '';
   state.geoBusy = false;
   savedView = null;
@@ -562,9 +539,14 @@ function routeHref(
   if (view === 'guide' && state.guide) {
     url.searchParams.set('guide', state.guide);
   } else url.searchParams.delete('guide');
-  if (view === 'wanna-destination' && state.wannaDestination) {
-    url.searchParams.set('dest', state.wannaDestination);
-  } else url.searchParams.delete('dest');
+  // One city, one route. `lens=yours` is the member's own reading of it — their
+  // wishlist, what they have been to, the guides that fed it — and the default,
+  // unmarked, is what the members of Detour recommend there. It replaced a
+  // second route (`?dest=`) that was the same city with a different layout.
+  if (view === 'destination' && slug && state.cityLens === 'yours') {
+    url.searchParams.set('lens', 'yours');
+  } else url.searchParams.delete('lens');
+  url.searchParams.delete('dest');
   if (view === 'country' && country) url.searchParams.set('country', country);
   else url.searchParams.delete('country');
   if (view === 'account') url.searchParams.set('view', 'members');
@@ -722,6 +704,22 @@ function openDestination(root: HTMLElement, slug: string, pendingName: string | 
 }
 
 /**
+ * The city page, opened on a named lens.
+ *
+ * The same route `openDestination` uses — there is only one city page — with the
+ * reading stated rather than inherited. A crumb under WANNA GO steps up to the
+ * member's own reading of the city; one under EXPLORE steps up to everybody's.
+ * `resetDestinationState` would otherwise put every arrival back on the picks
+ * lens, so the lens is set after it.
+ */
+function openCity(root: HTMLElement, slug: string, lens: CityLens): void {
+  openDestination(root, slug);
+  state.cityLens = memberCanExplore() ? lens : 'picks';
+  updateRoute('destination', slug, 'replace');
+  render(root);
+}
+
+/**
  * Opens one place's own page. Every card in the app leads here, from any view,
  * so a place reads the same whether it was found on the landing feed, in a
  * destination list, or from a member's own activity.
@@ -733,9 +731,6 @@ function openPlace(root: HTMLElement, v: Venue): void {
   state.destination = slug;
   state.pendingDestination = null;
   state.place = venuePageSlug(v);
-  // Kept so returning to the destination marks the place you just read.
-  state.selectedId = v.id;
-  state.selectedVia = 'card';
   updateRoute('place', slug, 'push', state.place);
   pendingFocus = '#place-title';
   render(root);
@@ -984,8 +979,18 @@ function applyRouteFromUrl(root: HTMLElement): void {
       if (memberCanExplore()) placeFormView = 'home';
     }
   }
-  if (state.destination !== requested) resetDestinationState();
-  state.destination = requested;
+  // `?dest=<city>` was the member's own board, on a route of its own. It is the
+  // same city page as `?d=<city>` now, opened on the member's own lens — so the
+  // old parameter resolves to the new route rather than to a page that no longer
+  // exists, and the address bar is corrected below.
+  const legacyBoard = memberCanExplore() ? requestedWannaDestination : null;
+  const requestedCity = requested || legacyBoard;
+  if (state.destination !== requestedCity) resetDestinationState();
+  state.destination = requestedCity;
+  state.cityLens =
+    memberCanExplore() && (legacyBoard || url.searchParams.get('lens') === 'yours')
+      ? 'yours'
+      : 'picks';
   state.country = requested ? null : requestedCountry;
   state.pendingDestination = null;
   state.place = requestedPlace;
@@ -994,7 +999,6 @@ function applyRouteFromUrl(root: HTMLElement): void {
   state.privatePlace = memberCanExplore() ? requestedPrivatePlace : null;
   // Same rule: a list resolves against rows nobody else can read.
   state.guide = memberCanExplore() ? requestedGuide : null;
-  state.wannaDestination = memberCanExplore() ? requestedWannaDestination : null;
   state.surveyForm = routedSurveyForm;
   state.view =
     nextView === 'survey'
@@ -1003,8 +1007,6 @@ function applyRouteFromUrl(root: HTMLElement): void {
         ? 'private-place'
       : state.guide
         ? 'guide'
-      : state.wannaDestination
-        ? 'wanna-destination'
       : placeFormView
         ? placeFormView
       : nextView === 'account'
@@ -1015,7 +1017,7 @@ function applyRouteFromUrl(root: HTMLElement): void {
           ? 'founding'
         : nextView === 'welcome'
           ? 'welcome'
-        : requested
+        : requestedCity
           ? requestedPlace
             ? 'place'
             : 'destination'
@@ -1024,7 +1026,9 @@ function applyRouteFromUrl(root: HTMLElement): void {
   // card, so anybody on this route already has one.
   if (state.view === 'welcome' && pb.authStore.isValid) openOnboarding();
 
-  if (!isSurveyRoute && url.searchParams.has('city')) updateRoute(state.view, requested, 'replace', requestedPlace);
+  if (!isSurveyRoute && (url.searchParams.has('city') || url.searchParams.has('dest'))) {
+    updateRoute(state.view, requestedCity, 'replace', requestedPlace);
+  }
   render(root);
 }
 
@@ -1045,13 +1049,6 @@ interface ActiveFilter {
   value: string;
 }
 
-function activeFilters(): ActiveFilter[] {
-  return state.occasionFilters.map((occasion) => ({
-    kind: 'occasion',
-    label: occasionLabel(occasion),
-    value: occasion,
-  }));
-}
 
 /** Occasion browsing appears wherever the destination's venues carry occasion tags. */
 function destinationHasOccasions(): boolean {
@@ -1073,10 +1070,6 @@ function distanceKm(a: UserLocation, b: UserLocation): number {
   return 2 * 6371 * Math.asin(Math.sqrt(h));
 }
 
-/** Whether the user's position is close enough to count as "in" the destination. */
-function nearDestination(list: Venue[], p: UserLocation): boolean {
-  return mappableVenues(list).some((v) => distanceKm(p, { lat: v.lat, lng: v.lng }) < 40);
-}
 
 function mappableVenues(list: Venue[]): MappableVenue[] {
   return list.filter(
@@ -1185,233 +1178,13 @@ function directionsHref(v: Venue): string {
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
 }
 
-function mountMap(root: HTMLElement, list: Venue[]): void {
-  destroyMap();
-  const container = root.querySelector<HTMLElement>('#venue-map');
-  if (!container) return;
-
-  const mappable = mappableVenues(list);
-  // A map only exists when there is at least one located place to show.
-  if (mappable.length === 0) return;
-  // Include the destination in the key so a destination switch always refits the map.
-  const pinKey = `${state.destination ?? ''}::${mappable.map((v) => v.id).join('|')}`;
-  if (pinKey !== savedPinKey) {
-    savedPinKey = pinKey;
-    savedView = null;
-  }
-
-  const map = L.map(container, {
-    center: [mappable[0].lat, mappable[0].lng],
-    zoom: 13,
-    scrollWheelZoom: false, // don't hijack page scroll
-    zoomSnap: 0.5,
-  });
-  leafletMap = map;
-
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
-  }).addTo(map);
-
-  // Venue pins — every public place uses the same member-list treatment.
-  for (const v of mappable) {
-    const selected = v.id === state.selectedId;
-    const icon = L.divIcon({
-      className: '',
-      html: `<span class="map-pin pin-detourist${selected ? ' pin-selected' : ''}" data-pin="${esc(v.id)}">
-        <span class="pin-pearl" aria-hidden="true">
-          <span class="pin-signal"></span>
-        </span>
-        <span class="pin-label">${esc(v.name)}${v.category ? `<small>${esc(v.category)}</small>` : ''}</span>
-      </span>`,
-      iconSize: [0, 0],
-      iconAnchor: [0, 0],
-    });
-    const marker = L.marker([v.lat, v.lng], {
-      icon,
-      keyboard: false,
-      riseOnHover: true,
-      zIndexOffset: selected ? 1000 : 0,
-    }).addTo(map);
-    const select = () => {
-      const deselecting = state.selectedId === v.id;
-      state.selectedId = deselecting ? null : v.id;
-      state.selectedVia = deselecting ? null : 'pin';
-      savedView = { center: map.getCenter(), zoom: map.getZoom() };
-      pendingFocus = `[data-pin="${CSS.escape(v.id)}"]`;
-      render(root);
-      if (!deselecting) {
-        root.querySelector('.map-stage .detail')?.scrollIntoView({
-          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-          block: 'nearest',
-        });
-      }
-    };
-    const el = marker.getElement();
-    if (el) {
-      // The Leaflet marker root is zero-size (iconSize [0,0]); keep it out of
-      // the tab order and make the inner .map-pin the real interactive target.
-      el.setAttribute('tabindex', '-1');
-      el.removeAttribute('role');
-      el.removeAttribute('aria-label');
-      const pin = el.querySelector<HTMLElement>('.map-pin');
-      if (pin) {
-        pin.setAttribute('role', 'button');
-        pin.setAttribute('tabindex', '0');
-        pin.setAttribute('aria-pressed', String(selected));
-        pin.setAttribute(
-          'aria-label',
-          `${v.name}. ${venueSignalText(v)}.${venueOccasions(v).length ? ` Good for ${occasionSummary(v)}.` : ''} ${selected ? 'Selected.' : 'Select for details.'}`
-        );
-        pin.addEventListener('click', (e) => {
-          e.stopPropagation();
-          select();
-        });
-        pin.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            e.stopPropagation();
-            select();
-          }
-        });
-      }
-    }
-  }
-
-  // User location — shown only when the browser granted a real position that
-  // plausibly falls near the destination, so a distant visitor's marker never
-  // appears on (or drags) another destination's map.
-  const userNearby =
-    state.userLocation !== null && nearDestination(list, state.userLocation);
-  if (state.userLocation && userNearby) {
-    L.circleMarker([state.userLocation.lat, state.userLocation.lng], {
-      radius: 7,
-      color: cssToken('--surface'),
-      weight: 3,
-      fillColor: cssToken('--location'),
-      fillOpacity: 1,
-    })
-      .addTo(map)
-      .bindTooltip('You are here');
-  }
-
-  // View: restore the user's last view, else fit the destination's real pins.
-  if (savedView) {
-    map.setView(savedView.center, savedView.zoom, { animate: false });
-  } else {
-    const bounds = L.latLngBounds(
-      mappable.map((v) => [v.lat, v.lng] as [number, number])
-    );
-    // Frame the user's marker only when it is near the destination.
-    const u = state.userLocation;
-    if (u && userNearby) bounds.extend([u.lat, u.lng]);
-    map.fitBounds(bounds, { padding: [36, 36], maxZoom: 16 });
-  }
-  map.on('moveend zoomend', () => {
-    // A pan or zoom still in flight settles after a re-render has already torn
-    // this map down, and a removed map has no pane left to measure. Identity,
-    // not truthiness: by then leafletMap may hold the map that replaced it.
-    if (leafletMap !== map) return;
-    savedView = { center: map.getCenter(), zoom: map.getZoom() };
-  });
-}
 
 /* ---------- view fragments ---------- */
 
-function mapNote(list: Venue[]): string {
-  const mappable = mappableVenues(list);
-  const refining = list.length - mappable.length;
-  if (list.length === 0) {
-    const name = destinationLabel();
-    return name
-      ? `Nothing matches at the moment — the map stays on ${name} while you adjust the filters.`
-      : 'Nothing matches at the moment.';
-  }
-  if (mappable.length === 0)
-    return 'Map positions for this selection are being refined. Every place remains available in the full selection.';
-  if (refining > 0)
-    return `${refining} ${refining === 1 ? 'place' : 'places'} in the full selection ${refining === 1 ? 'has its' : 'have their'} map position being refined.`;
-  return '';
-}
 
-function mapStage(list: Venue[], showDetail = true): string {
-  const note = mapNote(list);
-  const name = esc(destinationLabel() || 'Selection');
-  return `<section class="map-stage" aria-label="${name} map">
-    <div class="map-panel map-panel-live" role="group" aria-label="Interactive map of the ${name} selection">
-      <div id="venue-map" class="venue-map" tabindex="-1" aria-label="${name} map"></div>
-      ${note ? `<p class="map-note" role="status">${esc(note)}</p>` : ''}
-    </div>
-    ${showDetail ? detailPanel() : ''}
-  </section>`;
-}
 
-function occasionBrowser(): string {
-  if (!destinationHasOccasions()) return '';
-  const venues = destinationVenues();
-  const buttons = OCCASION_OPTIONS.flatMap(([value, label]) => {
-    const active = state.occasionFilters.includes(value);
-    // Faceted counts: what the list becomes with this occasion in the mix.
-    const withThis = active ? state.occasionFilters : [...state.occasionFilters, value];
-    const count = venues.filter((venue) => withThis.every((occasion) => venueOccasions(venue).includes(occasion))).length;
-    // An occasion with nothing behind it is hidden entirely — except while
-    // selected, so it can still be deselected.
-    if (!active && count === 0) return [];
-    return `<button type="button" class="occasion-option${active ? ' occasion-option-active' : ''}" data-occasion="${esc(value)}" aria-pressed="${active}" aria-label="${esc(label)}, ${count} ${count === 1 ? 'place' : 'places'}">
-      <span>${esc(label)}</span><small aria-hidden="true">${count}</small>
-    </button>`;
-  }).join('');
-  return `<section class="occasion-browser" aria-labelledby="occasion-browser-title" aria-describedby="occasion-browser-help">
-    <p class="occasion-browser-copy">
-      <span id="occasion-browser-title" class="occasion-browser-label">What kind of stop is this?</span>
-      <span id="occasion-browser-help">Combine as many as you want.</span>
-    </p>
-    <div class="occasion-options" role="group" aria-label="Browse ${esc(destinationLabel() || 'the selection')} by occasion">
-      <button type="button" class="occasion-option occasion-option-all${state.occasionFilters.length === 0 ? ' occasion-option-active' : ''}" data-occasion="" aria-pressed="${state.occasionFilters.length === 0}">
-        <span>All occasions</span><small aria-hidden="true">${destinationVenues().length}</small>
-      </button>
-      ${buttons}
-    </div>
-  </section>`;
-}
 
-function refineChips(): string {
-  const chips = activeFilters();
-  if (chips.length === 0) return '';
-  return `<div class="chips" aria-label="Active filters">
-    ${chips
-      .map(
-        (c) => `<button type="button" class="chip" data-chip="${c.kind}" data-chip-value="${esc(c.value)}"
-          aria-label="Remove filter ${esc(c.label)}">${esc(c.label)}<span class="chip-x" aria-hidden="true">×</span></button>`
-      )
-      .join('')}
-    <button type="button" class="chip chip-clear" data-clear-filters>Clear all</button>
-  </div>`;
-}
 
-/**
- * One control bar for the destination: how to browse, where you are, how many
- * places are left after filtering, and the occasion filters themselves.
- */
-function discoveryBar(list: Venue[], hasMap: boolean, mapView: boolean): string {
-  return `<section class="discovery" aria-label="Explore the selection">
-    <div class="discovery-row">
-      ${cityViewSwitch(hasMap)}
-      ${
-        mapView
-          ? `<button type="button" class="secondary-button nearby-btn" data-geolocate ${state.geoBusy ? 'disabled' : ''}>
-              ${state.geoBusy ? 'Finding you…' : 'Show nearby'}
-            </button>`
-          : ''
-      }
-      <span class="count" aria-live="polite">${list.length} ${list.length === 1 ? 'place' : 'places'}</span>
-    </div>
-    ${occasionBrowser()}
-    ${refineChips()}
-    ${state.geoStatus ? `<p class="geo-status" role="status">${esc(state.geoStatus)}</p>` : ''}
-  </section>`;
-}
 
 function recommendationLoadStatus(city: string): string {
   const notesState = networkPlaceNotesState(city);
@@ -1427,35 +1200,7 @@ function recommendationLoadStatus(city: string): string {
   return '';
 }
 
-/**
- * List or map — the two ways to read a destination. The list leads (a
- * recommendation is a note from a member, not a coordinate) and the map is one
- * click away for anyone planning a route. Destinations with no verified
- * position for any place never offer the map.
- */
-function cityViewSwitch(hasMap: boolean): string {
-  if (!hasMap) return '';
-  const tab = (view: CityView, label: string) =>
-    `<button type="button" class="city-view-tab${state.cityView === view ? ' is-active' : ''}"
-      data-city-view="${view}" aria-pressed="${state.cityView === view}">${label}</button>`;
-  return `<div class="city-view-switch" role="group" aria-label="Browse this destination as a list or a map">
-    ${tab('list', 'List')}${tab('map', 'Map')}
-  </div>`;
-}
 
-function cityListStage(destination: Destination, list: Venue[], emptyState: string): string {
-  // No heading: the hero already says whose list this is and how long it is.
-  return `<section class="trusted-list" aria-label="${esc(`Places members recommend in ${destination.name}`)}">
-    ${recommendationLoadStatus(destination.name)}
-    <div class="results trusted-list-results" id="selection-results" tabindex="-1">
-      ${
-        list.length
-          ? `<ul class="card-list trusted-card-list network-recommendation-grid">${list.map(trustedVenueCard).join('')}</ul>`
-          : emptyState
-      }
-    </div>
-  </section>`;
-}
 
 // Cover URLs that failed to load this session; those venues render the
 // monogram placeholder directly instead of retrying a dead image every render.
@@ -1582,35 +1327,6 @@ function placeHeroPhotoHref(v: Venue): string {
   return coverPhotoHref(recommendationNotesForVenue(v), PLACE_PHOTO_THUMB);
 }
 
-/**
- * Destination-list wrapper for the shared grouped recommendation card.
- * Practical detail and the complete note history remain on the place page.
- */
-function trustedVenueCard(v: Venue): string {
-  const selected = v.id === state.selectedId;
-  let recommendations: DiscoveryRecommendation[] = recommendationNotesForVenue(v).map((item) => ({
-    ...item,
-    venue_name: item.venue_name || v.name,
-    venue_id: item.venue_id || v.id,
-    city: item.city || v.city,
-    country: item.country || v.country,
-  }));
-  if (recommendations.length === 0) {
-    recommendations = [{
-      venue_name: v.name,
-      venue_id: v.id,
-      city: v.city,
-      country: v.country,
-      founding_member: v.foundingRecommended,
-    }];
-  } else if (v.foundingRecommended && !recommendations.some((item) => item.founding_member)) {
-    recommendations[0] = { ...recommendations[0], founding_member: true };
-  }
-  return `<li>${groupedRecommendationCardMarkup(recommendations, resolveNetworkPlace, {
-    trustedEntry: true,
-    selected,
-  })}</li>`;
-}
 
 function shortDate(value: string | undefined): string {
   if (!value) return '';
@@ -1635,50 +1351,6 @@ function venueVisitLinks(v: Venue): string {
     .join('');
 }
 
-/**
- * Map-view pin preview. Cards no longer open this — they lead to the place's
- * own page — so the panel exists only to answer "which pin did I just click",
- * and every full answer is one link away.
- */
-function detailPanel(): string {
-  const v = destinationVenues().find((x) => x.id === state.selectedId);
-  if (!v) {
-    return `<p class="map-prompt" aria-live="polite">Choose a pin to see the place — or switch to the list to read what members wrote.</p>`;
-  }
-  const detailMeta = [v.category, v.neighborhood].filter(Boolean).join(' · ');
-  const directions = directionsHref(v);
-  return `<aside class="detail" id="selected-place-detail" aria-live="polite" aria-label="Selected place">
-    <div class="detail-head">
-      <div>
-        <p class="detail-overline">Selected place</p>
-        <h2>${esc(v.name)}</h2>
-        ${detailMeta ? `<p class="detail-meta">${esc(detailMeta)}</p>` : ''}
-      </div>
-      <div class="detail-head-side">
-        ${venueSignalBadge(v)}
-        <button type="button" class="detail-close" data-close aria-label="Close details"><span aria-hidden="true">×</span></button>
-      </div>
-    </div>
-    <div class="detail-body">
-      <div class="detail-practical">
-        <p class="detail-locator-address">${
-          v.address ? esc(v.address) : '<span class="approx">Map position being refined</span>'
-        }</p>
-        ${v.approxLocation && v.lat !== null ? '<p class="approx">Position is approximate — confirm before you set off.</p>' : ''}
-        ${
-          venueOccasions(v).length
-            ? `<p class="detail-locator-occasions"><span>Good for</span> ${esc(venueOccasions(v).map(occasionLabel).join(' · '))}</p>`
-            : ''
-        }
-        <div class="detail-visit-links">
-          <a class="primary-button detail-open-place" href="${esc(placeHref(v))}" data-place="${esc(v.id)}" aria-label="Open the full place page for ${esc(v.name)}">To full page <span class="nav-arrow" aria-hidden="true">→</span></a>
-          ${directions ? `<a class="secondary-button" href="${esc(directions)}" target="_blank" rel="noopener noreferrer">Get directions <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>` : ''}
-          ${venueVisitLinks(v)}
-        </div>
-      </div>
-    </div>
-  </aside>`;
-}
 
 /* ---------- place page ---------- */
 
@@ -1863,6 +1535,99 @@ function readablePlaceError(error: unknown, fallback: string): string {
 }
 
 /**
+ * The trail over one place: the list it belongs to, the city inside that list,
+ * and the place itself.
+ *
+ * THE CRUMB IS OWNERSHIP, NOT JOURNEY — see `PlaceCrumb`. The root is decided by
+ * the reader's own relationship to the place and by nothing else, least of all
+ * by the page they came from:
+ *
+ *   BEEN & LOVED / New York / Katz's    they have been and said so
+ *   WANNA GO     / New York / Zimmi's   it is on their wishlist, whichever door
+ *                                       it came through
+ *   EXPLORE      / Zimmi's              neither, so there is no list of theirs
+ *                                       for it to sit in
+ *
+ * Marking Been moves the root with the place, which is the whole point of tying
+ * it to standing rather than to a route: the trail keeps naming the list the
+ * place is actually in.
+ *
+ * A guide is never a step here. It is a lens over places, not a container of
+ * them — the city is the parent even for a place that arrived on somebody's list
+ * of the year's best restaurants, and the piece is credited in *How it got here*
+ * where the origin story belongs.
+ *
+ * The city step is only ever offered where a city page of the right kind exists:
+ * the member's own board under WANNA GO, the catalogue's city under BEEN & LOVED.
+ * A step that leads nowhere is worse than one step fewer.
+ */
+function placeCrumbs(
+  v: Venue,
+  context: {
+    cityName: string;
+    /** The catalogue destination's slug, when this place has a catalogue page. */
+    destinationSlug?: string;
+    been: boolean;
+    onWishlist: boolean;
+  }
+): PlaceCrumb[] {
+  const here: PlaceCrumb = { label: v.name, href: '' };
+  const city = context.cityName.trim();
+  // The member's own board for this city, which exists only while they hold a
+  // place in it — derived, like every destination in Wanna go.
+  const board = city ? wannaGoDestinations().find((entry) => entry.slug === citySlug(city)) : undefined;
+  if (context.been) {
+    // Their own board first: it holds everything they have in this city,
+    // been included, so it is the city page that actually contains this place.
+    // The catalogue's city stands in where they hold nothing else there — a real
+    // page about the same city, if not one of theirs.
+    const cityStep: PlaceCrumb[] = board
+      ? [
+          {
+            label: board.name,
+            href: destinationBoardHref(board.slug),
+            attrs: `data-wanna-destination="${esc(board.slug)}"`,
+          },
+        ]
+      : city && context.destinationSlug
+        ? [
+            {
+              label: city,
+              href: destinationHref(context.destinationSlug),
+              attrs: `data-open-destination="${esc(context.destinationSlug)}"`,
+            },
+          ]
+        : [];
+    return [
+      { label: 'Been & loved', href: homeHref(), attrs: 'data-detours-tab="endorsements"' },
+      ...cityStep,
+      here,
+    ];
+  }
+  if (context.onWishlist) {
+    const ownCity: PlaceCrumb[] = board
+      ? [
+          {
+            label: board.name,
+            href: destinationBoardHref(board.slug),
+            attrs: `data-wanna-destination="${esc(board.slug)}"`,
+          },
+        ]
+      : [];
+    return [
+      { label: 'Wanna go', href: homeHref(), attrs: 'data-detours-tab="saved"' },
+      ...ownCity,
+      here,
+    ];
+  }
+  // Neither list holds it, so the catalogue is the only place it lives. Two steps
+  // and no city: Explore is a search across cities rather than an index of them,
+  // and a city step under it would be the journey — how this reader happened to
+  // arrive — rather than where the place belongs.
+  return [{ label: 'Explore', href: exploreHref(), attrs: 'data-explore' }, here];
+}
+
+/**
  * One place, one page. The markup lives in place.ts; this wires it to the
  * app's routing, chrome and shared venue formatting, then mounts the locator.
  *
@@ -1897,18 +1662,31 @@ function renderPlace(
     : venue;
   syncDocumentMeta(destination.name, false, v);
 
-  const country = destinationCountry(destination);
+  // A place can have come through both doors: somebody in the circle recommended
+  // it, and this reader had already kept it off a published list. The second fact
+  // lives in their own guides — it is private to them, and no field on the
+  // catalogue record knows about it — so the page asks their lists whether any of
+  // them resolved to this venue.
+  //
+  // The imported place page redirects here the moment a place it holds gets
+  // recommended. It used to redirect to a page where every trace of where the
+  // member found it had gone; now the band and the publication's line travel with
+  // it, and the notes arrive underneath them.
+  const importedAs = memberCanExplore()
+    ? allImportedPlaces().find((entry) => entry.matched_venue === v.id)
+    : undefined;
+
   const chrome: PlaceChrome = {
-    destinationName: destination.name,
-    destinationSlug: destination.slug,
-    destinationHref: destinationHref(destination.slug),
-    // Named only when there is a country route to name: a place read from outside
-    // the caller's circle sits in a country their own list has no entry for, and a
-    // crumb linking to nothing is worse than one crumb fewer.
-    countryName: country ? destination.country : '',
-    countrySlug: country?.slug ?? '',
-    countryHref: country ? countryHref(country.slug) : exploreHref(),
-    exploreHref: exploreHref(),
+    crumbs: placeCrumbs(v, {
+      cityName: destination.name,
+      destinationSlug: destination.slug,
+      been: v.endorsedByCaller === true,
+      onWishlist: isSavedPlace(v.id) || Boolean(importedAs),
+    }),
+    // Nothing above the title on a catalogue place: the crumb states the list it
+    // belongs to, and the standing that is not in the crumb — how many Detourists
+    // are behind it — is the signal's job further down the hero.
+    statusChips: [],
     // Acting, not browsing. A visitor reaches Explore, the city and the country
     // the same way a member does — what differs is which places are in them, and
     // the server settled that before this render started.
@@ -1936,6 +1714,11 @@ function renderPlace(
     // member may send one about anywhere they can see — including a place they
     // recommended themselves, which is the likeliest thing they would pass on.
     canShare: memberCanExplore(),
+    // Where the reader got it, and what the piece said — both empty for a place
+    // they never imported, which is the ordinary case. Nobody else is ever shown
+    // either: a guide import is one member's own record of their own reading.
+    origin: importedAs ? importedPlaceOrigin(importedAs, shortDate) : null,
+    guideVoices: importedAs ? importedPlaceVoices(importedAs) : [],
     saved: isSavedPlace(v.id),
     saving: savingPlace(v.id),
     saveError: savePlaceFailure(v.id),
@@ -1988,7 +1771,14 @@ function renderPlace(
   // The Wanna go control cannot say whether this place is already on the list
   // until the list has been read. One request per session, shared with the tab
   // and the share inbox.
-  if (memberCanExplore()) void ensureSavedPlaces(() => render(root));
+  //
+  // The guides are read for the same reason and on the same terms: until they
+  // arrive the page cannot know this is a place the reader kept off a list, and
+  // "How it got here" would be missing from a page that has an answer for it.
+  if (memberCanExplore()) {
+    void ensureSavedPlaces(() => render(root));
+    void ensureGuides(() => render(root));
+  }
   root.querySelector<HTMLButtonElement>('[data-city-notes-retry]')?.addEventListener('click', () => {
     pendingFocus = '[data-city-notes-retry]';
     retryNetworkPlaceNotes(() => render(root), destination.name);
@@ -2019,92 +1809,422 @@ function renderPlace(
   }
 }
 
+/* ---------- the destination board ---------- */
+
 /**
- * One destination: every place on the wishlist in this city, and their map.
+ * The city page's three filters, and the city they belong to.
  *
- * THE PLANNING SURFACE. A destination is derived rather than declared — it exists
- * because it holds places — so this page is assembled from whatever the member
- * holds in this city, whichever door each place came through.
+ * THREE, AND TWO OF THEM ARE MENUS. There were six chips abreast — status, a
+ * plate per guide, feed, by you — and a row of filters that wide reads as the
+ * page's content rather than as its controls. What survives in the open is the
+ * one question a planner actually asks on arrival ("what have I not been to
+ * yet?"); where a place came from and which quarter it is in are answered from
+ * menus, which cost a click and no width at all.
  *
- * Guides are named here as sources, never as containers. A band under the map
- * says which pieces put places in this city and links to each; the places
- * themselves are grouped by city, because a city is what somebody plans around.
+ * Module state rather than the route, and deliberately: a filter is how a member
+ * is reading this city right now, not where they are. Putting it in the URL would
+ * make Back step through their own presses before it took them off the page, and
+ * would let them send somebody a link to a filtered view of a list only they can
+ * see.
+ *
+ * Cleared when the page changes city, because "to try, from Eater, in Chelsea"
+ * means nothing in Lisbon.
  */
-function renderWannaDestination(root: HTMLElement, slug: string): void {
+let boardSlug = '';
+/**
+ * Two states and no "all", which is the point: every place here is one or the
+ * other, and a member arrives wanting the ones they have not been to. Been is
+ * one press away and holds the city's memory.
+ */
+let boardStatus: 'to-try' | 'been' | 'skipped' = 'to-try';
+/** 'all', 'feed', 'manual', or `guide:<id>` — the menu names pieces, not kinds. */
+let boardSource = 'all';
+let boardArea = 'all';
+/**
+ * Cards or map — the two ways to read the city, and a preference rather than a
+ * filter: it survives a change of city, because a member who reads in cards
+ * reads in cards everywhere.
+ *
+ * Cards lead. A recommendation is a photograph and somebody's sentence, and the
+ * grid gives both room; the map answers "where", which is the second question on
+ * every city except the one you are standing in.
+ */
+let boardView: 'cards' | 'map' = 'cards';
+let boardExpanded = false;
+
+/**
+ * How many rows the board shows before it asks. Enough to plan a day from,
+ * short enough that the map beside it is not a wall of numbered pins.
+ */
+const BOARD_PREVIEW = 8;
+
+function resetBoardFilters(slug: string): void {
+  if (boardSlug === slug) return;
+  boardSlug = slug;
+  boardStatus = 'to-try';
+  boardSource = 'all';
+  boardArea = 'all';
+  boardExpanded = false;
+}
+
+/** Whether a row survives the filters currently set. */
+function boardRowVisible(row: BoardPlace): boolean {
+  // Skipped is a state of its own, and it is the only one that shows a skipped
+  // place at all: "to try" and "been" are about places still on the list.
+  if (boardStatus === 'skipped') {
+    if (!row.skipped) return false;
+  } else if (row.skipped || (boardStatus === 'to-try' ? row.been : !row.been)) return false;
+  if (boardSource.startsWith('guide:')) {
+    if (!row.guideIds.includes(boardSource.slice('guide:'.length))) return false;
+  } else if (boardSource !== 'all' && row.provenance.kind !== boardSource) return false;
+  if (boardArea !== 'all' && row.area !== boardArea) return false;
+  return true;
+}
+
+/** One chip: a count that says what pressing it would leave. */
+function boardChip(
+  active: boolean,
+  attr: string,
+  label: string,
+  count: number,
+  extraClass = ''
+): string {
+  return `<button class="board-chip${extraClass ? ` ${extraClass}` : ''}${
+    active ? ' is-active' : ''
+  }" type="button" ${attr} aria-pressed="${active}">${esc(label)} <span aria-hidden="true">·</span> ${esc(
+    String(count)
+  )}</button>`;
+}
+
+/** One half of the reading switch. A tab, not a filter: it re-renders the same set. */
+function boardViewTab(view: 'cards' | 'map', label: string, mark: string): string {
+  const active = boardView === view;
+  return `<button class="board-view-tab${active ? ' is-active' : ''}" type="button"
+    data-board-view="${view}" aria-pressed="${active}"><span aria-hidden="true">${mark}</span> ${esc(
+      label
+    )}</button>`;
+}
+
+
+/**
+ * The thumbnail on a row: a member's photograph, the catalogue's cover, or the
+ * publication's own picture — first one there wins, and '' when none does.
+ *
+ * The same chain the cards use, at a size a row can afford. A place with no
+ * picture gets its monogram rather than a grey rectangle: the row is a line of
+ * text with a stamp beside it, and an empty stamp is worse than a printed
+ * initial.
+ */
+function boardRowCover(row: BoardPlace): string {
+  const own = row.venue ? placeHeroPhotoHref(row.venue) : '';
+  const catalogue = row.venue?.imageUrl || '';
+  const published = row.imported ? importedCoverHref(row.imported.image_url, 160) : '';
+  const href = own || catalogue || published;
+  return href && !failedCoverUrls.has(href) ? href : '';
+}
+
+/**
+ * One row: a picture, a name, where it is, and one cut line of why.
+ *
+ * NO NUMBER. It carried the tie to the map, and it cost every row an orange
+ * plate at its head — eight of them down a column read as a ranking, which is
+ * the one thing this product will not do. The tie survives in the hover: a row
+ * and its pin light each other, and the caption under the map names whichever is
+ * lit. That is the same relationship, stated only when somebody is looking for
+ * it.
+ *
+ * The quote is cut to one line on purpose. It is here to tell a member which
+ * place this is — the sentence that made them keep it — not to be read in full;
+ * the full one is on the place page, a click away, next to everything else
+ * anybody said. Eight full quotes would be an essay where a list should be.
+ */
+function boardRowMarkup(row: BoardPlace): string {
+  const href = row.venue ? placeHref(row.venue) : privatePlaceHref(row.imported?.id || '');
+  const hook = row.venue
+    ? `data-place="${esc(row.venue.id)}"`
+    : `data-private-place="${esc(row.imported?.id || '')}"`;
+  const cover = boardRowCover(row);
+  const initial = (row.name.trim().charAt(0) || '•').toUpperCase();
+  // Whose sentence it is, then the sentence. The name is a credit — this member
+  // recommended the place — so it is printed as a byline and not as a route.
+  const byline = row.quoteBy
+    ? `<span class="board-row-by">${esc(row.quoteBy)}</span> <span aria-hidden="true">—</span> `
+    : '';
+  const line = row.quote ? `${byline}“${esc(row.quote)}”` : '';
+  return `<li class="board-row${row.been ? ' is-been' : ''}" data-board-row="${esc(row.key)}">
+    <a class="board-row-open" href="${esc(href)}" ${hook} aria-label="${esc(
+      `${row.name}${row.area ? `, ${row.area}` : ''}`
+    )}">
+      <span class="board-row-thumb${cover ? '' : ' is-empty'}" aria-hidden="true">${
+        cover
+          ? `<img src="${esc(cover)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-board-thumb>`
+          : `<span>${esc(initial)}</span>`
+      }</span>
+      <span class="board-row-body">
+        <span class="board-row-head">
+          <span class="board-row-name">${esc(row.name)}</span>
+          ${row.area ? `<span class="board-row-area">${esc(row.area)}</span>` : ''}
+          ${row.category ? `<span class="board-row-kind">${esc(row.category)}</span>` : ''}
+        </span>
+        ${line ? `<span class="board-row-line">${line}</span>` : ''}
+      </span>
+      <span class="board-row-arrow" aria-hidden="true">&#x203A;</span>
+    </a>
+  </li>`;
+}
+
+/**
+ * One destination: every place the member holds in this city, and their map.
+ *
+ * THE PLANNING SURFACE, and the one page that answers "what do I have in New
+ * York" — places kept off a guide, places saved one at a time, and places already
+ * been to, in one numbered list against one map. A destination is derived rather
+ * than declared: it exists because it holds places.
+ *
+ * THE LIST AND THE MAP ARE ONE THING. Each row's number is its pin's number, a
+ * row and its pin light each other up, and the chips re-scope both at once — the
+ * map fits the places on screen rather than the whole metro, which is what makes
+ * "Chelsea, still to try" a usable answer instead of a filtered list beside an
+ * unfiltered picture.
+ *
+ * Guides are named here as sources, never as containers. The band at the foot
+ * says which pieces put places in this city; the places themselves are grouped by
+ * city, because a city is what somebody plans around.
+ */
+function renderCity(
+  root: HTMLElement,
+  slug: string,
+  catalogue: Destination | undefined,
+  board: WannaGoDestination | undefined
+): void {
   destroyMap();
-  root.dataset.restyle = 'place';
+  root.dataset.restyle = 'destination';
   applyTapeTheme();
+  resetBoardFilters(slug);
 
   void ensureGuides(() => render(root));
   void ensureSavedPlaces(() => render(root));
-  ensureNetworkDiscovery(() => render(root));
+  const name = catalogue?.name || board?.name || destinationLabel() || 'This city';
+  ensureNetworkDiscovery(() => render(root), name);
 
-  const destination = wannaGoDestinations().find((entry) => entry.slug === slug);
-  if (!destination) {
-    root.innerHTML = guidesLoaded()
-      ? `<article class="place-page">
-          <h1 id="wanna-destination-title" tabindex="-1">Nothing here yet.</h1>
-          <p class="tagline">You have no places on your wishlist in this city.</p>
-          <p><a href="${esc(homeHref())}" data-route-link>Back to My detours</a></p>
-        </article>`
-      : '<p class="community-loading" role="status">Loading…</p>';
-    bindRouteLinks(root);
-    return;
-  }
+  // A visitor has no reading of their own, so there is one lens and no switch.
+  const mine = memberCanExplore();
+  const lens: CityLens = mine && state.cityLens === 'yours' ? 'yours' : 'picks';
+  const picks = catalogue ? cityPickPlaces(filteredVenues()) : [];
+  const yours = mine ? wannaGoBoardPlaces(slug, allVenues()) : [];
+  const rows = lens === 'yours' ? yours : picks;
+  const been = rows.filter((row) => row.been).length;
+  const saved = rows.filter((row) => row.saved).length;
+  const areas = [...new Set(rows.map((row) => row.area).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b)
+  );
+  const visible = rows.filter(boardRowVisible);
+  const shown = boardExpanded ? visible : visible.slice(0, BOARD_PREVIEW);
+  const hidden = visible.length - shown.length;
+  // The map holds the rows on screen and nothing else.
+  const pins = shown.filter((row) => row.lat !== null && row.lng !== null);
+  const unplaced = shown.length - pins.length;
+  const guidesHere = lens === 'yours' ? board?.guides ?? [] : [];
+  const occasions = lens === 'picks' && catalogue && destinationHasOccasions()
+    ? cityOccasionOptions()
+    : [];
+  const sources = citySourceOptions(rows, guidesHere);
 
-  const places = wannaGoDestinationPlaces(slug);
-  const pins: { place: ImportedPlace; venue: Venue }[] = places
-    .map((place) => ({ place, venue: importedPlaceAsVenue(place) }))
-    .filter((entry) => entry.venue.lat !== null && entry.venue.lng !== null);
-  // Two different absences — see mapCoverageNote.
-  const unplaced = places.filter((place) => place.lat === 0 && place.lng === 0);
-  const pending = unplaced.filter((place) => !place.locate_tried).length;
-
-  syncDocumentMeta(null);
+  syncDocumentMeta(name);
   root.innerHTML = `
+    <a class="skip-link" href="#destination-title">Skip to this city</a>
     ${mastheadMarkup('other')}
-    <nav class="place-back-row explore-breadcrumb" aria-label="Breadcrumb">
-      <a href="${esc(homeHref())}" data-route-link>My detours</a>
-      <span aria-hidden="true">/</span>
-      <span aria-current="page">${esc(destination.name)}</span>
-    </nav>
-    <article class="place-page guide-page-view">
-      <header class="guide-head">
-        <p class="place-overline">On your wishlist</p>
-        <h1 id="wanna-destination-title" tabindex="-1">${esc(destination.name)}</h1>
-        <p class="place-meta">${esc(String(destination.places))} place${
-          destination.places === 1 ? '' : 's'
-        }</p>
+    ${crumbTrailMarkup(cityCrumbs(name, lens, catalogue), esc)}
+    <article class="place-page board-page">
+      <header class="board-head">
+        <div class="board-head-copy">
+          <h1 id="destination-title" tabindex="-1">${esc(name)}</h1>
+          <p class="board-counts">${cityCountLine(rows, lens, mine)}</p>
+        </div>
+        ${
+          !mine
+            ? ''
+            : lens === 'yours'
+              ? '<button class="primary-button board-add" type="button" data-board-add>+ Add here</button>'
+              : `<a class="primary-button board-add" href="${esc(
+                  accountHref()
+                )}" data-community-route="recommend-place">+ Recommend a place</a>`
+        }
       </header>
       ${
-        pins.length
-          ? `<section class="guide-map-section" aria-label="${esc(
-              `Map of your places in ${destination.name}`
-            )}">
-        <div id="venue-map" class="venue-map guide-map" tabindex="-1" aria-label="${esc(
-          `Map of your places in ${destination.name}`
-        )}"></div>
-        ${mapCoverageNote(pending, unplaced.length - pending)}
-      </section>`
+        mine
+          ? `<div class="board-lens" role="group" aria-label="Which reading of this city">
+              ${boardChip(
+                lens === 'picks',
+                'data-city-lens="picks"',
+                'Members’ picks',
+                // The whole city, not what the filters have left: a lens says how
+                // much is behind it, and a member reading a narrowed list must
+                // still be told what switching would give them.
+                catalogue ? destinationVenues().length : 0,
+                'board-lens-chip'
+              )}
+              ${boardChip(
+                lens === 'yours',
+                'data-city-lens="yours"',
+                'Yours',
+                yours.length,
+                'board-lens-chip'
+              )}
+            </div>`
           : ''
       }
+      <div class="board-filters">
+        <div class="board-chips board-status" role="group" aria-label="Filter by whether you have been">
+          ${boardChip(
+            boardStatus === 'to-try',
+            'data-board-status="to-try"',
+            'To try',
+            rows.filter((row) => !row.been).length
+          )}
+          ${boardChip(
+            boardStatus === 'been',
+            'data-board-status="been"',
+            'Been',
+            rows.filter((row) => row.been).length
+          )}
+        </div>
+        ${
+          sources.length > 2
+            ? `<label class="board-select">
+                <span class="visually-hidden">Filter by where a place came from</span>
+                <select data-board-source>
+                  ${sources
+                    .map(
+                      (source) =>
+                        `<option value="${esc(source.value)}"${
+                          boardSource === source.value ? ' selected' : ''
+                        }>${esc(source.label)}</option>`
+                    )
+                    .join('')}
+                </select>
+              </label>`
+            : ''
+        }
+        ${
+          occasions.length
+            ? `<label class="board-select">
+                <span class="visually-hidden">Filter by what you are planning</span>
+                <select data-board-occasion>
+                  <option value=""${state.occasionFilters.length ? '' : ' selected'}>Occasion</option>
+                  ${occasions
+                    .map(
+                      (occasion) =>
+                        `<option value="${esc(occasion.value)}"${
+                          state.occasionFilters.includes(occasion.value) ? ' selected' : ''
+                        }>${esc(occasion.label)} · ${esc(String(occasion.count))}</option>`
+                    )
+                    .join('')}
+                </select>
+              </label>`
+            : ''
+        }
+        ${
+          areas.length > 1
+            ? `<label class="board-select">
+                <span class="visually-hidden">Filter by neighbourhood</span>
+                <select data-board-area>
+                  <option value="all"${boardArea === 'all' ? ' selected' : ''}>Area</option>
+                  ${areas
+                    .map(
+                      (area) =>
+                        `<option value="${esc(area)}"${
+                          boardArea === area ? ' selected' : ''
+                        }>${esc(area)}</option>`
+                    )
+                    .join('')}
+                </select>
+              </label>`
+            : ''
+        }
+        <div class="board-view" role="group" aria-label="Read this city as cards or on the map">
+          ${boardViewTab('cards', 'Cards', '▦')}
+          ${boardViewTab('map', 'Map', '◉')}
+        </div>
+      </div>
+      <div class="board-body${shown.length ? '' : ' is-empty'}${
+        boardView === 'cards' ? ' is-cards' : ''
+      }">
+        <div class="board-list-side">
+          ${lens === 'picks' ? recommendationLoadStatus(name) : ''}
+          ${
+            shown.length
+              ? boardView === 'cards'
+                ? boardCardsMarkup(shown)
+                : `<ul class="board-rows">${shown.map(boardRowMarkup).join('')}</ul>`
+              : `<p class="community-empty">${esc(cityEmptyLine(lens, rows.length > 0, name))}</p>`
+          }
+          ${
+            hidden > 0
+              ? `<p class="board-more"><button type="button" data-board-more>+ ${esc(
+                  String(hidden)
+                )} more…</button></p>`
+              : ''
+          }
+        </div>
+        ${
+          // The map is the other half of the map reading, and nothing at all in
+          // cards: a card grid is read across the full width, and half a page of
+          // map beside three columns of cards would leave neither enough room.
+          boardView === 'cards'
+            ? ''
+            : // ONE NOTHING IS ENOUGH. With no rows on screen the list has already
+          // said so, and a second dashed box beside it saying the map is empty
+          // too is the same absence reported twice — so the map side is not
+          // rendered at all and the sentence keeps the page to itself.
+          //
+          // A map that is empty while rows are on screen is a different fact, and
+          // it does get said: those places have no position yet.
+          !shown.length
+            ? ''
+            : `<section class="board-map-side" aria-label="${esc(`Map of ${name}`)}">
+          ${
+            pins.length
+              ? `<div id="venue-map" class="venue-map board-map" tabindex="-1" aria-label="${esc(
+                  `Map of ${name}`
+                )}"></div>
+                 <p class="board-map-caption" data-board-caption role="status"></p>`
+              : ''
+          }
+          ${
+            unplaced
+              ? `<p class="board-map-note">${esc(String(unplaced))} of ${
+                  unplaced === shown.length ? 'these' : 'these places'
+                } ${unplaced === 1 ? 'has' : 'have'} no position yet.</p>`
+              : ''
+          }
+        </section>`
+        }
+      </div>
       ${
-        destination.guides.length
-          ? `<section class="destination-guides" aria-label="Guides that brought places here">
-        <h2>From guides</h2>
-        <ul>
-          ${destination.guides
-            .map(
-              (guide) => `<li><a href="${esc(guideHref(guide.id))}" data-guide>${esc(
-                guide.title
-              )}</a> <span>${esc(guideAuthorLabel(guide))}</span></li>`
-            )
-            .join('')}
-        </ul>
-      </section>`
+        guidesHere.length
+          ? `<section class="board-guides" aria-labelledby="board-guides-title">
+              <h2 id="board-guides-title">Guides here</h2>
+              <ul>
+                ${guidesHere
+                  .map((guide) => {
+                    const held = rows.filter((row) => row.guideIds.includes(guide.id));
+                    const toTry = held.filter((row) => !row.been).length;
+                    return `<li><a class="board-guide" href="${esc(
+                      guideHref(guide.id)
+                    )}" data-guide><span class="board-guide-name">${esc(
+                      guide.title
+                    )}</span> <span class="board-guide-meta">${esc(
+                      String(held.length)
+                    )} place${held.length === 1 ? '' : 's'} · ${esc(
+                      String(toTry)
+                    )} to try</span> <span class="nav-arrow" aria-hidden="true">&#x2192;</span></a></li>`;
+                  })
+                  .join('')}
+              </ul>
+            </section>`
           : ''
       }
-      ${wannaGoDestinationCardsMarkup(slug)}
     </article>
     <footer class="footer">
       <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
@@ -2113,13 +2233,408 @@ function renderWannaDestination(root: HTMLElement, slug: string): void {
   `;
 
   bindRouteLinks(root);
-  bindWannaGoCards(root, () => render(root));
-  if (pins.length) mountGuideMap(root, pins);
+  bindBoardControls(root);
+  // A thumbnail that will not load becomes the monogram the row would have shown
+  // had there been no picture at all, and the URL is remembered so the next
+  // render does not ask for it again. A broken-image glyph in a list of places is
+  // the one thing worse than no picture.
+  root.querySelectorAll<HTMLImageElement>('[data-board-thumb]').forEach((img) => {
+    const drop = () => {
+      failedCoverUrls.add(img.currentSrc || img.src);
+      const frame = img.closest<HTMLElement>('.board-row-thumb, .board-card-photo');
+      if (!frame) return;
+      const named = frame.parentElement?.querySelector('.board-row-name, .board-card-name');
+      const initial = (named?.textContent || '•').trim().charAt(0).toUpperCase();
+      frame.classList.add('is-empty');
+      frame.innerHTML = `<span>${esc(initial)}</span>`;
+    };
+    img.addEventListener('error', drop, { once: true });
+    if (img.complete && img.naturalWidth === 0) drop();
+  });
+  if (boardView === 'map' && pins.length) mountBoardMap(root, pins);
+  bindBoardHighlight(root);
   if (pendingFocus) {
     const target = root.querySelector<HTMLElement>(pendingFocus);
     pendingFocus = null;
     target?.focus({ preventScroll: true });
   }
+}
+
+/**
+ * The city's own trail. One page, so one crumb — and it names the reading on
+ * screen, which is the list this city is being read as: everybody's, or theirs.
+ *
+ * The country step survives only on the catalogue's own reading, where there is
+ * a country index to step through. A member's own city sits under their own
+ * list and nowhere else — Wanna go has no countries in it.
+ */
+function cityCrumbs(name: string, lens: CityLens, catalogue: Destination | undefined): PlaceCrumb[] {
+  if (lens === 'yours') {
+    return [
+      { label: 'Wanna go', href: homeHref(), attrs: 'data-detours-tab="saved"' },
+      { label: name, href: '' },
+    ];
+  }
+  const country = catalogue ? destinationCountry(catalogue) : null;
+  return [
+    { label: 'Explore', href: exploreHref(), attrs: 'data-explore' },
+    ...(country
+      ? [
+          {
+            label: country.name,
+            href: countryHref(country.slug),
+            attrs: `data-country="${esc(country.slug)}"`,
+          },
+        ]
+      : []),
+    { label: name, href: '' },
+  ];
+}
+
+/** What to say where the rows would be. Four absences, and they differ. */
+function cityEmptyLine(lens: CityLens, filtered: boolean, name: string): string {
+  if (filtered) return 'Nothing in this city matches those filters.';
+  if (lens === 'yours') {
+    return 'Nothing of yours here yet. Open a place you mean to get to and press “Wanna go”, or keep a list you have been reading.';
+  }
+  return `No published places in ${name} yet — Detour grows wherever its members eat well.`;
+}
+
+/**
+ * The line under the city's name.
+ *
+ * It leads with the figure a planner wants — how many are still to try — and
+ * then says the one structural thing about where they came from that is worth a
+ * sentence: that they all came off the same piece. A city held entirely from one
+ * guide is a common shape and the interesting fact about it; a mixed city says
+ * nothing here, because the source menu is right below and answers it properly.
+ */
+function cityCountLine(rows: BoardPlace[], lens: CityLens, mine: boolean): string {
+  const been = rows.filter((row) => row.been).length;
+  if (lens !== 'yours') {
+    const head = `${esc(String(rows.length))} place${
+      rows.length === 1 ? '' : 's'
+    } members recommend`;
+    return been && mine
+      ? `${head} <span aria-hidden="true">·</span> ${esc(String(been))} you have been to`
+      : head;
+  }
+  const toTry = rows.length - been;
+  const head = `${esc(String(toTry))} place${toTry === 1 ? '' : 's'} to try`;
+  const marked = been ? ` <span aria-hidden="true">·</span> ${esc(String(been))} been` : '';
+  // Every one of them off the same piece, and that piece still held. A mixed
+  // city says nothing here — the source menu below answers it properly.
+  const ids = new Set(rows.flatMap((row) => row.guideIds));
+  const shared =
+    ids.size === 1 && rows.every((row) => row.guideIds.length === 1) ? [...ids][0] : '';
+  const only = shared ? guides().find((entry) => entry.id === shared) : undefined;
+  const from = only
+    ? ` <span aria-hidden="true">·</span> all from <a href="${esc(
+        guideHref(only.id)
+      )}" data-guide>${esc(only.title)}</a>`
+    : '';
+  return `${head}${marked}${from}`;
+}
+
+/**
+ * The source menu's options: every guide that put places here, then the two
+ * doors that are not guides.
+ *
+ * A menu rather than a plate per guide, and it carries its own counts — a filter
+ * that does not say how much it holds makes a member open it to find out. The
+ * caller renders nothing when there is only the "any" option: a city fed by one
+ * door has no source question to ask.
+ */
+function citySourceOptions(
+  rows: BoardPlace[],
+  guidesHere: Guide[]
+): { value: string; label: string }[] {
+  const options = [{ value: 'all', label: 'Source' }];
+  for (const guide of guidesHere) {
+    const held = rows.filter((row) => row.guideIds.includes(guide.id)).length;
+    if (held) options.push({ value: `guide:${guide.id}`, label: `${guide.title} · ${held}` });
+  }
+  for (const [kind, label] of [
+    ['feed', 'From the feed'],
+    ['manual', 'Added by you'],
+  ] as const) {
+    const held = rows.filter((row) => row.provenance.kind === kind).length;
+    if (held) options.push({ value: kind, label: `${label} · ${held}` });
+  }
+  return options;
+}
+
+/** The occasions this city's places actually carry, with what each would leave. */
+function cityOccasionOptions(): { value: string; label: string; count: number }[] {
+  const venues = destinationVenues();
+  return OCCASION_OPTIONS.map(([value, label]) => ({
+    value,
+    label,
+    count: venues.filter((venue) => venueOccasions(venue).includes(value)).length,
+  })).filter((option) => option.count > 0);
+}
+
+/** The chips, the neighbourhood select, "+ N more", Add here, and Been. */
+function bindBoardControls(root: HTMLElement): void {
+  const rerender = () => {
+    // Every chip press re-renders the page it is standing on, so focus is put
+    // back on the control that was pressed — otherwise the member is returned to
+    // the top of the document each time they narrow the list.
+    render(root);
+  };
+  // A segmented pair, not a set of toggles: every place is one or the other, so
+  // pressing the pressed half would leave the page showing nothing.
+  root.querySelectorAll<HTMLButtonElement>('[data-board-status]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const next =
+        button.dataset.boardStatus === 'been'
+          ? 'been'
+          : button.dataset.boardStatus === 'skipped'
+            ? 'skipped'
+            : 'to-try';
+      if (next === boardStatus) return;
+      boardStatus = next;
+      boardExpanded = false;
+      pendingFocus = `[data-board-status="${boardStatus}"]`;
+      rerender();
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>('[data-board-view]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const next = button.dataset.boardView === 'map' ? 'map' : 'cards';
+      if (next === boardView) return;
+      boardView = next;
+      pendingFocus = `[data-board-view="${next}"]`;
+      rerender();
+    });
+  });
+  root.querySelector<HTMLSelectElement>('[data-board-source]')?.addEventListener('change', (event) => {
+    boardSource = (event.currentTarget as HTMLSelectElement).value || 'all';
+    boardExpanded = false;
+    pendingFocus = '[data-board-source]';
+    rerender();
+  });
+  root.querySelector<HTMLSelectElement>('[data-board-area]')?.addEventListener('change', (event) => {
+    boardArea = (event.currentTarget as HTMLSelectElement).value || 'all';
+    boardExpanded = false;
+    pendingFocus = '[data-board-area]';
+    rerender();
+  });
+  root.querySelector<HTMLButtonElement>('[data-board-more]')?.addEventListener('click', () => {
+    boardExpanded = true;
+    rerender();
+  });
+  // Adding to this city means keeping a list or saving a place, and both live on
+  // My detours — so this opens the import dialogue there rather than growing a
+  // second one on a page that has no room for it.
+  root.querySelector<HTMLButtonElement>('[data-board-add]')?.addEventListener('click', () => {
+    openDetoursTab('saved');
+    openImportDialog(() => render(root));
+    showHome(root);
+  });
+  // NO BEEN OR WANNA GO ON A ROW. Both were here, and both were wrong on this
+  // surface: a city list is scanned, not operated, and two plates per row turned
+  // eight lines of places into a control panel. Every act about a place lives on
+  // that place's own page, which the whole row now opens — and *Been* is still
+  // right here as the other half of the filter above the list.
+  // The lens: which reading of this city is on screen. In the route, unlike the
+  // chips beside it, because it decides what the page holds and what its own
+  // crumb says — a reload must not quietly hand back the other city.
+  root.querySelectorAll<HTMLButtonElement>('[data-city-lens]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const next: CityLens = button.dataset.cityLens === 'yours' ? 'yours' : 'picks';
+      if (next === state.cityLens) return;
+      state.cityLens = next;
+      // The filters belong to the reading that was on screen when they were
+      // set: "from Eater" means nothing among everybody's picks, and an occasion
+      // means nothing on a list of imported places.
+      boardStatus = 'to-try';
+      boardSource = 'all';
+      boardArea = 'all';
+      boardExpanded = false;
+      state.occasionFilters = [];
+      updateRoute('destination', state.destination, 'push');
+      pendingFocus = `[data-city-lens="${next}"]`;
+      render(root);
+    });
+  });
+  // Occasions, on everybody's reading only — a fact the catalogue keeps about a
+  // place. One at a time now that it is a menu: composing them as AND needed
+  // eleven plates on screen to be usable, and the third one never got pressed.
+  root.querySelector<HTMLSelectElement>('[data-board-occasion]')?.addEventListener('change', (event) => {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    state.occasionFilters = value ? [value] : [];
+    boardExpanded = false;
+    pendingFocus = '[data-board-occasion]';
+    rerender();
+  });
+  root.querySelector<HTMLButtonElement>('[data-city-notes-retry]')?.addEventListener('click', () => {
+    pendingFocus = '[data-city-notes-retry]';
+    retryNetworkPlaceNotes(() => render(root), destinationLabel() || '');
+  });
+}
+
+
+/**
+ * A row and its pin are the same place, so hovering either lights both.
+ *
+ * The caption under the map names whatever is lit. It is the answer to the one
+ * question a numbered pin cannot answer on its own — a legend that follows the
+ * cursor instead of sitting in a corner being read once.
+ */
+function bindBoardHighlight(root: HTMLElement): void {
+  const caption = root.querySelector<HTMLElement>('[data-board-caption]');
+  const light = (key: string, name: string) => {
+    root.querySelectorAll<HTMLElement>('[data-board-row], [data-board-pin]').forEach((el) => {
+      const mine = el.dataset.boardRow === key || el.dataset.boardPin === key;
+      el.classList.toggle('is-lit', Boolean(key) && mine);
+    });
+    if (caption) caption.textContent = name;
+  };
+  root.querySelectorAll<HTMLElement>('[data-board-row]').forEach((rowEl) => {
+    const key = rowEl.dataset.boardRow || '';
+    const name = rowEl.querySelector('.board-row-name')?.textContent?.trim() || '';
+    rowEl.addEventListener('mouseenter', () => light(key, name));
+    rowEl.addEventListener('mouseleave', () => light('', ''));
+    rowEl.addEventListener('focusin', () => light(key, name));
+    rowEl.addEventListener('focusout', () => light('', ''));
+  });
+}
+
+/**
+ * The board's own map: numbered pins, fitted to whatever the chips left.
+ *
+ * ONE MAP FOR EVERY CITY SURFACE — the city page, the guide page, whichever lens
+ * or reading is on screen. A pin is a dot rather than a labelled name: the list
+ * beside it is the legend, and hovering either half lights the other.
+ */
+function mountBoardMap(root: HTMLElement, pins: BoardPlace[]): void {
+  destroyMap();
+  const container = root.querySelector<HTMLElement>('#venue-map');
+  if (!container || !pins.length) return;
+
+  const map = L.map(container, {
+    center: [pins[0].lat as number, pins[0].lng as number],
+    zoom: 13,
+    scrollWheelZoom: false, // don't hijack page scroll
+    zoomSnap: 0.5,
+  });
+  leafletMap = map;
+
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+  }).addTo(map);
+
+  const caption = root.querySelector<HTMLElement>('[data-board-caption]');
+  for (const row of pins) {
+    const marker = L.marker([row.lat as number, row.lng as number], {
+      icon: L.divIcon({
+        className: '',
+        // No number on the pin: the rows lost theirs, and a numbered pin beside
+        // an unnumbered list is a legend for a key that is not printed. It is a
+        // dot, and the hover says which place it is.
+        html: `<span class="board-pin${
+          row.been ? ' is-been' : ''
+        }" data-board-pin="${esc(row.key)}" aria-hidden="false"></span>`,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
+      }),
+      keyboard: false,
+      riseOnHover: true,
+    }).addTo(map);
+
+    const open = () => {
+      if (row.venue) {
+        openPlace(root, row.venue);
+        return;
+      }
+      if (!row.imported) return;
+      state.guide = null;
+      state.privatePlace = row.imported.id;
+      state.view = 'private-place';
+      updateRoute('private-place', null, 'push');
+      render(root);
+    };
+
+    const el = marker.getElement();
+    if (!el) continue;
+    // The Leaflet marker root is zero-size; the inner pin is the real target.
+    el.setAttribute('tabindex', '-1');
+    el.removeAttribute('role');
+    el.removeAttribute('aria-label');
+    const pin = el.querySelector<HTMLElement>('.board-pin');
+    if (!pin) continue;
+    pin.setAttribute('role', 'link');
+    pin.setAttribute('tabindex', '0');
+    pin.setAttribute('aria-label', `${row.name}. Open this place.`);
+    const light = (on: boolean) => {
+      pin.classList.toggle('is-lit', on);
+      root
+        .querySelector<HTMLElement>(`[data-board-row="${CSS.escape(row.key)}"]`)
+        ?.classList.toggle('is-lit', on);
+      if (caption) caption.textContent = on ? row.name : '';
+    };
+    pin.addEventListener('mouseenter', () => light(true));
+    pin.addEventListener('mouseleave', () => light(false));
+    pin.addEventListener('focus', () => light(true));
+    pin.addEventListener('blur', () => light(false));
+    pin.addEventListener('click', (event) => {
+      event.stopPropagation();
+      open();
+    });
+    pin.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      event.stopPropagation();
+      open();
+    });
+  }
+
+  // Fitted to what is on screen rather than to the city: the whole point of the
+  // chips is that "Chelsea, still to try" zooms to Chelsea.
+  const bounds = L.latLngBounds(
+    pins.map((row) => [row.lat as number, row.lng as number] as [number, number])
+  );
+  map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+}
+
+/**
+ * The trail over one guide, which sits where its places sit.
+ *
+ * A guide about one city hangs under that city's board — WANNA GO / New York /
+ * Best Restaurants NYC — because a reader planning New York should be able to
+ * step up from the piece to everything else they hold there. A guide spanning
+ * several cities has no single parent city to claim it and sits one level up,
+ * directly under WANNA GO.
+ *
+ * The city named is the board's, not the piece's own idea of itself: a list of
+ * "NYC" places belongs beside every other New York place the member holds, and
+ * the board is what tells us how that city is spelled here.
+ */
+function guideCrumbs(list: Guide): PlaceCrumb[] {
+  const here: PlaceCrumb = { label: list.title, href: '' };
+  const slugs = new Set(
+    list.places.map((place) => citySlug(place.city.trim())).filter(Boolean)
+  );
+  const board =
+    slugs.size === 1
+      ? wannaGoDestinations().find((entry) => entry.slug === [...slugs][0])
+      : undefined;
+  return [
+    { label: 'Wanna go', href: homeHref(), attrs: 'data-detours-tab="saved"' },
+    ...(board
+      ? [
+          {
+            label: board.name,
+            href: destinationBoardHref(board.slug),
+            attrs: `data-wanna-destination="${esc(board.slug)}"`,
+          },
+        ]
+      : []),
+    here,
+  ];
 }
 
 /** The list already asked for in full, so its read happens once per list. */
@@ -2132,21 +2647,22 @@ let guideRequested = '';
  * places server-side. A published list is a shape on a city — the thing the
  * member is actually planning around — and a column of names is not that.
  *
- * DELIBERATELY NOT THE DESTINATION MAP. `mountMap` plots the catalogue inside a
- * city and its pins drive `state.selectedId` and a detail panel that only exists
- * on that view. Here a pin is a link: this list's places, on their own, each one
- * opening the page for that place. Same pin, same tiles, different job.
+ * A pin here is a link and nothing more: it opens the page for that place. The
+ * catalogue map that drove a selection and a detail panel beside it is gone —
+ * the list is the panel now.
  */
 function renderGuide(root: HTMLElement, id: string): void {
   destroyMap();
-  root.dataset.restyle = 'place';
+  root.dataset.restyle = 'destination';
   applyTapeTheme();
+  resetBoardFilters(`guide:${id}`);
 
   if (guideRequested !== id) {
     guideRequested = id;
     void loadGuide(id).then(() => render(root));
   }
   void ensureGuides(() => render(root));
+  void ensureSavedPlaces(() => render(root));
 
   const list = guide(id);
   if (!list) {
@@ -2160,60 +2676,153 @@ function renderGuide(root: HTMLElement, id: string): void {
     bindRouteLinks(root);
     return;
   }
+  ensureNetworkDiscovery(() => render(root));
 
-  const source = guideAuthorLabel(list);
-  const pins: { place: ImportedPlace; venue: Venue }[] = list.places
-    .map((place) => ({ place, venue: importedPlaceAsVenue(place) }))
-    .filter((entry) => entry.venue.lat !== null && entry.venue.lng !== null);
-  // Two different absences, and the copy must not conflate them. A place the
-  // geocoder has not reached yet will get a pin; one whose address it could not
-  // match never will, and telling a member it is "still being placed" is a
-  // promise that never resolves. Some published addresses simply have no match.
-  const unplaced = list.places.filter(
-    (place) => !(Number.isFinite(place.lat) && (place.lat !== 0 || place.lng !== 0))
+  const rows = guideBoardPlaces(list, allVenues());
+  const kept = rows.filter((row) => !row.skipped);
+  const been = kept.filter((row) => row.been).length;
+  const skipped = rows.length - kept.length;
+  const areas = [...new Set(rows.map((row) => row.area).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b)
   );
-  const pending = unplaced.filter((place) => !place.locate_tried).length;
-  const unplaceable = unplaced.length - pending;
+  const visible = rows.filter(boardRowVisible);
+  const shown = boardExpanded ? visible : visible.slice(0, BOARD_PREVIEW);
+  const hidden = visible.length - shown.length;
+  const pins = shown.filter((row) => row.lat !== null && row.lng !== null);
+  const unplaced = shown.length - pins.length;
+  const author = guideAuthorLabel(list);
+  const source = safeExternalHref(list.source_url);
 
   syncDocumentMeta(null);
   root.innerHTML = `
+    <a class="skip-link" href="#guide-view-title">Skip to this guide</a>
     ${mastheadMarkup('other')}
-    <nav class="place-back-row explore-breadcrumb" aria-label="Breadcrumb">
-      <a href="${esc(homeHref())}" data-route-link>My detours</a>
-      <span aria-hidden="true">/</span>
-      <span aria-current="page">${esc(list.title)}</span>
-    </nav>
-    <article class="place-page guide-page-view">
-      <header class="guide-head">
-        <p class="place-overline">Your list</p>
-        <h1 id="guide-view-title" tabindex="-1">${esc(list.title)}</h1>
-        <p class="place-meta">${
-          list.source_url
-            ? `<a href="${esc(list.source_url)}" target="_blank" rel="noopener noreferrer">${esc(source)}</a>`
-            : esc(source)
-        } · ${esc(String(list.places.length))} place${list.places.length === 1 ? '' : 's'}</p>
+    ${crumbTrailMarkup(guideCrumbs(list), esc)}
+    <article class="place-page board-page">
+      <header class="board-head">
+        <div class="board-head-copy">
+          <!-- The one thing this page has to say before its own title: these
+               words are somebody else's. It named the host it was imported from
+               too, which the line under the title already credits by name and
+               links to — the chip says what kind of page this is, and stops. -->
+          <p class="board-origin-chip">Guide</p>
+          <h1 id="guide-view-title" tabindex="-1">${esc(list.title)}</h1>
+          <!-- Who wrote it and how long it is. The breakdown — to try, been,
+               skipped — is the segmented control directly below, and printing
+               the same figures a line above it was the same answer twice. -->
+          <p class="board-counts">by ${
+            source
+              ? `<a href="${esc(source)}" target="_blank" rel="noopener noreferrer">${esc(author)}</a>`
+              : esc(author)
+          } <span aria-hidden="true">·</span> ${esc(String(rows.length))} place${
+            rows.length === 1 ? '' : 's'
+          }</p>
+        </div>
+        <div class="board-head-actions">
+          ${
+            source
+              ? `<a class="primary-button board-add" href="${esc(
+                  source
+                )}" target="_blank" rel="noopener noreferrer">Original <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a>`
+              : ''
+          }
+          <button class="secondary-button" type="button" data-guide-drop="${esc(list.id)}">Remove…</button>
+        </div>
       </header>
-      ${
-        pins.length
-          ? `<section class="guide-map-section" aria-label="Map of ${esc(list.title)}">
-        <div id="venue-map" class="venue-map guide-map" tabindex="-1" aria-label="${esc(
-          `Map of the places on ${list.title}`
-        )}"></div>
-        ${mapCoverageNote(pending, unplaceable)}
-      </section>`
-          : `<p class="community-form-note" role="status">${
-              !list.places.length
-                ? 'Every place from this list has been removed.'
-                : pending
-                  ? 'These places are still being placed on the map. Check back shortly.'
-                  : 'None of these places could be placed on a map from the addresses this list gave.'
-            }</p>`
-      }
-      ${
-        list.places.length
-          ? guideCardsMarkup(list)
-          : ''
-      }
+      <div class="board-filters">
+        <div class="board-chips board-status" role="group" aria-label="Filter by where you are with these places">
+          ${boardChip(
+            boardStatus === 'to-try',
+            'data-board-status="to-try"',
+            'To try',
+            kept.length - been
+          )}
+          ${boardChip(boardStatus === 'been', 'data-board-status="been"', 'Been', been)}
+          ${
+            // Offered only once something has been skipped: a segment holding
+            // nothing, on a page where nothing has been said no to, is a control
+            // asking a member about a decision they have not made.
+            skipped
+              ? boardChip(
+                  boardStatus === 'skipped',
+                  'data-board-status="skipped"',
+                  'Skipped',
+                  skipped
+                )
+              : ''
+          }
+        </div>
+        ${
+          // NO SOURCE MENU. The page is the source — every place on it came off
+          // this one piece, and a filter offering that single answer is furniture.
+          areas.length > 1
+            ? `<label class="board-select">
+                <span class="visually-hidden">Filter by neighbourhood</span>
+                <select data-board-area>
+                  <option value="all"${boardArea === 'all' ? ' selected' : ''}>Area</option>
+                  ${areas
+                    .map(
+                      (area) =>
+                        `<option value="${esc(area)}"${
+                          boardArea === area ? ' selected' : ''
+                        }>${esc(area)}</option>`
+                    )
+                    .join('')}
+                </select>
+              </label>`
+            : ''
+        }
+        <div class="board-view" role="group" aria-label="Read this guide as cards or on the map">
+          ${boardViewTab('cards', 'Cards', '▦')}
+          ${boardViewTab('map', 'Map', '◉')}
+        </div>
+      </div>
+      <div class="board-body${shown.length ? '' : ' is-empty'}${
+        boardView === 'cards' ? ' is-cards' : ''
+      }">
+        <div class="board-list-side">
+          ${
+            shown.length
+              ? boardView === 'cards'
+                ? boardCardsMarkup(shown, guidePlaceFooter)
+                : `<ul class="board-rows">${shown.map(boardRowMarkup).join('')}</ul>`
+              : `<p class="community-empty">${esc(
+                  rows.length
+                    ? 'Nothing on this guide matches those filters.'
+                    : 'Every place from this guide has been removed.'
+                )}</p>`
+          }
+          ${
+            hidden > 0
+              ? `<p class="board-more"><button type="button" data-board-more>+ ${esc(
+                  String(hidden)
+                )} more…</button></p>`
+              : ''
+          }
+        </div>
+        ${
+          boardView === 'cards' || !shown.length
+            ? ''
+            : `<section class="board-map-side" aria-label="${esc(`Map of ${list.title}`)}">
+          ${
+            pins.length
+              ? `<div id="venue-map" class="venue-map board-map" tabindex="-1" aria-label="${esc(
+                  `Map of the places on ${list.title}`
+                )}"></div>
+                 <p class="board-map-caption" data-board-caption role="status"></p>`
+              : ''
+          }
+          ${
+            unplaced
+              ? `<p class="board-map-note">${esc(String(unplaced))} of these ${
+                  unplaced === 1 ? 'has' : 'have'
+                } no position yet.</p>`
+              : ''
+          }
+        </section>`
+        }
+      </div>
+      ${guideRemovalDialogMarkup()}
     </article>
     <footer class="footer">
       <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
@@ -2222,12 +2831,16 @@ function renderGuide(root: HTMLElement, id: string): void {
   `;
 
   bindRouteLinks(root);
+  bindBoardControls(root);
+  bindImportedRemoval(root, () => render(root));
+  bindGuideSkips(root);
   root.querySelectorAll<HTMLImageElement>('[data-network-thumb]').forEach((img) => {
     img.addEventListener('error', () => failedCoverUrls.add(img.currentSrc || img.src), {
       once: true,
     });
   });
-  if (pins.length) mountGuideMap(root, pins);
+  if (boardView === 'map' && pins.length) mountBoardMap(root, pins);
+  bindBoardHighlight(root);
   if (pendingFocus) {
     const target = root.querySelector<HTMLElement>(pendingFocus);
     pendingFocus = null;
@@ -2236,121 +2849,48 @@ function renderGuide(root: HTMLElement, id: string): void {
 }
 
 /**
- * What the map is not showing, and which kind of absence it is.
+ * The one line under a card on a guide page: whether this place is on the
+ * member's list, and the way to change that answer.
  *
- * Says nothing when the map holds everything, which is the common case once the
- * geocoder has caught up.
+ * SKIP RATHER THAN REMOVE. A member who pastes a list of thirty-eight means
+ * eleven of them; Remove deleted the row, so the page stopped matching the piece
+ * they had read and the next import of the same link handed the other
+ * twenty-seven straight back. A skip is kept, and it is undoable from the same
+ * spot — which is why the card stays on the page, dimmed, instead of vanishing.
  */
-function mapCoverageNote(pending: number, unplaceable: number): string {
-  const parts: string[] = [];
-  if (pending) parts.push(`${pending} more still being placed`);
-  if (unplaceable) {
-    parts.push(
-      `${unplaceable} could not be placed from the address this list gave`
-    );
+function guidePlaceFooter(row: BoardPlace): string {
+  const id = row.imported?.id || '';
+  if (!id) return '';
+  const busy = removingImported(id);
+  if (row.skipped) {
+    return `<div class="board-card-foot-row is-skipped">
+      <span>Skipped — not on your list</span>
+      <button class="board-skip" type="button" data-guide-unskip="${esc(id)}"${
+        busy ? ' disabled' : ''
+      } aria-label="${esc(`Put ${row.name} back on your list`)}">${busy ? 'Undoing…' : 'Undo'}</button>
+    </div>`;
   }
-  if (!parts.length) return '';
-  return `<p class="community-form-note" role="status">${esc(
-    `${parts.join(' · ')}.`
-  )}</p>`;
+  return `<div class="board-card-foot-row">
+    <span>On your Wanna go</span>
+    <button class="board-skip" type="button" data-guide-skip="${esc(id)}"${
+      busy ? ' disabled' : ''
+    } aria-label="${esc(`Skip ${row.name}`)}">${busy ? 'Skipping…' : 'Skip'}</button>
+  </div>`;
 }
 
-/**
- * The list's pins. Every place on it, fitted to their own bounds.
- *
- * A pin here is a link rather than a selection: there is no detail panel on this
- * page and nothing to select into. Clicking one opens that place — its catalogue
- * page if somebody has recommended it, its own page if not.
- */
-function mountGuideMap(
-  root: HTMLElement,
-  pins: { place: ImportedPlace; venue: Venue }[]
-): void {
-  destroyMap();
-  const container = root.querySelector<HTMLElement>('#venue-map');
-  if (!container || !pins.length) return;
-
-  const map = L.map(container, {
-    center: [pins[0].venue.lat as number, pins[0].venue.lng as number],
-    zoom: 13,
-    scrollWheelZoom: false, // don't hijack page scroll
-    zoomSnap: 0.5,
-  });
-  leafletMap = map;
-
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
-  }).addTo(map);
-
-  for (const { place, venue } of pins) {
-    const lat = venue.lat as number;
-    const lng = venue.lng as number;
-    const marker = L.marker([lat, lng], {
-      icon: L.divIcon({
-        className: '',
-        html: `<span class="map-pin pin-detourist" data-pin="${esc(place.id)}">
-          <span class="pin-pearl" aria-hidden="true"><span class="pin-signal"></span></span>
-          <span class="pin-label">${esc(place.name)}${
-            place.area ? `<small>${esc(place.area)}</small>` : ''
-          }</span>
-        </span>`,
-        iconSize: [0, 0],
-        iconAnchor: [0, 0],
-      }),
-      keyboard: false,
-      riseOnHover: true,
-    }).addTo(map);
-
-    const open = () => {
-      const matched = place.matched_venue
-        ? allVenues().find((entry) => entry.id === place.matched_venue)
-        : undefined;
-      if (matched) {
-        state.guide = null;
-        state.view = 'place';
-        state.destination = venueRouteSlug(matched);
-        state.place = venuePageSlug(matched);
-        updateRoute('place', state.destination, 'push', state.place);
-      } else {
-        state.guide = null;
-        state.privatePlace = place.id;
-        state.view = 'private-place';
-        updateRoute('private-place', null, 'push');
-      }
-      render(root);
-    };
-
-    const el = marker.getElement();
-    if (!el) continue;
-    // The Leaflet marker root is zero-size; the inner pin is the real target.
-    el.setAttribute('tabindex', '-1');
-    el.removeAttribute('role');
-    el.removeAttribute('aria-label');
-    const pin = el.querySelector<HTMLElement>('.map-pin');
-    if (!pin) continue;
-    pin.setAttribute('role', 'link');
-    pin.setAttribute('tabindex', '0');
-    pin.setAttribute('aria-label', `${place.name}. Open this place.`);
-    pin.addEventListener('click', (event) => {
-      event.stopPropagation();
-      open();
+/** Skip and undo, on the one page that offers them. */
+function bindGuideSkips(root: HTMLElement): void {
+  const bind = (selector: string, skipped: boolean) => {
+    root.querySelectorAll<HTMLButtonElement>(selector).forEach((button) => {
+      button.addEventListener('click', () => {
+        const place = button.dataset.guideSkip || button.dataset.guideUnskip || '';
+        if (!place || button.disabled) return;
+        void setImportedPlaceSkipped(place, skipped, () => render(root));
+      });
     });
-    pin.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      event.preventDefault();
-      event.stopPropagation();
-      open();
-    });
-  }
-
-  // Fitted to the list rather than to a city: these places are wherever the
-  // piece sent them, and a city-shaped view would cut off the ones outside it.
-  const bounds = L.latLngBounds(
-    pins.map(({ venue }) => [venue.lat as number, venue.lng as number] as [number, number])
-  );
-  map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+  };
+  bind('[data-guide-skip]', true);
+  bind('[data-guide-unskip]', false);
 }
 
 /**
@@ -2420,24 +2960,20 @@ function renderPrivatePlace(root: HTMLElement, id: string): void {
   // this and every published place, so an imported place cannot drift into
   // looking like a different kind of object — see src/private-place.ts.
   const v = importedPlaceAsVenue(place);
-  const owningLists = guides().filter((list) => place.guides.includes(list.id));
-  const source = {
-    // The publication that wrote the words, not the member's name for the list.
-    label: owningLists.length ? guideAuthorLabel(owningLists[0]) : 'a list you kept',
-    listTitles: owningLists.map((list) => list.title),
-  };
   syncDocumentMeta(null, false, v);
 
   const chrome: PlaceChrome = {
-    // A private place sits in no destination, so the crumb leads back to the
-    // list it is on rather than to a city route that would not contain it.
-    destinationName: 'My detours',
-    destinationSlug: '',
-    destinationHref: homeHref(),
-    countryName: '',
-    countrySlug: '',
-    countryHref: exploreHref(),
-    exploreHref: exploreHref(),
+    // WANNA GO / <city> / <place>, exactly as for a saved catalogue place. An
+    // imported place is on the wishlist by definition, and the city is its
+    // parent — not the guide it arrived on, which is a lens rather than a
+    // container and gets its credit in How it got here instead. The crumb used to
+    // read My detours / <place>, which named a screen rather than a list.
+    crumbs: placeCrumbs(v, { cityName: place.city, been: false, onWishlist: true }),
+    // The one fact about this place's standing that neither the crumb nor the
+    // signal states — the signal is switched off here precisely because there is
+    // nothing to count. It replaces the rotated NOT ON DETOUR stamp that used to
+    // shout the same thing over the top of the page.
+    statusChips: ['Not on Detour'],
     // A member, so the page offers Recommend — the ordinary form, and the only
     // way this place ever becomes one anybody else can see.
     isMember: true,
@@ -2449,14 +2985,12 @@ function renderPrivatePlace(root: HTMLElement, id: string): void {
     // recommendation, so the stamp would report an absence that was never a
     // possibility — and the band below already says so in words.
     showSignal: false,
-    // Not on Detour, and yours alone — stamped across the cover, because those
-    // are facts about what kind of page this is and a muted sentence carrying
-    // them went unread.
-    heroStamp: importedPlaceStampMarkup(esc),
-    // Where it came from. Passed into the template's own slot rather than
-    // injected after render: the injection was anchored on a class this page
-    // does not have, and a missed `querySelector` is silent.
-    afterHero: importedPlaceProvenanceMarkup(place, source, esc),
+    // Where it came from, and what the piece said about it — the same two fields
+    // the published page fills when the member holds that place off a list too.
+    // Built here from data rather than handed over as markup, so both doors
+    // render one band and one quote.
+    origin: importedPlaceOrigin(place, shortDate),
+    guideVoices: importedPlaceVoices(place),
     outsideCircle: false,
     saved: false,
     saving: false,
@@ -2689,15 +3223,7 @@ function bindRouteLinks(root: HTMLElement): void {
       const slug = link.dataset.wannaDestination || '';
       if (!slug) return;
       event.preventDefault();
-      state.wannaDestination = slug;
-      state.guide = null;
-      state.privatePlace = null;
-      state.destination = null;
-      state.place = null;
-      state.view = 'wanna-destination';
-      updateRoute('wanna-destination', null, 'push');
-      pendingFocus = '#wanna-destination-title';
-      render(root);
+      openCity(root, slug, 'yours');
     });
   });
   root.querySelectorAll<HTMLAnchorElement>('[data-guide]').forEach((link) => {
@@ -2707,7 +3233,6 @@ function bindRouteLinks(root: HTMLElement): void {
       if (!id) return;
       event.preventDefault();
       state.guide = id;
-      state.wannaDestination = null;
       state.view = 'guide';
       state.destination = null;
       state.place = null;
@@ -2783,6 +3308,19 @@ function bindRouteLinks(root: HTMLElement): void {
       const openedTab = target ? openMemberArea(target) : false;
       if (state.view !== 'account') showAccount(root);
       else if (openedTab) render(root);
+    });
+  });
+  // A crumb root: My detours, opened on the list this page belongs to. A real
+  // anchor carrying the home href, so a modified click still opens a tab and a
+  // cold load resolves — the tab itself is not in the URL, so that load lands on
+  // My detours and the landing picks a list, which is the honest fallback.
+  root.querySelectorAll<HTMLAnchorElement>('[data-detours-tab]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      openDetoursTab(link.dataset.detoursTab || '');
+      if (state.view !== 'home' || !memberCanExplore()) showHome(root);
+      else render(root);
     });
   });
   root.querySelectorAll<HTMLAnchorElement>('[data-return-discovery]').forEach((link) => {
@@ -4055,11 +4593,6 @@ function render(root: HTMLElement) {
     return;
   }
 
-  if (state.view === 'wanna-destination' && state.wannaDestination) {
-    renderWannaDestination(root, state.wannaDestination);
-    return;
-  }
-
   if (state.mode !== 'loading' && state.view === 'explore') {
     renderExplore(root);
     return;
@@ -4099,7 +4632,14 @@ function render(root: HTMLElement) {
     }
   }
 
-  if (!destination) {
+  // A city the member holds places in has a page whether or not the catalogue
+  // has heard of it: a guide can put twenty places in a city nobody has
+  // recommended, and "not yet" would be false to a member looking at their own
+  // twenty. The board below renders it on their own lens.
+  const board = memberCanExplore()
+    ? wannaGoDestinations().find((entry) => entry.slug === state.destination)
+    : undefined;
+  if (!destination && !board) {
     const name = destinationLabel() || 'this destination';
     syncDocumentMeta(name);
     destroyMap();
@@ -4138,10 +4678,10 @@ function render(root: HTMLElement) {
   }
 
   // One place, its own page. An unresolvable place slug is not an error the
-  // visitor can act on, so it silently settles on the destination it names.
+  // visitor can act on, so it silently settles on the city it names.
   if (state.view === 'place') {
-    const place = activePlace();
-    if (place) {
+    const place = destination ? activePlace() : null;
+    if (destination && place) {
       renderPlace(root, destination, place);
       return;
     }
@@ -4150,160 +4690,12 @@ function render(root: HTMLElement) {
     updateRoute('destination', state.destination, 'replace');
   }
 
-  syncDocumentMeta(destination.name);
-  const list = filteredVenues();
-  const hasMap = mappableVenues(destinationVenues()).length > 0;
-  const emptyState = `<div class="empty-state" role="status">
-      <p class="empty-state-title">Nothing matches yet</p>
-      <p class="empty-state-body">Adjust the filters, or start again with all ${esc(destination.name)} places.</p>
-      <button type="button" class="secondary-button empty-state-reset" data-reset-filters>Show everything</button>
-    </div>`;
-  const occasionBrowsing = destinationHasOccasions();
-  const shortList = isShortListDestination(destination);
-  const destinationTitle = shortList
-    ? `${destination.name}, a few places members stand behind.`
-    : occasionBrowsing
-      ? `${destination.name}, for the plan you have.`
-      : `${destination.name}, recommended by Detour members.`;
-  const destinationTagline = memberCanExplore()
-    ? 'Discover somewhere new, then recommend the places you love.'
-    : "Every place here is one of Detour's founding members' own, with what they wrote about it.";
-  const country = destinationCountry(destination);
-  const mapView = state.cityView === 'map' && hasMap;
-  const destinationContent = `${discoveryBar(list, hasMap, mapView)}
-      ${mapView ? mapStage(list) : cityListStage(destination, list, emptyState)}`;
-
-  // Tear the live map down before its container is replaced below. Leaflet
-  // reaches back into the element on remove(), and a pan or zoom still in
-  // flight throws once that element is detached.
-  destroyMap();
-
-  root.innerHTML = `
-    <a class="skip-link" href="${mapView ? '#venue-map' : '#selection-results'}">Skip to discovery</a>
-    ${mastheadMarkup()}
-    <nav class="explore-breadcrumb destination-breadcrumb" aria-label="Breadcrumb">
-      <a href="${esc(exploreHref())}" data-explore>Explore</a>
-      ${
-        country
-          ? `<span aria-hidden="true">/</span><a href="${esc(countryHref(country.slug))}" data-country="${esc(country.slug)}">${esc(country.name)}</a>`
-          : ''
-      }
-      <span aria-hidden="true">/</span>
-      <span aria-current="page">${esc(destination.name)}</span>
-    </nav>
-    <div class="hero city-detail-hero">
-      <div class="hero-inner">
-        <h1 id="destination-title" tabindex="-1">${esc(destinationTitle)}</h1>
-        <p class="tagline">${esc(destinationTagline)}</p>
-      </div>
-    </div>
-    ${destinationContent}
-    <footer class="footer">
-      <p>${FOOTER_TAGLINE}</p>${footerLinksMarkup()}
-      ${tapeThemeToggleMarkup()}
-    </footer>
-  `;
-
-  bindRouteLinks(root);
-  // Notes from the Detour circle render inside the place detail; load the
-  // circle feed here too so a direct destination link still surfaces them.
-  ensureNetworkDiscovery(() => render(root), destination.name);
-
-  const keepSelectionValid = () => {
-    const visible = filteredVenues();
-    if (state.selectedId && !visible.some((v) => v.id === state.selectedId)) {
-      state.selectedId = null;
-      state.selectedVia = null;
-    }
-  };
-
-  root.querySelectorAll<HTMLButtonElement>('[data-occasion]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const occasion = btn.dataset.occasion ?? '';
-      if (!occasion) state.occasionFilters = [];
-      else if (state.occasionFilters.includes(occasion)) {
-        state.occasionFilters = state.occasionFilters.filter((value) => value !== occasion);
-      } else {
-        state.occasionFilters = [...state.occasionFilters, occasion];
-      }
-      keepSelectionValid();
-      pendingFocus = `[data-occasion="${CSS.escape(occasion)}"]`;
-      render(root);
-    });
-  });
-  root.querySelectorAll<HTMLButtonElement>('[data-city-view]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const view = btn.dataset.cityView === 'map' ? 'map' : 'list';
-      if (view === state.cityView) return;
-      state.cityView = view;
-      // A selection made in the view being left has no anchor in the new one:
-      // a pin's detail belongs to the map, a card's to the list.
-      if ((view === 'map') === (state.selectedVia === 'card')) {
-        state.selectedId = null;
-        state.selectedVia = null;
-      }
-      pendingFocus = `[data-city-view="${view}"]`;
-      render(root);
-    });
-  });
-  root.querySelector<HTMLButtonElement>('[data-city-notes-retry]')?.addEventListener('click', () => {
-    pendingFocus = '[data-city-notes-retry]';
-    retryNetworkPlaceNotes(() => render(root), destination.name);
-  });
-  root.querySelectorAll<HTMLButtonElement>('[data-chip]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const value = btn.dataset.chipValue ?? '';
-      state.occasionFilters = state.occasionFilters.filter((occasion) => occasion !== value);
-      keepSelectionValid();
-      pendingFocus = '[data-occasion=""]';
-      render(root);
-    });
-  });
-  root.querySelectorAll<HTMLButtonElement>('[data-clear-filters]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.occasionFilters = [];
-      pendingFocus = '[data-occasion=""]';
-      render(root);
-    });
-  });
-  root.querySelector<HTMLButtonElement>('[data-geolocate]')?.addEventListener('click', () => {
-    requestUserLocation(root);
-  });
-  // Failed card and detail covers become the same intentional monogram
-  // fallback in place; the URL is remembered so later renders skip it without
-  // re-requesting and dimensions remain stable.
-  root.querySelectorAll<HTMLImageElement>('[data-cover-image]').forEach((img) => {
-    img.addEventListener('error', () => showCoverFallback(img), { once: true });
-    // A cached failure may complete before listeners are attached after the
-    // render; cover that path explicitly so a broken image never flashes or
-    // remains in either surface.
-    if (img.complete && img.naturalWidth === 0) showCoverFallback(img);
-  });
-  root.querySelector<HTMLButtonElement>('[data-reset-filters]')?.addEventListener('click', () => {
-    state.occasionFilters = [];
-    pendingFocus = '[data-occasion=""]';
-    render(root);
-  });
-  root.querySelector('[data-close]')?.addEventListener('click', () => {
-    const closedId = state.selectedId;
-    state.selectedId = null;
-    state.selectedVia = null;
-    // Return focus to the pin that opened the preview.
-    pendingFocus = closedId === null ? '[data-city-view="map"]' : `[data-pin="${CSS.escape(closedId)}"]`;
-    render(root);
-  });
-
-  // The map view owns the only map in this view; the place page carries its own
-  // locator. Both were already torn down above, before the re-render.
-  if (mapView) mountMap(root, list);
-
-  // Restore focus to the control that triggered this render (map pins are
-  // only queryable after mountMap).
-  if (pendingFocus) {
-    const target = root.querySelector<HTMLElement>(pendingFocus);
-    pendingFocus = null;
-    target?.focus({ preventScroll: true });
-  }
+  // ONE CITY PAGE. Everybody's picks and the member's own holdings are two
+  // readings of the same place in the world, so they share this route, this
+  // layout and this map — see `renderCity`. There were two pages once, and the
+  // member had to decide which New York they wanted before they could look at
+  // either.
+  renderCity(root, state.destination, destination ?? undefined, board);
 }
 
 /* ---------- geolocation (opt-in only) ---------- */
@@ -4333,45 +4725,6 @@ function readPosition(
   return true;
 }
 
-/** Destination-view "Show nearby": plots the user on the active map. */
-function requestUserLocation(root: HTMLElement): void {
-  if (state.geoBusy) return;
-  const name = destinationLabel();
-  const fallback = `We couldn’t find your position, so the map stays on ${name || 'the selection'} — everything else works as usual.`;
-  const finish = () => {
-    pendingFocus = '[data-geolocate]';
-    render(root);
-  };
-  state.geoBusy = true;
-  state.geoStatus = 'Finding places near you…';
-  pendingFocus = '[data-geolocate]';
-  render(root);
-  const supported = readPosition(
-    (position) => {
-      state.geoBusy = false;
-      state.userLocation = position;
-      if (nearDestination(destinationVenues(), position)) {
-        state.geoStatus = 'You’re on the map — look for the outlined location dot.';
-      } else {
-        state.geoStatus = `You seem to be outside ${name || 'this destination'}, so the map stays put — everything else works as usual.`;
-      }
-      savedView = null; // refit / recenter so the user sees their marker context
-      finish();
-    },
-    () => {
-      state.geoBusy = false;
-      state.userLocation = null;
-      state.geoStatus = fallback;
-      finish();
-    }
-  );
-  if (!supported) {
-    state.geoBusy = false;
-    state.userLocation = null;
-    state.geoStatus = fallback;
-    finish();
-  }
-}
 
 /** Landing "Near me": jumps to the destination with the closest located place. */
 function requestNearestDestination(root: HTMLElement): void {

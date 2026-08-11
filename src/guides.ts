@@ -47,6 +47,16 @@ export interface ImportedPlace {
   image_url: string;
   /** The published venue this turned out to be, or '' — re-checked on every read. */
   matched_venue: string;
+  /**
+   * "Not this one." The member said so, and it holds.
+   *
+   * A place a member skipped stays on the guide that named it — dimmed, under
+   * Skipped, with an undo — because that page is a record of what the piece
+   * said. Everywhere else it is gone: not on the wishlist, not on the city page,
+   * not in a count, not a pin. The alternative was Remove, which deletes the row
+   * and lets the next re-import of the same link bring it straight back.
+   */
+  skipped: boolean;
   /** Every guide this place appears on. Empty once its guides are gone. */
   guides: string[];
   created: string;
@@ -156,6 +166,7 @@ function readPlace(value: unknown): ImportedPlace | null {
     source_url: text(row, 'source_url'),
     image_url: text(row, 'image_url'),
     matched_venue: text(row, 'matched_venue'),
+    skipped: row.skipped === true,
     guides: guides as string[],
     created: text(row, 'created'),
   };
@@ -251,7 +262,10 @@ export function allImportedPlaces(): ImportedPlace[] {
     for (const place of guide.places) byId.set(place.id, place);
   }
   for (const place of ungroupedItems) byId.set(place.id, place);
-  return [...byId.values()];
+  // Skipped places are not on the wishlist and never appear in a count: they
+  // survive on their own guide page and nowhere else. Filtered here rather than
+  // at each caller, so nothing downstream has to remember.
+  return [...byId.values()].filter((place) => !place.skipped);
 }
 
 /** Imported places on no guide — kept when the guide they arrived on was removed. */
@@ -290,13 +304,13 @@ export function importedVenueIds(): Set<string> {
   const ids = new Set<string>();
   for (const list of items) {
     for (const place of list.places) {
-      if (place.matched_venue) ids.add(place.matched_venue);
+      if (place.matched_venue && !place.skipped) ids.add(place.matched_venue);
     }
   }
   // Kept places are shown under "Not from a list" as imported cards, so a loose
   // save on the same venue would still be the duplicate this set exists to stop.
   for (const place of ungroupedItems) {
-    if (place.matched_venue) ids.add(place.matched_venue);
+    if (place.matched_venue && !place.skipped) ids.add(place.matched_venue);
   }
   return ids;
 }
@@ -605,6 +619,42 @@ export async function removeGuide(
   }
 }
 
+/**
+ * Skip one place off a list, or take the skip back.
+ *
+ * The one write on this page that is not a removal, and the reason the removal
+ * is now rarely the right answer: skipping keeps the row, so the guide still
+ * reads as the piece the member kept, and a re-import of the same link does not
+ * hand back the twenty-seven places they had already said no to.
+ *
+ * Shares `removing` with the delete: both are per-row states a control has to
+ * settle without the whole tab moving, and no row is ever mid-skip and
+ * mid-removal at once.
+ */
+export async function setImportedPlaceSkipped(
+  id: string,
+  skipped: boolean,
+  render: () => void
+): Promise<void> {
+  if (!id || removing.has(id)) return;
+  removing.add(id);
+  failure = '';
+  render();
+  try {
+    await pb.send(`/api/detour/guides/places/${encodeURIComponent(id)}/skip`, {
+      method: 'PATCH',
+      body: { skipped },
+      requestKey: null,
+    });
+    await refreshGuides(render);
+  } catch (error) {
+    failure = readError(error, 'That could not be recorded just now.');
+  } finally {
+    removing.delete(id);
+    render();
+  }
+}
+
 /** Remove one place from every list it sits under. */
 export async function removeImportedPlace(id: string, render: () => void): Promise<void> {
   if (!id || removing.has(id)) return;
@@ -626,14 +676,18 @@ export async function removeImportedPlace(id: string, render: () => void): Promi
 }
 
 /**
- * The route of one destination's board — a city's places and their map.
+ * The route of one city, on the member's own reading of it — what they hold
+ * there, and the map of it.
  *
- * A slug rather than an id, because a destination has no record to carry one: it
- * is derived from the city its places name, and it exists only while at least
- * one of them does.
+ * A slug rather than an id, because a city has no record to carry one: it is
+ * derived from the places that name it, and it exists only while at least one of
+ * them does.
  */
 export function destinationBoardHref(slug: string): string {
-  return `?dest=${encodeURIComponent(slug)}`;
+  // The city page, on the member's own lens. There is one city page — geography
+  // is the only hierarchy — so this is `?d=` with the reading named, not the
+  // `?dest=` route it used to be. That old address still resolves here.
+  return `?d=${encodeURIComponent(slug)}&lens=yours`;
 }
 
 /**

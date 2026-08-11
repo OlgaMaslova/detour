@@ -527,6 +527,37 @@ onRecordDelete((e) => {
   e.next();
 }, "members");
 
+/**
+ * Skip one place off a list, or take the skip back.
+ *
+ * A flag rather than a delete, and the reason is in the migration: the page is a
+ * record of what the piece said, so the place stays on it, dimmed, and leaves
+ * everything else. Idempotent — the body says what the member wants the state to
+ * be, not what to toggle, so a double tap on a slow connection cannot land them
+ * on the opposite answer from the one they pressed.
+ */
+routerAdd(
+  "PATCH",
+  "/api/detour/guides/places/{place}/skip",
+  (e) => {
+    let record;
+    try {
+      record = e.app.findRecordById("community_imported_places", e.request.pathValue("place"));
+    } catch {
+      throw new BadRequestError("That place is not on your list.");
+    }
+    if (record.getString("member") !== e.auth.id) {
+      throw new BadRequestError("That place is not on your list.");
+    }
+    const body = e.requestInfo().body || {};
+    const skipped = body.skipped === true;
+    record.set("skipped", skipped);
+    e.app.save(record);
+    return e.json(200, { place: record.id, skipped: skipped });
+  },
+  $apis.requireAuth("members")
+);
+
 /** Remove one place from every list the member holds it under. */
 routerAdd(
   "DELETE",

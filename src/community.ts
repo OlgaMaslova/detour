@@ -26,6 +26,7 @@ import {
   ensureSavedPlaces,
   refreshSavedPlaces,
   resetSavedPlaces,
+  isSavedPlace,
   savedPlaces,
   savedPlacesLoaded,
   savePlaceFailure,
@@ -2155,6 +2156,8 @@ function placeCardGrid(
     fallbackByline?: string;
     fallbackBylineHref?: string;
     fallbackBylineKind?: 'guide' | 'feed' | 'manual';
+    /** A state on the row around the card — dimming a skipped place, and no more. */
+    rowClass?: string;
   }[]
 ): string {
   if (!items.length) return '';
@@ -2162,7 +2165,7 @@ function placeCardGrid(
   return `<ul class="community-queue-cards network-entry-list network-recommendation-grid network-recommendation-grid-${columns}">
     ${items
       .map(
-        (item) => `<li class="community-queue-row">
+        (item) => `<li class="community-queue-row${item.rowClass ? ` ${item.rowClass}` : ''}">
           ${placeCardMarkup({
             name: item.venue?.name || item.name || 'A place',
             city: item.venue?.city || item.city || '',
@@ -2370,10 +2373,10 @@ function wannaGoDestinationCards(slug: string) {
   return [...imported, ...saves];
 }
 
-/** The same cards as markup, for the destination board main.ts renders. */
-export function wannaGoDestinationCardsMarkup(slug: string): string {
-  return placeCardGrid(wannaGoDestinationCards(slug));
-}
+// NO `wannaGoDestinationCardsMarkup`. The destination board used to be this
+// tab's card grid on a page of its own; it is now a numbered list tied to a map
+// — see `renderCity` and `wannaGoBoardPlaces`. The grid stays here,
+// where the tab still shows a preview per city.
 
 function savedPanel(): string {
   const loading = !savedPlacesLoaded() || !guidesLoaded();
@@ -2489,7 +2492,7 @@ function wannaGoSectionMarkup(destination: WannaGoDestination, expanded: boolean
       }</p>
       <a class="wanna-section-map" href="${esc(
         destinationBoardHref(destination.slug)
-      )}" data-wanna-destination="${esc(destination.slug)}">Open map</a>
+      )}" data-wanna-destination="${esc(destination.slug)}">Open the city</a>
     </header>
     ${
       destination.guides.length
@@ -2524,19 +2527,309 @@ export function wannaGoDestinationPlaces(slug: string): ImportedPlace[] {
 }
 
 /**
- * The removal controls on a destination board, which is rendered by main.ts and
- * so gets none of `bindCommunity`'s wiring.
+ * One row on a destination board: a place this member holds in this city.
+ *
+ * The board is the planning surface, so the row is deliberately flat — a name, a
+ * quarter, one line of why, which door it came through, and whether they have
+ * been. Everything the board needs to filter, number, plot and link is on it, so
+ * neither the list nor the map has to go looking a second time and find a
+ * different answer.
  */
-export function bindWannaGoCards(root: HTMLElement, render: () => void): void {
-  root.querySelectorAll<HTMLButtonElement>('[data-saved-drop]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const venueId = button.dataset.savedDrop || '';
-      if (!venueId || button.disabled) return;
-      void toggleSavedPlace(venueId, 'place_page', render);
-    });
-  });
-  bindImportedRemoval(root, render);
+export interface BoardPlace {
+  /** The row's identity: the venue id where there is one, the imported row's id
+   *  otherwise. Ties a list row to its pin. */
+  key: string;
+  name: string;
+  /** The catalogue record, when Detour has one for this place. */
+  venue?: Venue;
+  /** The imported row, when the member holds this place through a guide. */
+  imported?: ImportedPlace;
+  /** The quarter — the only locating fact most imported places carry. */
+  area: string;
+  category: string;
+  /** One line of why: a member's recommendation, or the publication's sentence. */
+  quote: string;
+  /**
+   * Who wrote that line: a member's pseudonym, "You", or the publication.
+   *
+   * NOT "via". A member's note is that member's recommendation — they are its
+   * author, not the route it travelled — and "via @marta" credited her the way
+   * you credit whoever forwarded you an article. The word belongs to provenance
+   * ("Feed · via @marta" on a card, where the question is which door), never to
+   * a byline over somebody's own sentence.
+   */
+  quoteBy: string;
+  /**
+   * Who stands behind the place, for the card's foot: the publication that
+   * printed it, or the member who recommended it. '' when neither — a place the
+   * member added by hand has nobody's name on it but their own.
+   */
+  sourceName: string;
+  provenance: { kind: 'guide' | 'feed' | 'manual'; label: string; href: string };
+  /** Every guide of the member's that names this place, for the source chips. */
+  guideIds: string[];
+  /** They have been and said so — the top rung, and a filter of its own. */
+  been: boolean;
+  /** It is on their wishlist. Always true on their own lens; a fact on the other. */
+  saved: boolean;
+  /**
+   * The member said "not this one" about a place their guide named. False
+   * everywhere but a guide page, which is the only surface that still shows it.
+   */
+  skipped: boolean;
+  lat: number | null;
+  lng: number | null;
 }
+
+/**
+ * The city page's card reading, through the one card renderer this app has.
+ *
+ * NOT A CARD OF ITS OWN. `groupedRecommendationCardMarkup` renders every
+ * recommendation card on every surface — home, the city page, Explore — and the
+ * rule is in AGENTS.md: extend the shared renderer when the treatment changes,
+ * never add a second one. A city page that drew its own cards would drift from
+ * the feed's within a release, and a member would be looking at two things that
+ * are the same thing.
+ *
+ * The rows come in already filtered, ordered and cut by the page; all this does
+ * is hand each one to the renderer in the shape it takes, with the imported
+ * fallbacks — private href, hotlinked cover, the publication's byline — set for
+ * the places that have no catalogue record behind them.
+ */
+export function boardCardsMarkup(
+  rows: BoardPlace[],
+  /** What to print under one card, when the surface has something to offer there. */
+  footerFor: (row: BoardPlace) => string = () => ''
+): string {
+  return placeCardGrid(
+    rows.map((row) => {
+      const extras = {
+        footer: footerFor(row),
+        rowClass: row.skipped ? 'is-skipped' : '',
+      };
+      if (row.imported && !row.venue) {
+        return { ...importedPlaceCard(row.imported, row.provenance), ...extras };
+      }
+      return {
+        ...extras,
+        venue: row.venue,
+        name: row.name,
+        city: row.venue?.city || row.imported?.city || '',
+        country: row.venue?.country || row.imported?.country || '',
+        // Reached only when nobody this reader can see has written about the
+        // place — on their own lens that is the ordinary state of a save.
+        emptyNote: row.saved
+          ? 'On your wishlist. Nobody else can see that.'
+          : 'No note you can read yet.',
+      };
+    })
+  );
+}
+
+/**
+ * The city as everybody reads it: the places members recommend there.
+ *
+ * The other lens on the same page — see `wannaGoBoardPlaces`, which answers the
+ * same question about the member's own holdings. One row shape for both, because
+ * they are one page: the list, the map, the numbering and the controls are
+ * identical and only the set of places differs.
+ *
+ * Every one of these is published, which means a member recommended it, so the
+ * provenance is the feed and the quote is whoever's note this reader can see.
+ */
+export function cityPickPlaces(venues: Venue[]): BoardPlace[] {
+  return venues.map((venue) => {
+    const quoted = newestNoteFor(venue.name, venue.city);
+    return {
+      key: venue.id,
+      name: venue.name,
+      venue,
+      area: venue.neighborhood || '',
+      category: venue.category || '',
+      ...quoted,
+      provenance: provenanceOf({ name: venue.name, city: venue.city }),
+      guideIds: [],
+      been: venue.endorsedByCaller === true,
+      saved: isSavedPlace(venue.id),
+      skipped: false,
+      lat: venue.lat,
+      lng: venue.lng,
+    };
+  });
+}
+
+/**
+ * Everything the member holds in one city, from all three doors at once.
+ *
+ * A DESTINATION IS THE UNIT OF PLANNING, so this is the whole of it: places kept
+ * off a guide, places saved one at a time, and places already been to. The last
+ * of those is new here — the board used to be the wishlist alone, and a city you
+ * have half-eaten your way through showed only the half you had not. A member
+ * planning a return trip wants both, which is why the board counts them together
+ * and offers *Been* as a filter rather than as a separate page.
+ *
+ * The catalogue comes in as an argument rather than off `knownVenues`: the board
+ * has its own route and can be loaded cold, before any panel that would have
+ * warmed that cache has rendered.
+ */
+/**
+ * The one note a row or a card quotes: the newest one this reader can see, and
+ * their own when they wrote it.
+ *
+ * DELIBERATELY THE NEWEST, and deliberately stated. It used to be whichever note
+ * the feed payload happened to list first, which is an order nothing promises —
+ * two members writing about the same place would swap places on the city page
+ * for no reason a reader could name. Newest-first is the rule the cards already
+ * sort by, so one place reads the same wherever it appears; ties break on the
+ * recommendation id so the answer never flickers between renders.
+ *
+ * A member's own note wins outright. On their own city page, the sentence they
+ * wrote is the one they will recognise.
+ */
+function newestNoteFor(name: string, city: string): {
+  quote: string;
+  quoteBy: string;
+  sourceName: string;
+} {
+  const notes = [...notesForPlace(name, city)].sort(
+    (a, b) =>
+      Date.parse(b.created || '') - Date.parse(a.created || '') ||
+      (b.id || '').localeCompare(a.id || '')
+  );
+  const note = notes.find((entry) => entry.is_own) || notes[0];
+  const said = note?.note?.trim() || '';
+  if (!said) return { quote: '', quoteBy: '', sourceName: '' };
+  const who = note?.is_own ? 'You' : pseudoLabel(note?.recommender_pseudo || '');
+  return { quote: said, quoteBy: who, sourceName: who };
+}
+
+/**
+ * One imported place as a row, wherever it is being read.
+ *
+ * The city page and the guide page show the same object under two headings, so
+ * they build it here rather than each shaping its own — two spellings of one row
+ * is how a place ends up quoting the publication in one place and a member in
+ * the other.
+ */
+function importedBoardPlace(
+  place: ImportedPlace,
+  guide: Guide | undefined,
+  venue: Venue | undefined
+): BoardPlace {
+  const fromFeed = venue
+    ? newestNoteFor(venue.name, venue.city)
+    : { quote: '', quoteBy: '', sourceName: '' };
+  const located = Number.isFinite(place.lat) && (place.lat !== 0 || place.lng !== 0);
+  const said = place.excerpt.trim();
+  return {
+    key: venue?.id || place.id,
+    name: place.name,
+    venue,
+    imported: place,
+    area: place.area || venue?.neighborhood || '',
+    category: venue?.category || '',
+    // The publication's sentence is why this place is on the list at all, so it
+    // leads; a member's note stands in when the piece said nothing quotable.
+    quote: said || fromFeed.quote,
+    quoteBy: said ? '' : fromFeed.quoteBy,
+    sourceName: said
+      ? guide
+        ? guideAuthorLabel(guide)
+        : importedPlaceSourceLabel(place)
+      : fromFeed.sourceName,
+    provenance: provenanceOf(place, place, guide),
+    guideIds: place.guides,
+    been: venue?.endorsedByCaller === true,
+    saved: !place.skipped,
+    skipped: place.skipped,
+    lat: venue?.lat ?? (located ? place.lat : null),
+    lng: venue?.lng ?? (located ? place.lng : null),
+  };
+}
+
+/**
+ * One guide's places as rows — skipped ones included, because this is the only
+ * page that still shows them. Everywhere else they are gone; see `skipped` on
+ * `ImportedPlace`.
+ */
+export function guideBoardPlaces(guide: Guide, venues: Venue[]): BoardPlace[] {
+  const catalogue = venues.length ? venues : knownVenues;
+  const byId = new Map(catalogue.map((venue) => [venue.id, venue]));
+  return guide.places.map((place) =>
+    importedBoardPlace(place, guide, place.matched_venue ? byId.get(place.matched_venue) : undefined)
+  );
+}
+
+export function wannaGoBoardPlaces(slug: string, venues: Venue[]): BoardPlace[] {
+  const catalogue = venues.length ? venues : knownVenues;
+  const byId = new Map(catalogue.map((venue) => [venue.id, venue]));
+  const guideOf = guideByPlaceId();
+  const rows: BoardPlace[] = [];
+  const claimed = new Set<string>();
+
+
+  for (const place of wannaGoDestinationPlaces(slug)) {
+    const venue = place.matched_venue ? byId.get(place.matched_venue) : undefined;
+    if (venue) claimed.add(venue.id);
+    rows.push(importedBoardPlace(place, guideOf.get(place.id), venue));
+  }
+
+  const covered = importedVenueIds();
+  for (const save of savedPlaces()) {
+    if (destinationSlugOf(save.city) !== slug) continue;
+    if (covered.has(save.venue_id) || claimed.has(save.venue_id)) continue;
+    claimed.add(save.venue_id);
+    const venue = byId.get(save.venue_id);
+    const name = save.venue_name || venue?.name || 'A place you saved';
+    rows.push({
+      key: save.venue_id,
+      name,
+      venue,
+      area: venue?.neighborhood || '',
+      category: venue?.category || '',
+      ...newestNoteFor(name, save.city),
+      provenance: provenanceOf({ name, city: save.city }),
+      guideIds: [],
+      been: venue?.endorsedByCaller === true,
+      saved: true,
+      skipped: false,
+      lat: venue?.lat ?? null,
+      lng: venue?.lng ?? null,
+    });
+  }
+
+  // Been & loved in this city, however it got there. A place they marked without
+  // ever saving belongs on the board too: it is one of their places in this city,
+  // and the board is the answer to "what do I have in New York".
+  for (const venue of catalogue) {
+    if (!venue.endorsedByCaller || claimed.has(venue.id)) continue;
+    if (destinationSlugOf(venue.city) !== slug) continue;
+    claimed.add(venue.id);
+    rows.push({
+      key: venue.id,
+      name: venue.name,
+      venue,
+      area: venue.neighborhood || '',
+      category: venue.category || '',
+      ...newestNoteFor(venue.name, venue.city),
+      provenance: provenanceOf({ name: venue.name, city: venue.city }),
+      guideIds: [],
+      been: true,
+      // Been but never saved — the mark is the reason it is on this board.
+      saved: false,
+      skipped: false,
+      lat: venue.lat,
+      lng: venue.lng,
+    });
+  }
+
+  return rows;
+}
+
+// NO `bindWannaGoCards`. It wired Remove on the destination board back when that
+// board was this tab's card grid on another page. The board is its own surface
+// now and offers no removal: a member tidies their own list on My detours and
+// nowhere else, which is the rule Wanna go has always run on.
 
 
 /**
@@ -2711,24 +3004,9 @@ function importedPlaceCard(
   };
 }
 
-/**
- * One list's places as cards, for the list's own page.
- *
- * The same builder the tab uses, so a place looks identical wherever it stands —
- * minus the Remove footer. Removal lives on My detours and only there, the rule
- * every save in this app follows, and a list page is somewhere a member is
- * planning rather than tidying.
- */
-export function guideCardsMarkup(guide: Guide): string {
-  const provenance = {
-    kind: 'guide' as const,
-    label: `Guide · ${guideAuthorLabel(guide)}`,
-    href: guideHref(guide.id),
-  };
-  return placeCardGrid(
-    guide.places.map((place) => ({ ...importedPlaceCard(place, provenance), footer: '' }))
-  );
-}
+// NO `guideCardsMarkup`. The guide page renders through `boardCardsMarkup` like
+// every other city surface — same rows, same card, same shell — so there is one
+// place where a card's contents are decided.
 
 
 /**
@@ -2826,11 +3104,25 @@ function bindGuides(root: HTMLElement, render: () => void): void {
 
 }
 
+/**
+ * The remove-a-list dialogue, for a surface that renders it itself.
+ *
+ * The guide page is the only place that asks — it is the page about the list, so
+ * it is where "remove this list" belongs — and it renders the same dialogue the
+ * tab would, rather than a second one worded differently.
+ */
+export function guideRemovalDialogMarkup(): string {
+  return removeGuideDialogMarkup();
+}
+
 /** Removal of a kept list, or of one place on one. Bound wherever they render. */
-function bindImportedRemoval(root: HTMLElement, render: () => void): void {
+export function bindImportedRemoval(root: HTMLElement, render: () => void): void {
   root.querySelectorAll<HTMLButtonElement>('[data-guide-drop]').forEach((button) => {
     button.addEventListener('click', () => {
-      const id = button.dataset.listDrop || '';
+      // `data-guide-drop`, which is what the selector above matches. It read
+      // `dataset.listDrop` — a name from an earlier spelling of this feature —
+      // so every press found an empty id and returned silently.
+      const id = button.dataset.guideDrop || '';
       if (!id || button.disabled) return;
       const list = guides().find((entry) => entry.id === id);
       if (!list) return;
@@ -3316,6 +3608,23 @@ export function communityControl(href: string, current = false): string {
       <button class="community-menu-item community-menu-signout" role="menuitem" type="button" data-community-sign-out>Sign out</button>
     </div>
   </div>`;
+}
+
+/**
+ * Point My detours at one of its four lists — Recommendations, Been & loved,
+ * Wanna go, Private shares.
+ *
+ * The crumb roots need it: a place page whose trail begins BEEN & LOVED has to
+ * land on that list rather than on whichever tab the landing picked. Counts as
+ * the member choosing a tab, so `settleLandingTab` stops guessing for them —
+ * being sent to a list is a choice about which list to be on.
+ */
+export function openDetoursTab(tab: string): boolean {
+  const known: DetourTab[] = ['recommendations', 'endorsements', 'saved', 'shares'];
+  if (!known.includes(tab as DetourTab)) return false;
+  detourTab = tab as DetourTab;
+  detourTabChosen = true;
+  return true;
 }
 
 /** Point the member area at one of its tabs (used by the masthead member menu). */

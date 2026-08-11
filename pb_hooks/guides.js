@@ -966,6 +966,9 @@ function placePayload(record) {
     source_url: record.getString("source_url"),
     image_url: record.getString("image_url"),
     matched_venue: record.getString("matched_venue"),
+    // "Not this one." The place stays on the list it came from, dimmed, and
+    // leaves the wishlist, the city page and every count — see the migration.
+    skipped: Boolean(record.get("skipped")),
     guides: record.get("guides") || [],
     created: record.getString("created"),
   };

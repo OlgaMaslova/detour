@@ -6,15 +6,20 @@ recommendation.*
 
 > **Shipped.** `pb_migrations/1786838400_guides.js`, `pb_hooks/guides.js`,
 > `pb_hooks/guides.pb.js`, `src/guides.ts`, `src/private-place.ts`, the Wanna go
-> planning space, the destination board at `?dest=<slug>`, the guide view at
-> `?guide=<id>`, and the private place page at `?mine=<id>`. Where this document
+> planning space, the city page at `?d=<slug>` (`&lens=yours` for the member's
+> own reading — `?dest=` resolves to it), the guide page at `?guide=<id>`, and
+> the private place page at `?mine=<id>`. Where this document
 > describes schema or routes it describes what exists.
 >
-> **Not built, and deliberately.** `status: wanna_go | been | skipped` — Detour
-> already has that ladder as three collections with their own rules and
-> notifications, and a status column would be a second source of truth for the
-> same fact; `skipped` is the first negative signal in a product whose only
-> disagreement mechanism is silence, and needs its own design. Destination
+> **Skipping is built** (2026-08-11), and narrowly: `skipped` is a boolean on the
+> member's own imported row, not a status column. The ladder stays three
+> collections with their own rules — a status column would be a second source of
+> truth for the same fact. It is safe as a negative signal precisely because it
+> is private: nobody else can see it, nothing computed for another member reads
+> it, and it says "not on my list" rather than anything about the place. See
+> *The guide page* below.
+>
+> **Not built, and deliberately.** Destination
 > records, so renaming and merging ("NYC trip in May") — a destination is a
 > derived string today. Path routes (`/wanna-go/:destination`) — this app is
 > query-param routed end to end, including the preview Worker. One Place table —
@@ -261,21 +266,22 @@ recommended "cafe mutter".
   are switched off through the chrome — the first three write against a
   published place, and the last has no address to hand anybody.
 
-  **A stamp above the title says what kind of page this is.** It leads the
-  hero's copy column, before the overline: rotated, hard-bordered, cream on ink,
-  reading *NOT ON DETOUR / your list only*. Above the title rather than over the
-  photograph, because the standing of the place is the first thing to know about
-  it and the photograph is the publication's rather than ours to mark up. Those are two
-  structural facts, and they were a muted sentence under the title before —
-  which is the wrong instrument, and went unread. A page states what kind of
-  document it is through its form. The `aria-label` carries it as one plain
-  sentence, because a stamp's visual joke is not available to a screen reader.
+  **Two sentences say what kind of page this is, and there is no stamp.** There
+  was one — *NOT ON DETOUR / your list only*, rotated and hard-bordered above the
+  title — carrying the two structural facts a muted line had failed to carry
+  before it. Both facts have plainer homes now: *How it got here* names the piece
+  the place came off, and *What people say* says, in the space the
+  recommendations would occupy, that nobody on Detour has recommended it. A
+  shouted mark on top of two sentences that already say it was the loudest thing
+  on the page and the least informative.
 
   **So is the Detourist signal** (`showSignal: false`): it counts people standing behind a
   place, and on this one there are none and cannot be until somebody recommends
   it, so the bare mark states an absence that was never a possibility — beside a
-  band that already says so in words. The band itself goes through the template's
-  `afterHero` slot rather than being injected after render. Recommend is
+  band that already says so in words. That band is *How it got here*, and it is
+  the place page's own `origin` field rather than markup this feature hands over:
+  a published place the member also holds off a list has the identical thing to
+  say, so both kinds of page render one band from one fact. Recommend is
   offered, and opens the ordinary form with the name and city filled in.
   Removal is not offered here: Wanna go's rule is that a member tidies their own
   list on My detours and nowhere else.
@@ -285,6 +291,40 @@ recommended "cafe mutter".
   feature does that pays off over time, so it happens on the read rather than
   waiting for a sweep. A private page whose place has since been recommended
   redirects to the real one.
+
+## The guide page (`?guide=<id>`)
+
+**The city page's shell, with the guide's own facts in it.** Same crumb, same
+status segments, same Area menu, same Cards/Map switch, same card — learn the
+shell once and every collection reads with it. What differs, and nothing more:
+
+- **A `GUIDE · IMPORTED FROM <host>` chip above the title.** These words are
+  somebody else's, and everything below reads differently once a member knows
+  it, so it is said first.
+- **`by <publication> · N places · N to try · N skipped`** under the title, the
+  publication linked to the piece.
+- **`Original ↗` and `Remove…`** where the city page's *Add here* sits. Remove
+  opens the same dialogue the wishlist tab would — one wording for one act.
+- **No Source menu.** The page *is* the source; a filter with one answer is
+  furniture.
+- **A Skipped segment**, offered only once something has been skipped.
+
+### Skipping a place
+
+A member who pastes a list of thirty-eight means eleven of them. **Remove**
+deletes the row, so the page stopped matching the piece they had read and the
+next import of the same link handed the other twenty-seven straight back.
+
+- **`skipped` is a flag on the member's own imported row**
+  (`pb_migrations/1786924800_guide_place_skipped.js`), toggled by
+  `PATCH /api/detour/guides/places/{place}/skip`. The body states the state it
+  wants rather than toggling, so a double tap cannot land on the opposite answer.
+- **The guide page still shows it** — dimmed, under *Skipped*, with an undo in
+  the same spot the *Skip* was.
+- **Everywhere else it is gone**: not on the wishlist, not on the city page, not
+  in a count, not a pin. `allImportedPlaces` filters it out, so nothing
+  downstream has to remember.
+- Nobody else can see any of it, like the rest of this feature.
 
 ## Locating is lazy
 

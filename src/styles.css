@@ -64,6 +64,10 @@
   --tape-hairline-strong: rgba(239, 230, 216, 0.35);
   --tape-accent: var(--tape-amber); /* meta text, tickets, stamps */
   --tape-accent-strong: var(--tape-gold); /* pseudonyms, focus, errors */
+  /* The ladder's top rung, and the app's only green: Been & loved, on the city
+     page where it has to be findable down a column of orange and cream. Nothing
+     else may use it — a second meaning would cost it the first. */
+  --tape-been: #8fd18a;
   --tape-stack-title-hover: var(--tape-orange);
   --tape-stack-title-hover-shadow: var(--tape-chrome);
   --tape-ghost: var(--tape-rust); /* misregistered-print text shadow */
@@ -122,6 +126,9 @@
     --tape-hairline-strong: rgba(16, 16, 20, 0.3);
     --tape-accent: var(--tape-rust); /* amber text is too faint on paper */
     --tape-accent-strong: var(--tape-rust);
+    /* Deeper on paper, for the same reason the accent is: a pale filled plate
+       with ink type on it washes out under a light ground. */
+    --tape-been: #4e9a52;
     --tape-stack-title-hover: var(--tape-rust);
     /* the hover title is rust here, the same ink as the ghost, so the ghost
        switches to navy rather than disappearing */
@@ -159,6 +166,7 @@
   --tape-hairline-strong: rgba(16, 16, 20, 0.3);
   --tape-accent: var(--tape-rust);
   --tape-accent-strong: var(--tape-rust);
+  --tape-been: #4e9a52;
   --tape-stack-title-hover: var(--tape-rust);
   --tape-stack-title-hover-shadow: var(--tape-chrome);
   --tape-ghost: var(--tape-rust);
@@ -342,7 +350,6 @@ h1 { margin: 0; font-size: clamp(34px, 6vw, 54px); }
 .account-kicker { margin: 0 0 0.45rem; }
 .community-kicker { margin: 0 0 0.35rem; }
 .survey-kicker { margin: 0; }
-.detail-overline { margin: 0 0 0.25rem; }
 
 /* ================= MASTHEADS =================
    One treatment across every view: the wordmark carries the brand mark, the
@@ -791,20 +798,11 @@ a.welcome-brand:hover,
   transform: none;
   cursor: not-allowed;
 }
-.nearby-btn { gap: 0.45rem; }
+
 /* Sign out lives on the Settings identity line, so it is a control among the
    account facts rather than a fixture of the tab bar. */
 .community-session-signout { flex: none; min-height: 38px; }
-.nearby-btn { flex: none; }
-.nearby-btn::before {
-  content: '';
-  flex: none;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--tape-orange);
-  box-shadow: 0 0 0 3px rgba(243, 112, 30, 0.35);
-}
+
 .place-back-row { width: min(100%, 1080px); margin: 1.1rem auto 0; }
 /* The label carries tracking; the arrow must not, or it inherits a trailing
    space that reads as a broken gap.
@@ -1028,15 +1026,6 @@ legend { color: var(--tape-text); }
 .network-entry::before,
 .network-recommendation::after { grid-column: 1 / -1; }
 
-/* ---- catalogue card (.card) ---- */
-.card-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.8rem;
-}
 .card {
   height: 100%;
   display: flex;
@@ -1047,21 +1036,7 @@ legend { color: var(--tape-text); }
 .card:hover,
 .card.card-selected,
 .card.card-selected:hover { border-color: var(--tape-accent-strong); }
-.card-main {
-  display: block;
-  width: 100%;
-  min-height: 44px;
-  padding: 1rem 1.05rem 0.7rem;
-  border: 0;
-  background: none;
-  color: var(--tape-text);
-  font: inherit;
-  text-align: left;
-  text-decoration: none;
-  cursor: pointer;
-  flex: 1;
-}
-.card-main:hover { color: inherit; }
+
 .card h3 {
   margin: 0;
   font-family: var(--tape-anton);
@@ -1074,42 +1049,7 @@ legend { color: var(--tape-text); }
   text-shadow: 2px 2px 0 var(--tape-ghost);
   overflow-wrap: anywhere;
 }
-.card-meta,
-.detail-meta {
-  font-family: var(--tape-mono);
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--tape-accent);
-}
-.card-meta { margin: 0.25rem 0 0.15rem; }
-.card-address {
-  margin: 0;
-  color: var(--tape-muted);
-  font-family: var(--tape-mono);
-  font-size: 12px;
-}
-.card-occasions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
-  margin-top: 0.7rem;
-}
-.card-occasions span:not(.card-occasions-label) {
-  padding: 0.22rem 0.42rem;
-  color: var(--tape-text);
-  background: none;
-  border: 1.5px solid var(--tape-hairline-strong);
-  border-radius: 0;
-  font-family: var(--tape-mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  line-height: 1.25;
-  text-transform: uppercase;
-}
-.card-occasions-label { color: var(--tape-muted); font-size: 0.72rem; font-weight: 800; }
+
 .approx {
   display: block;
   color: var(--tape-muted);
@@ -1208,7 +1148,6 @@ legend { color: var(--tape-text); }
 .cover-placeholder[data-cover-tint='4'] { background-position: 15px 0, 0 0; }
 .cover-placeholder[data-cover-tint='5'] { background-position: 19px 0, 0 0; }
 
-.card-cover-placeholder span { font-size: 2.1rem; opacity: 0.6; }
 /* No overrides for .network-entry-thumb-placeholder. Despite the name it is the
    full-width banner across the top of a recommendation card, the largest cover on
    the page — its display size is set with the rest of that card further down. */
@@ -1218,18 +1157,7 @@ legend { color: var(--tape-text); }
   margin: 0;
   overflow: hidden;
 }
-/* The detail cover keeps its boxed monogram, now on the generated field rather
-   than flat panel colour. */
-.detail-cover-placeholder span {
-  display: grid;
-  width: 4.5rem;
-  height: 4.5rem;
-  place-items: center;
-  background: var(--tape-surface);
-  border: 2px solid var(--tape-chrome);
-  box-shadow: 3px 3px 0 var(--tape-rust);
-  font-size: 3rem;
-}
+
 /* Bounded, not full-bleed. Covers on file are around 800px wide, so a
    page-width plate upscales them into mush and crops most of the frame away;
    a capped box downsamples instead and stays sharp on any screen. */
@@ -1248,19 +1176,6 @@ legend { color: var(--tape-text); }
 }
 .place-cover-placeholder::before { width: 0.7rem; }
 
-/* ---- empty state ---- */
-.empty-state {
-  margin: 0;
-  padding: 2rem 1.5rem;
-  background: none;
-  border: 2px dashed var(--tape-hairline-strong);
-  border-radius: 0;
-  color: var(--tape-muted);
-  text-align: center;
-}
-.empty-state-title { margin: 0 0 0.4rem; font-size: 1.1rem; }
-.empty-state-body { margin: 0 0 1rem; color: var(--tape-muted); font-size: 0.9rem; }
-.results { margin-top: 1.2rem; }
 .loading { color: var(--tape-muted); padding: 1rem 0; font-style: italic; }
 
 /* ------------------------------------------------ Member standing signal
@@ -1375,7 +1290,7 @@ legend { color: var(--tape-text); }
 .signal-badge:hover .signal-tooltip,
 .signal-badge:focus-visible .signal-tooltip { opacity: 1; transform: translateY(0); }
 
-/* ================= DESTINATION: HERO + DISCOVERY BAR ================= */
+/* ================= PLAIN COPY HEROES ================= */
 .hero,
 .city-detail-hero {
   width: min(100%, 1080px);
@@ -1386,6 +1301,11 @@ legend { color: var(--tape-text); }
   border: none;
   box-shadow: none;
 }
+/* The plain copy hero, on the two pages that still have one: a city with no
+   coverage yet, and a catalogue that would not load. The city page proper wears
+   the board's own head instead, so this no longer needs the tall photographic
+   treatment it once carried on a destination. */
+.city-detail-hero { display: block; min-height: 0; }
 .hero {
   position: relative;
   isolation: isolate;
@@ -1394,19 +1314,8 @@ legend { color: var(--tape-text); }
 }
 .hero-inner { position: relative; z-index: 1; max-width: none; margin: 0; }
 .hero h1 { max-width: 20ch; text-wrap: balance; }
-.city-detail-hero {
-  display: flex;
-  align-items: flex-end;
-  min-height: clamp(15rem, 30vw, 22rem);
-  border-bottom: 2.5px solid var(--tape-chrome);
-}
+
 .city-detail-hero .hero-inner { width: 100%; }
-/* on the destination route the hero is just the copy block under the masthead */
-#app[data-restyle='destination'] .city-detail-hero {
-  display: block;
-  min-height: 0;
-  padding-top: clamp(1.5rem, 4vw, 2.5rem);
-}
 .tagline {
   max-width: 58ch;
   margin: 0.8rem 0 0;
@@ -1418,147 +1327,6 @@ legend { color: var(--tape-text); }
   text-wrap: pretty;
 }
 
-.discovery {
-  position: relative;
-  display: grid;
-  gap: 0.75rem;
-  width: min(100%, 1080px);
-  margin: 0 auto;
-  padding: 1rem max(var(--gutter), clamp(0.8rem, 2vw, 1.2rem)) 0.85rem;
-  background: none;
-  border-bottom: none;
-}
-.discovery-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.65rem;
-}
-.discovery .count {
-  margin-left: auto;
-  padding: 6px 10px;
-  color: var(--tape-accent);
-  background: none;
-  border: 2px solid var(--tape-accent);
-  border-radius: 0;
-  font-family: var(--tape-mono);
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Removable active-filter chips */
-.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 44px;
-  padding: 0.25rem 0.75rem;
-  color: var(--tape-accent);
-  background: none;
-  border: 2px solid var(--tape-accent);
-  border-radius: 0;
-  font-family: var(--tape-mono);
-  font-weight: 700;
-  font-size: 10.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  cursor: pointer;
-  line-height: 1.55;
-}
-.chip:hover { color: var(--tape-accent-strong); border-color: var(--tape-accent-strong); }
-.chip-x { font-size: 1rem; line-height: 1; }
-
-/* Occasion browsing: a label line, then the options across the full width —
-   no reserved copy column for a question that fits on one line. The filters
-   belong to the control bar above them, so there is no rule between. */
-.occasion-browser { display: grid; gap: 0.55rem; padding-top: 0; border-top: none; }
-.occasion-browser-copy {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.25rem 0.6rem;
-  margin: 0;
-  color: var(--tape-muted);
-  font-family: var(--tape-mono);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.occasion-browser-label {
-  color: var(--tape-accent);
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-.occasion-options { display: flex; flex-wrap: wrap; gap: 0.45rem; }
-.occasion-option {
-  display: inline-flex;
-  min-height: 44px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.65rem;
-  padding: 0.45rem 0.55rem 0.45rem 0.75rem;
-  color: var(--tape-text);
-  background: var(--tape-field-veil);
-  border: 2px solid var(--tape-chrome);
-  border-radius: 0;
-  box-shadow: none;
-  font-family: var(--tape-mono);
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: color 180ms cubic-bezier(0.25, 1, 0.5, 1), background-color 180ms cubic-bezier(0.25, 1, 0.5, 1), border-color 180ms cubic-bezier(0.25, 1, 0.5, 1);
-  line-height: 1.55;
-}
-/* Raised surface rather than a label tint on the translucent veil — and not
-   orange, which marks the selected chip below. */
-.occasion-option:hover {
-  color: var(--tape-text);
-  background: var(--tape-surface-raised);
-  border-color: var(--tape-chrome);
-}
-.occasion-option.occasion-option-active,
-.occasion-option.occasion-option-active:hover {
-  color: var(--tape-ink);
-  background: var(--tape-orange);
-  border-color: var(--tape-chrome);
-}
-.occasion-option small {
-  min-width: 1.6rem;
-  padding: 0.15rem 0.35rem;
-  color: var(--tape-accent);
-  background: none;
-  border-left: 2px solid var(--tape-chrome);
-  border-radius: 0;
-  font-family: var(--tape-mono);
-  font-size: 0.7rem;
-  font-weight: 800;
-  line-height: 1.2;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-.occasion-option.occasion-option-active small {
-  color: var(--tape-ink);
-  border-left-color: var(--tape-ink);
-}
-
-/* ================= MAP =================
-   The map is the tape window: chunky frame, hard shadow, themed tiles. */
-.map-stage { width: min(100%, 1080px); margin: 1rem auto 1.75rem; }
-.map-panel-live {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--tape-surface);
-  border: 3px solid var(--tape-chrome);
-  border-radius: 0;
-  box-shadow: 8px 8px 0 var(--tape-rust);
-}
 .venue-map {
   flex: 1;
   width: 100%;
@@ -1585,18 +1353,6 @@ legend { color: var(--tape-text); }
   /* leaflet rounds the first/last child of a control bar at higher specificity */
   border-radius: 0 !important;
 }
-.map-note,
-.map-prompt {
-  margin: 0;
-  color: var(--tape-muted);
-  font-family: var(--tape-mono);
-  font-size: 12px;
-  font-style: normal;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-.map-note { padding: 0.55rem 0.9rem; background: var(--tape-inset); border-top: 1px solid var(--tape-hairline); }
-.map-prompt { margin: 0.65rem 0.2rem 0; }
 
 /* ---- map pins: sunset pearls + mixtape hover labels ----
    A quiet 18px visual inside a generous 48px target. */
@@ -1707,53 +1463,10 @@ legend { color: var(--tape-text); }
 
 /* ================= SELECTED-PLACE SHEET (bound to the map) ================= */
 .detail { margin-top: -1px; padding: 0; }
-.detail-head {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: clamp(1rem, 3vw, 1.5rem);
-  color: var(--tape-text);
-  background: none;
-  border-bottom: 1px solid var(--tape-hairline);
-}
-/* Signal and close button ride together in the head's top-right corner, so the
-   count reads as a property of the place rather than a step in "getting there".
-   `stretch` makes the pair the same height by construction — the close button
-   sets it via its 44px min-height, and the badge follows without a second
-   hardcoded number to keep in step. */
-.detail-head-side { display: flex; align-items: stretch; gap: 0.5rem; flex: none; }
+
 .detail-head-side .signal-badge { padding-inline: 0.6rem; }
 .detail h2 { margin: 0; font-size: clamp(1.7rem, 4vw, 2.65rem); }
-.detail-meta { margin: 0.15rem 0 0; }
-.detail-close {
-  position: relative;
-  z-index: 1;
-  flex: none;
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0.2rem 0.55rem;
-  color: var(--tape-text);
-  background: none;
-  border: 2px solid var(--tape-chrome);
-  border-radius: 0;
-  font: inherit;
-  font-size: 1.45rem;
-  line-height: 1;
-  cursor: pointer;
-}
-.detail-close:hover { color: var(--tape-ink); background: var(--tape-orange); border-color: var(--tape-orange); }
-/* The map preview is one section now that the full record lives on the place
-   page — a second column here would only ever render as an empty half. */
-.detail-body { display: grid; grid-template-columns: 1fr; }
-.detail-practical {
-  display: grid;
-  align-content: start;
-  gap: 0.85rem;
-  padding: clamp(1.1rem, 3vw, 1.65rem);
-  background: var(--tape-inset);
-}
+
 .detail h3,
 .detail-network h4,
 .place-section h2 {
@@ -1765,15 +1478,7 @@ legend { color: var(--tape-text); }
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
-.detail-body h3 { margin: 0 0 0.8rem; }
-.detail-note {
-  margin: 0.8rem 0 0;
-  max-width: 48ch;
-  color: var(--tape-text);
-  font-family: var(--tape-mono);
-  font-style: normal;
-}
-.detail-network { display: grid; gap: 0.7rem; margin-top: 1.4rem; border-top: 1px solid var(--tape-hairline); }
+
 .detail-network-note {
   display: grid;
   gap: 0.55rem;
@@ -1816,18 +1521,6 @@ legend { color: var(--tape-text); }
    own control, so there is no caption copy here to style. */
 .detail-locator { padding: clamp(1.1rem, 3vw, 1.65rem); }
 .detail-locator-map { height: clamp(200px, 30vh, 290px); margin-bottom: 0.55rem; }
-.detail-locator-address { margin: 0; color: var(--tape-text); font-family: var(--tape-mono); font-size: 0.95rem; }
-/* Occasions in the map preview: one line, its label set as an overline so it
-   does not read as another button in the row below. */
-.detail-locator-occasions { margin: 0; color: var(--tape-text); font-family: var(--tape-mono); font-size: 13px; }
-.detail-locator-occasions span {
-  display: block;
-  color: var(--tape-accent);
-  font-size: 10.5px;
-  font-weight: 850;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
 
 /* ================= NETWORK-FIRST HOME =================
    One welcome band opens into the member ledger; the anonymous visitor gets
@@ -2964,21 +2657,6 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 .network-layout-icon-3 { grid-template-columns: repeat(3, 1fr); gap: 1px; }
 .network-layout-icon i { min-width: 0; min-height: 0; border: 1px solid currentColor; }
 
-/* ================= THE MEMBER SHORT LIST =================
-   Low-count destinations (three to six places) lead with the member ledger;
-   planning tools wait behind one explicit request so a short list never reads
-   as a directory. On the mixtape it is plain graph paper between two chrome
-   rules — no bottom rule, because the footer draws its own and stacked they
-   read as a seam. */
-.trusted-list {
-  display: grid;
-  gap: 1rem;
-  width: min(100%, 1080px);
-  margin: 0 auto;
-  padding: clamp(1.6rem, 4vw, 3rem) 0 clamp(1.8rem, 4vw, 3.2rem);
-  background: none;
-  border-bottom: none;
-}
 .trusted-list-status {
   display: flex;
   min-height: 44px;
@@ -3000,29 +2678,12 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 }
 .trusted-list-status-error p { margin: 0; color: var(--tape-accent-strong); }
 .trusted-list-status-error .secondary-button { flex: none; }
-.trusted-list-results { margin: 0; }
+
 /* the place you last opened keeps the accent frame */
 .trusted-entry.is-selected { border-color: var(--tape-accent-strong); }
-/* Three to a row rather than the landing page's two — a city list is scanned,
-   not read. The cassette shrinks with the column via the shared three-up
-   proportions near `.network-entry-thumb`, which this list is named in. */
-.trusted-card-list { gap: 1rem; max-width: none; }
-.trusted-card-list > li { display: grid; }
+
 .trusted-card-list.network-recommendation-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-/* the notes are the cassette's inset label band at the foot of each shell */
-.card-member-notes { display: grid; gap: 0; background: var(--tape-inset); border-top: 3px solid var(--tape-chrome); }
-.card-member-note { display: grid; gap: 0.5rem; margin: 0; padding: 0.9rem 1.15rem 1rem; }
-.card-member-note + .card-member-note { border-top: 1px solid var(--tape-hairline-strong); }
-.card-member-note p {
-  max-width: 62ch;
-  margin: 0;
-  color: var(--tape-text);
-  font-family: var(--tape-mono);
-  font-size: 14px;
-  font-style: normal;
-  line-height: 1.65;
-  text-wrap: pretty;
-}
+
 .card-member-note footer,
 .place-note footer {
   color: var(--tape-muted);
@@ -3031,37 +2692,9 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-.card-member-note footer { font-weight: 700; }
-.trusted-list-detail { max-width: none; }
+
 .trusted-list-detail .detail { margin-top: 0; border-top-color: var(--tape-chrome); }
 
-/* List or map — one switch, cassette tabs. The active side is solid. */
-.city-view-switch {
-  display: inline-flex;
-  flex: none;
-  overflow: hidden;
-  background: none;
-  border: 2.5px solid var(--tape-chrome);
-  border-radius: 0;
-}
-.city-view-tab {
-  min-height: 44px;
-  padding: 9px 18px;
-  color: var(--tape-text);
-  background: none;
-  border: 0;
-  border-right: 2.5px solid var(--tape-chrome);
-  border-radius: 0;
-  font-family: var(--tape-mono);
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  cursor: pointer;
-  line-height: 1.55;
-}
-.city-view-tab:last-child { border-right: none; }
-.city-view-tab:hover { color: var(--tape-accent-strong); }
 .city-view-tab.is-active { color: var(--tape-ink); background: var(--tape-orange); }
 
 /* ================= CITY CHOOSER =================
@@ -3168,14 +2801,30 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 .place-hero-copy,
 .place-hero-details { gap: 10px; }
 .place-hero-copy { display: grid; min-width: 0; }
-.place-overline {
+/* The slot above the title. It held an eyebrow naming the city — or, on an
+   imported place, "My detours" — until the crumb above it started saying where
+   the place lives; the same fact twice, an inch apart, is one too many. What
+   stands here now is standing: short marks for what the crumb cannot say, and
+   nothing at all on the ordinary place, where the slot collapses. */
+.place-status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
   margin: 0;
-  color: var(--tape-accent);
+}
+.place-status-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  /* Dashed, like the manual provenance chip: this is a fact about the place's
+     standing that nobody outside this member's own account asserted. */
+  border: 2px dashed var(--tape-hairline-strong);
+  color: var(--tape-muted);
   font-family: var(--tape-mono);
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1.2;
-  letter-spacing: 0.18em;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1.1;
   text-transform: uppercase;
 }
 /* Own size, or the generic display-h1 clamp (up to 54px) wins and a long name
@@ -3698,10 +3347,362 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
   .wanna-section-map { grid-column: 2; grid-row: 1; }
 }
 
-/* "From guides" on a destination board. Guides are named as sources here, never
-   given rows of their own — a city is what a member plans around. */
-.destination-guides { display: grid; gap: 0.4rem; }
-.destination-guides h2 {
+/* ============================================================
+   THE CITY PAGE — one city, two readings of it.
+   Geography is the only hierarchy: everybody's picks and the member's own
+   holdings are lenses on the same page, sharing this layout, this map and this
+   numbering. A numbered list against a map, and the numbers are the whole tie
+   between them: filter the list and both renumber together.
+   ============================================================ */
+/* The app's own column, and no wider. The masthead and the footer rule define
+   it; a page that runs past them reads as a layout mistake, whatever it gains in
+   map. The map takes its extra width from the split below instead. */
+.board-page { gap: 1.1rem; }
+.board-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.board-head-copy { display: grid; gap: 0.4rem; }
+.board-counts {
+  margin: 0;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.board-counts a {
+  color: var(--tape-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
+}
+.board-counts a:hover { color: var(--tape-orange); }
+.board-add { flex-shrink: 0; text-decoration: none; }
+.board-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; }
+/* GUIDE · IMPORTED FROM EATER.COM — the first thing on a guide page, above its
+   own title. Everything below reads differently once a member knows the words
+   are somebody else's, so it is said first, in the accent the publication wears
+   everywhere else, and boxed so it cannot be skimmed past as a kicker. */
+.board-origin-chip {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.4rem 0.7rem;
+  border: 2px solid var(--tape-accent);
+  color: var(--tape-accent);
+  font-family: var(--tape-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+/* The lens: which reading of this city is on screen. Above the filters and
+   apart from them, because it is not a filter — it changes which set of places
+   the page is about, and every chip below re-scopes underneath it. Wider plates
+   than those chips, so the two rows cannot be mistaken for one. */
+.board-lens { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.board-lens-chip { padding: 0.6rem 1.1rem; font-size: 0.78rem; }
+.board-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.7rem; }
+.board-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+/* The same hard-bordered plate the wishlist tab's filters wear. One language for
+   filtering across the app; only the colour says what kind of filter it is. */
+.board-chip {
+  padding: 0.5rem 0.85rem;
+  color: var(--tape-text);
+  background: transparent;
+  border: 2px solid var(--tape-hairline-strong);
+  border-radius: 0;
+  font-family: var(--tape-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.board-chip:hover { border-color: var(--tape-chrome); }
+.board-chip.is-active {
+  color: var(--tape-ink);
+  background: var(--tape-cream);
+  border-color: var(--tape-cream);
+}
+/* Source, occasion and area are menus rather than rows of plates. A filter row
+   six chips wide reads as the page's content; these cost one click and no width,
+   and they sit at the far end so the one filter in the open — To try / Been —
+   keeps the left edge to itself. */
+.board-select { position: relative; display: inline-flex; }
+.board-select:first-of-type { margin-left: auto; }
+.board-select::after {
+  content: '▾';
+  position: absolute;
+  top: 50%;
+  right: 0.7rem;
+  transform: translateY(-45%);
+  font-size: 0.62rem;
+  color: var(--tape-text);
+  pointer-events: none;
+}
+.board-select select {
+  appearance: none;
+  padding: 0.5rem 1.9rem 0.5rem 0.85rem;
+  color: var(--tape-text);
+  background: transparent;
+  border: 2px solid var(--tape-hairline-strong);
+  border-radius: 0;
+  font-family: var(--tape-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.board-select select:hover { border-color: var(--tape-chrome); }
+/* Cards or map. A segmented pair like To try / Been, but at the other end of the
+   bar and after the menus: it is not a filter — the same places are on screen
+   either way — so it sits with the controls that change how the page reads
+   rather than with the ones that change what is on it. */
+.board-view { display: flex; }
+.board-view-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.85rem;
+  color: var(--tape-text);
+  background: transparent;
+  border: 2px solid var(--tape-hairline-strong);
+  border-radius: 0;
+  font-family: var(--tape-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.board-view-tab + .board-view-tab { border-left-width: 0; }
+.board-view-tab:hover { border-color: var(--tape-chrome); }
+.board-view-tab.is-active {
+  color: var(--tape-ink);
+  background: var(--tape-cream);
+  border-color: var(--tape-cream);
+}
+.board-select select option { color: var(--tape-ink); background: var(--tape-cream); }
+/* One control in two halves, so it reads as a single either/or rather than as
+   two independent toggles. */
+.board-status { gap: 0; }
+.board-status .board-chip + .board-chip { border-left-width: 0; }
+
+/* The map takes the larger share and keeps it. It is not an illustration beside
+   a list — it is the other half of the same answer, and at a third of the width
+   it was too small to plan a walk on. The rows are a name and one cut line, so
+   they need less room than the streets do. Sticky, so it stays put while the
+   list scrolls past it. */
+.board-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 1.1rem; align-items: start; }
+/* Nothing on screen: the sentence saying so keeps the whole width, because the
+   map side is not rendered at all. Two dashed boxes reporting one absence read
+   as two problems. */
+.board-body.is-empty { grid-template-columns: minmax(0, 1fr); }
+.board-list-side { display: grid; gap: 0.7rem; align-content: start; }
+/* The line under a card on a guide page: whether this place is on the member's
+   list, and the way to change that answer. */
+.board-card-foot-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem 0.7rem;
+  color: var(--tape-accent);
+  font-family: var(--tape-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.board-card-foot-row.is-skipped { color: var(--tape-muted); }
+/* Dashed, like every control that says "not this": it is a decision the member
+   can take back from the same spot. */
+.board-skip {
+  padding: 0.25rem 0.55rem;
+  color: inherit;
+  background: transparent;
+  border: 2px dashed currentColor;
+  border-radius: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.board-skip:hover { color: var(--tape-orange); }
+.board-skip:disabled { opacity: 0.5; cursor: default; }
+/* A skipped place stays on the page it came off — dimmed, because it is a
+   record of what the piece said rather than one of the member's own places. */
+.community-queue-row.is-skipped { opacity: 0.45; }
+.community-queue-row.is-skipped:hover,
+.community-queue-row.is-skipped:focus-within { opacity: 0.75; }
+
+/* The card reading takes the whole width: the shared recommendation grid, and
+   no map beside it — see `boardCardsMarkup`, which renders through the one card
+   renderer this app has. */
+.board-body.is-cards { grid-template-columns: minmax(0, 1fr); }
+
+.board-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
+.board-row {
+  background: var(--tape-surface);
+  border: 1px solid var(--tape-hairline);
+}
+/* The whole row is the link. A name-sized target in a list somebody is scanning
+   with a thumb is a miss waiting to happen, and there is nothing else on the row
+   to click — the controls live on the place page, one tap away. */
+.board-row-open {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  color: inherit;
+  text-decoration: none;
+}
+/* Lit from either end — hovering the row or its pin. The offset shadow is the
+   card's own "picked up" state elsewhere in the app, so the gesture reads the
+   same here. */
+.board-row.is-lit {
+  border-color: var(--tape-orange);
+  box-shadow: 6px 6px 0 var(--tape-rust);
+}
+/* Small, square and printed like a contact sheet: enough to recognise a place
+   by, never enough to turn the list into a gallery. */
+.board-row-thumb {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--tape-inset);
+  border: 1px solid var(--tape-hairline);
+}
+.board-row-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* No picture on file: the initial, printed. A grey rectangle would read as an
+   image that failed rather than as one that never existed. */
+.board-row-thumb.is-empty {
+  color: var(--tape-muted);
+  font-family: var(--tape-anton);
+  font-size: 1.2rem;
+}
+.board-row-body { display: grid; gap: 0.2rem; min-width: 0; }
+.board-row-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem; }
+.board-row-name {
+  color: var(--tape-text);
+  font-family: var(--tape-anton);
+  font-size: 1.05rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.board-row-open:hover .board-row-name { color: var(--tape-orange); }
+.board-row-area,
+.board-row-kind {
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.board-row-area::before { content: '· '; }
+/* The kind of place — the fact a planner scans a city list for. In the accent,
+   because it is the one word on the row that answers "what is it". */
+.board-row-kind { color: var(--tape-accent); }
+/* Cut to one line, and cut on purpose: the quote is here to say which place this
+   is, not to be read. The whole of it is on the place page with everything else
+   anybody said. */
+.board-row-line {
+  margin: 0;
+  overflow: hidden;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 0.78rem;
+  font-style: italic;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The member who recommended it, in the colour a pseudonym wears everywhere
+   else in the app: this is a person's name, not a source. */
+.board-row-by { color: var(--tape-accent-strong); font-style: normal; }
+.board-row-arrow { color: var(--tape-muted); font-size: 1.1rem; line-height: 1; }
+.board-row-open:hover .board-row-arrow { color: var(--tape-orange); }
+/* Been, on a row that has no controls: a hairline down its left edge, in the one
+   green the app has. The list is scanned, not operated. */
+.board-row.is-been { border-left: 3px solid var(--tape-been); }
+.board-more { margin: 0; }
+.board-more button {
+  padding: 0;
+  color: var(--tape-accent);
+  background: transparent;
+  border: 0;
+  font-family: var(--tape-mono);
+  font-size: 0.78rem;
+  font-style: italic;
+  cursor: pointer;
+}
+.board-more button:hover { color: var(--tape-orange); }
+
+.board-map-side { position: sticky; top: 1rem; display: grid; gap: 0.5rem; align-content: start; }
+/* Height enough to hold a neighbourhood, and no more: the map grew across, not
+   down — a taller one pushes the list it belongs to off the screen. */
+.board-map { min-height: clamp(360px, 54vh, 580px); }
+/* The legend that follows the cursor. It keeps its height whether or not it is
+   saying anything, so the map does not jump every time a row is hovered. */
+.board-map-caption {
+  min-height: 1.3rem;
+  margin: 0;
+  color: var(--tape-accent);
+  font-family: var(--tape-mono);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.board-map-note {
+  margin: 0;
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 0.72rem;
+  font-style: italic;
+  line-height: 1.5;
+}
+/* A dot, not a number. The rows lost their numbers — eight orange plates down a
+   column read as a ranking — so a numbered pin would be a legend for a key that
+   is no longer printed. Which place it is comes from the hover: the pin and its
+   row light together and the caption names it. */
+.board-pin {
+  position: absolute;
+  width: 1.1rem;
+  height: 1.1rem;
+  transform: translate(-0.55rem, -0.55rem);
+  background: var(--tape-orange);
+  border: 2px solid var(--tape-chrome);
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.board-pin.is-been { background: var(--tape-been); }
+.board-pin.is-lit {
+  background: var(--tape-amber);
+  transform: translate(-0.8rem, -0.8rem) scale(1.45);
+  z-index: 2;
+}
+.board-pin:focus-visible { outline: 2px solid var(--tape-accent-strong); outline-offset: 2px; }
+
+/* "Guides here" — guides are named as sources at the foot of the city page,
+   never given rows of their own and never a step in a place's crumb. A city is
+   what a member plans around; the piece is how some of it arrived. */
+.board-guides { display: grid; gap: 0.45rem; }
+.board-guides h2 {
   margin: 0;
   font-family: var(--tape-mono);
   font-size: 0.72rem;
@@ -3710,14 +3711,32 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
   text-transform: uppercase;
   color: var(--tape-accent);
 }
-.destination-guides ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; }
-.destination-guides li { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; }
-.destination-guides span {
+.board-guides ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; justify-items: start; }
+.board-guide {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.45rem 0.7rem;
+  border: 2px solid var(--tape-accent);
+  color: var(--tape-accent-strong);
   font-family: var(--tape-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.06em;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--tape-muted);
+  text-decoration: none;
+}
+.board-guide:hover { color: var(--tape-orange); border-color: var(--tape-orange); }
+.board-guide-meta { color: var(--tape-muted); font-weight: 400; letter-spacing: 0.06em; text-transform: none; font-style: italic; }
+
+@media (max-width: 900px) {
+  /* The map goes under the list rather than beside it. It is the second read on
+     a phone: the list answers "what do I have", the map answers "where". */
+  .board-body { grid-template-columns: minmax(0, 1fr); }
+  /* The map is no longer pinned beside anything, so it stops sticking. */
+  .board-map-side { position: static; }
+  .board-select:first-of-type { margin-left: 0; }
 }
 
 /* Wanna go → the index of guides. One line each, no cards: a list of
@@ -3762,70 +3781,77 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 }
 .community-guide-row > .community-queue-delete { grid-row: 1; grid-column: 2; }
 
-/* An imported place's stamp: leads the hero's copy column, above the title.
-   A rubber stamp, not a badge — rotated off-square, hard-bordered, letter-spaced
-   and slightly transparent, so it reads as something pressed onto the page
-   rather than laid out on it. It carries two structural facts, not in the
-   catalogue and private, that were previously a muted sentence nobody read. */
-.place-import-stamp {
-  /* Shrunk to its own text so the rotated box does not claim the column's full
-     width and leave the title sitting in a wedge of empty space. The left margin
-     is for the tilt: rotation is a paint-time transform, so the box keeps its
-     unrotated footprint and the raised corner overhangs the column edge. */
-  justify-self: start;
-  margin: 0 0 0.25rem 0.35rem;
-  transform-origin: left center;
-  display: inline-grid;
-  gap: 0.1rem;
-  justify-items: center;
-  padding: 0.45rem 0.85rem;
-  color: var(--tape-cream);
-  /* Its own ink rather than a token: a stamp is pressed in one colour, and this
-     one reads against the page ground rather than against a photograph. */
-  background: rgba(16, 16, 20, 0.72);
-  border: 3px solid var(--tape-cream);
-  border-radius: 2px;
-  transform: rotate(-8deg);
-  text-align: center;
-  text-transform: uppercase;
-  pointer-events: none;
-}
-.place-import-stamp strong {
-  font-family: var(--tape-anton);
-  font-size: clamp(1rem, 3.4vw, 1.5rem);
-  font-weight: 400;
-  letter-spacing: 0.06em;
-  line-height: 1;
-}
-.place-import-stamp span {
-  font-family: var(--tape-mono);
-  font-size: clamp(0.56rem, 1.5vw, 0.68rem);
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  line-height: 1.1;
-  opacity: 0.82;
-}
-/* A stamp printed straight is a label. Honour the reduced-motion preference for
-   the rotation too — it is decoration, and some readers find angled text hard. */
-@media (prefers-reduced-motion: reduce) {
-  .place-import-stamp { transform: none; }
-}
+/* How it got here — the band in the hero, above the buttons, on any place the
+   reader kept off a published list. It belongs to both kinds of place page now:
+   an imported place has always had to say where it came from, and a published
+   place the same member imported has exactly the same thing to say.
 
-/* An imported place's provenance band, inserted under the place page's own
-   header — see renderPrivatePlace. Everything else on that page is the published
-   place page's, unchanged, which is the point: one template, two kinds of place.
-   Only this has no published counterpart, because only an imported place has to
-   say where it came from and that nobody else can see it. */
-.private-place-provenance-band { display: grid; gap: 0.6rem; margin: -0.3rem 0 0.2rem; }
-.private-place-excerpt {
-  margin: 0;
-  padding: 0.7rem 0.9rem;
-  background: var(--tape-inset);
-  border-left: 2px solid var(--tape-hairline);
+   Boxed and ruled in the accent rather than set as another muted line, because
+   it is the one thing on the page that changes how everything below it reads —
+   the sentence under a place off a list is a publication's, not a
+   recommendation's, and a reader who skims past this will not know that. The
+   line before it, in prose, went unread; this cannot be. */
+.place-origin-band {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0.2rem 0 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--tape-accent);
+  font-family: var(--tape-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--tape-text);
 }
-.private-place-excerpt p { margin: 0 0 0.35rem; }
-.private-place-excerpt footer { font-size: 0.82rem; color: var(--tape-muted); }
-.private-place-from { margin: 0; font-size: 0.88rem; color: var(--tape-muted); }
+.place-origin-label {
+  color: var(--tape-accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.place-origin-band a {
+  color: var(--tape-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
+  text-transform: uppercase;
+}
+.place-origin-band a:hover { color: var(--tape-orange); }
+
+/* WHAT PEOPLE SAY holds two kinds of voice, and the chip is what tells them
+   apart at a glance: a member standing behind a place, and a publication that
+   printed a line about it. Same block, same quote, different mark — anything
+   subtler and the page would be presenting somebody's copy as a recommendation.
+
+   The chip is `.provenance-chip`, the same typed mark the city page's rows
+   wear, because it answers the same question there and here and one fact should
+   not have two spellings. It sits at the top of the block, where a reader meets
+   it before the words rather than after them — which is why the member's
+   attribution moved up out of the footer. The footer keeps only what is true
+   after the fact: when it was written, whether they are a founder, and the way
+   back to editing it. */
+.place-voice-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.6rem;
+  margin: 0;
+}
+.place-voice-context {
+  color: var(--tape-muted);
+  font-family: var(--tape-mono);
+  font-size: 12px;
+  font-style: italic;
+}
+/* Full width and above the carousel, never inside it: the carousel is a set of
+   peers, and a publication's line is context for the members rather than one of
+   them. */
+.place-voice-guide {
+  margin: 0 0 0.7rem;
+  /* The one thing separating it from a member's block at arm's length: the bar
+     down its side is the accent rather than the orange every note wears. */
+  border-left-color: var(--tape-accent);
+}
 
 @media (max-width: 640px) {
   /* Two columns, and the flag drops below the address rather than squeezing the
@@ -6232,9 +6258,7 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 }
 
 @media (max-width: 920px) {
-  .occasion-browser { grid-template-columns: 1fr; }
-  .detail-body { grid-template-columns: 1fr; }
-  .detail-practical { border-top: 1px solid var(--tape-hairline); }
+
   /* Below this the headline and a 20rem column of calls to action are fighting
      over the same row. One column again, and the pair goes back to being a band —
      which is why its rule above the fold comes back with it. The deck still sits
@@ -6257,8 +6281,7 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
   .community-form-wrap { padding: 1.35rem; }
   .community-panel-member { padding: 1.2rem 0; }
   .venue-map { min-height: clamp(360px, 54vh, 540px); }
-  .card-list { grid-template-columns: 1fr; }
-  .count { width: auto; margin-left: auto; }
+
 }
 
 @media (max-width: 820px) {
@@ -6331,28 +6354,18 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
   .city-chooser { margin-top: 0; padding: 2rem 1.1rem 1.5rem; }
   #app[data-restyle='destination'] .city-chooser { padding: 2rem 1.1rem 1.5rem; }
   .city-chooser-heading { grid-template-columns: 1fr; gap: 0.75rem; }
-  .discovery { padding-top: 0.85rem; }
-  .occasion-options {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding: 0.15rem 0.1rem 0.55rem;
-    scroll-snap-type: x proximity;
-    scrollbar-width: thin;
-  }
-  .occasion-option { flex: 0 0 auto; scroll-snap-align: start; }
-  .nearby-btn { order: 1; }
-  .count { order: 2; margin-left: auto; }
+
   .venue-map { min-height: clamp(330px, 52vh, 480px); }
-  .detail-head { align-items: flex-start; }
+
   .detail h2 { max-width: 12ch; }
   .detail-facts div,
   /* Beats the packed two-thirds layout's narrower label column — on a phone the
      facts are one column wide like every other fact list. */
   .place-where-facts .detail-facts div { grid-template-columns: 1fr; gap: 0.18rem; }
-  .trusted-list { gap: 0.85rem; padding-block: 1.5rem 2rem; }
+
   .trusted-list-status-error { align-items: stretch; flex-direction: column; }
   .trusted-list-status-error button { width: 100%; }
-  .card-member-note { padding-inline: 1rem; }
+
   /* The phone deck, and the one place the fan does not apply: three cards abreast
      in 360px would be three slivers. Each card takes the width and the stack runs
      down the page, which is why this overrides the height and every transform
@@ -6523,17 +6536,14 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 @media (max-width: 480px) {
   #app { padding-bottom: calc(2.5rem + env(safe-area-inset-bottom)); }
   .pin-label { max-width: 92px; }
-  .nearby-btn { flex: 1 1 auto; justify-content: center; }
-  .empty-state { padding: 1.4rem 1rem; }
-  .empty-state-reset { width: 100%; }
+
   .community-form-grid { grid-template-columns: 1fr; }
   .community-danger { width: 100%; }
   .primary-button { width: 100%; justify-self: stretch; }
 }
 
 @media (max-width: 390px) {
-  .nearby-btn { flex: 1 1 calc(50% - 0.35rem); justify-content: center; }
-  .count { width: 100%; margin-left: 0; }
+
   .map-pin .pin-label { max-width: 150px; }
 }
 

@@ -31,6 +31,37 @@ Detourists") and in internal identifiers (`detouristCount`, `detouristList`).
   city. A direct account deep link without `city` returns to the city chooser.
   Browser back/forward must continue to work through these transitions.
 
+## Breadcrumbs: ownership, not journey
+
+**One rule: a page has exactly one canonical trail — where the thing lives,
+never how the reader navigated to it.** The browser's back button owns the
+journey; *How it got here* on a place page owns the origin story. A crumb that
+changed with the door somebody came through would be a second, contradictory
+answer to "where am I".
+
+| Page | Trail |
+| --- | --- |
+| City page, everybody's lens | `EXPLORE / SPAIN / MADRID` |
+| City page, the member's own lens | `WANNA GO / NEW YORK` — one page, and the crumb names the reading on screen |
+| A place on the wishlist | `WANNA GO / NEW YORK / ZIMMI'S` — the city is the parent even when the place arrived on a guide |
+| A guide about one city | `WANNA GO / NEW YORK / BEST RESTAURANTS NYC`; a multi-city guide sits one level up, at `WANNA GO / {guide}` |
+| A place on neither list | `EXPLORE / ZIMMI'S` — no Wanna Go path exists for it |
+| A place they have been to | `BEEN & LOVED / NEW YORK / KATZ'S` |
+
+Two consequences:
+
+- **A guide never appears inside a place's crumb.** It is a lens over places,
+  not a container of them.
+- **Marking *Been* moves the root with the place**, because the root names the
+  list the place is actually in.
+- **The eyebrow above a place title is gone.** It said "My detours", which the
+  crumb now says one line above and better; that slot belongs to status chips —
+  standing the crumb cannot state, like *Not on Detour* on an imported place.
+
+One renderer, `crumbTrailMarkup` in `src/place.ts`: the last step is never a
+link and always carries `aria-current`, and a step whose page does not exist is
+dropped rather than linked to nothing.
+
 ## Color: quiet luxe
 
 The palette is restrained: violet and oxblood carry the editorial identity;

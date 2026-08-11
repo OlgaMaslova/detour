@@ -32,15 +32,95 @@ export interface PlaceNote {
   photoHref?: string;
 }
 
+/**
+ * How this place reached the reader, when it did not simply appear in the feed.
+ *
+ * A place can arrive through two doors: somebody in the circle recommended it,
+ * or the member read a published list and kept it. The first door needs no
+ * explaining — the notes below are the explanation, in the recommender's own
+ * name. The second does: a place on a member's own list because Eater put it on
+ * theirs is a different kind of fact, and the page has to say so before the
+ * reader takes the words underneath for a recommendation.
+ *
+ * Both doors can be the same place. A member imports a list, somebody in their
+ * circle later recommends one of its places, and the two facts are both true —
+ * so this is a field on the ordinary place page rather than a flag distinguishing
+ * two page types. Nothing here is public: a guide import is private to the member
+ * who made it, so this band is only ever rendered for its own owner.
+ */
+export interface PlaceOrigin {
+  /** The piece's own headline — what it is called where it was published. */
+  title: string;
+  /** Who published it. The attribution the words belong to. */
+  publisher: string;
+  /** Where the title points: Detour's own page for that guide, or '' for none. */
+  href: string;
+  /** When the member kept it, already formatted; '' when the row has no date. */
+  importedOn: string;
+}
+
+/**
+ * The publication's own sentence about this place — quoted, credited, and never
+ * presented as a note.
+ *
+ * It sits with the member notes because a reader wants every voice about a place
+ * in one place, and apart from them in its badge and its wording because a
+ * publication's line is not somebody standing behind it. Nothing about it counts
+ * toward any figure on this page.
+ */
+export interface PlaceGuideVoice {
+  publisher: string;
+  /** The piece the sentence came from, named so the quote has a home. */
+  guideTitle: string;
+  excerpt: string;
+  /** The article itself, for reading the rest of it; '' when we have no URL. */
+  sourceHref: string;
+}
+
+/**
+ * One step in the trail above the title.
+ *
+ * ONE RULE: THE CRUMB IS OWNERSHIP, NOT JOURNEY. A page has exactly one path —
+ * where the thing lives — and never the route the reader took to reach it. The
+ * back button owns the journey and *How it got here* owns the origin story, so
+ * neither needs a say in this. A crumb that changed with the door a reader came
+ * through would be a second, contradictory answer to "where am I".
+ *
+ * The consequence worth stating: a guide never appears inside a place's crumb.
+ * A guide is a lens over places, not a container of them — the city is the
+ * parent, whichever piece put the place in the reader's hands.
+ */
+export interface PlaceCrumb {
+  label: string;
+  /** '' for the step the reader is on — the last one, which is not a link. */
+  href: string;
+  /**
+   * Router hook attributes for the anchor, already escaped by the caller (main.ts
+   * owns the routes, so it owns their hooks: `data-explore`, `data-guide`,
+   * `data-wanna-destination="new-york"`, and the rest).
+   */
+  attrs?: string;
+}
+
 /** Shell furniture — hrefs and fragments main.ts already renders elsewhere. */
 export interface PlaceChrome {
-  destinationName: string;
-  destinationSlug: string;
-  destinationHref: string;
-  countryName: string;
-  countrySlug: string;
-  countryHref: string;
-  exploreHref: string;
+  /**
+   * The whole trail, root first, this page last — built by main.ts, which is the
+   * only module that knows both the routes and what the reader's relationship to
+   * this place is. The page used to assemble it here from an explore href, a
+   * country and a destination, which hard-coded one root for every place; the
+   * root is now the list this place belongs to, and there are three of them.
+   */
+  crumbs: PlaceCrumb[];
+  /**
+   * Short marks for the slot above the title, or none.
+   *
+   * What lives there is standing, never navigation: the eyebrow used to read
+   * "My detours", which the crumb now says one line above it and better. A fact
+   * the crumb already carries must not be repeated here — a place whose root is
+   * WANNA GO does not also wear a Wanna go chip.
+   */
+  statusChips?: string[];
   /**
    * Whether this reader has an account. The gate on everything that writes, and
    * on the invitation offered to whoever does not.
@@ -97,29 +177,27 @@ export interface PlaceChrome {
    */
   showSignal?: boolean;
   /**
-   * A mark stamped at the top of the hero's copy column, above the title, or ''.
+   * Where this place came from, when it came from a published list; null or
+   * absent for a place that only ever arrived through the feed.
    *
-   * The one visual statement this page makes about a place's standing that is
-   * not a count. Used by a member's imported place to say, without a sentence,
-   * that it is theirs alone and not in the catalogue — the copy that said so
-   * before was a muted line nobody read, which is a structural fact carried by
-   * prose. It leads the page rather than sitting over the photograph: the
-   * standing of the place is the first thing to know about it, and the
-   * photograph is the publication's rather than ours to mark up. Rendered by the
-   * template rather than injected, for the same reason as `afterHero`.
+   * Typed data rather than the markup slot this replaced. The slot existed
+   * because provenance was a private place's business alone — but a published
+   * place the member also holds through a guide has the same thing to say, so
+   * the page had to learn the fact rather than be handed a rendering of it. Two
+   * callers building the same band by hand is how two renderings of one fact
+   * start disagreeing.
    */
-  heroStamp?: string;
+  origin?: PlaceOrigin | null;
   /**
-   * Markup to stand directly under the hero, or ''.
+   * The publications' own words about this place — nothing, usually, and one
+   * line when the member kept it off a list that carried one.
    *
-   * One slot, for the one thing a place can carry that the catalogue has no
-   * field for: where an imported place came from, and that nobody but its owner
-   * can see it. A slot rather than a branch keeps this template ignorant of that
-   * feature — and it replaced `insertAdjacentHTML` after render, which had been
-   * anchored on a class this page does not have, so the content silently never
-   * appeared and nothing threw or logged.
+   * Rendered inside What people say, above the members. Never merged into
+   * `notes`: a note is somebody standing behind a place and these are not, and a
+   * single list of both would be exactly the conflation the badges exist to
+   * prevent.
    */
-  afterHero?: string;
+  guideVoices?: PlaceGuideVoice[];
   /** Whether it is already on their list. Their own row; nobody else can see it. */
   saved: boolean;
   /** A toggle in flight, so the control can say so rather than sit inert. */
@@ -174,6 +252,20 @@ export interface PlaceHelpers {
 }
 
 /**
+ * What people say — every voice this place has, in one section.
+ *
+ * TWO KINDS, AND THE BADGES ARE THE WHOLE OF IT. A publication's line comes off
+ * a list the member kept and stands for nothing: nobody has been, nobody is
+ * answerable for it. A member's note is somebody's name against a place. They
+ * read as one family of blocks because a reader wants everything said about a
+ * place together, and each says which it is in the first thing on it — a section
+ * that let those two blur would be a page quietly presenting Eater's copy as a
+ * recommendation.
+ *
+ * The publication's line comes first and only ever once or twice: it is the
+ * context the notes are read against. Members follow, in the carousel, because
+ * they are the point.
+ *
  * Every note members attached to this place, attribution and date intact —
  * each with its own author's photo when they added one.
  *
@@ -195,15 +287,22 @@ export interface PlaceHelpers {
  * The server settles it — see /api/detour/public-recommendations — so nothing
  * here has to ask who is reading before printing a sentence.
  */
-function notesSection(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
+function voicesSection(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
+  const guideVoices = (chrome.guideVoices ?? []).filter((voice) => voice.excerpt.trim());
+  const guideBlocks = guideVoices.map((voice) => guideVoiceBlock(voice, h)).join('');
+  const heading = '<h2 id="place-notes-title">What people say</h2>';
   // A reader who reached this place from outside their own scope. The notes are
   // real and they are not theirs to read, so the section says which of those two
   // facts applies rather than letting the ordinary empty state say the other: "no
   // member has attached a note" would be false, and this reader is the one person
   // likely to know it — they were sent the place by somebody who had read it.
+  //
+  // Their own guide line still prints above it. It is theirs — a list they kept —
+  // and withholding it would be withholding a member's words from themselves.
   if (chrome.outsideCircle) {
     return `<section class="place-section place-notes" aria-labelledby="place-notes-title">
-      <h2 id="place-notes-title">What members wrote</h2>
+      ${heading}
+      ${guideBlocks}
       <p class="place-empty">${
         chrome.isMember
           ? 'Nobody in your circle has recommended this place, so there is nothing here for you to read. Recommend it yourself and it goes on the list for everyone who can see you.'
@@ -215,11 +314,21 @@ function notesSection(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
     const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
     return Boolean(item.note?.trim() && (item.is_own || recommender));
   });
-  const heading = '<h2 id="place-notes-title">What members wrote</h2>';
+  // The publication having said something is never an answer to whether anybody
+  // here has. A page holding one guide line and no notes still says so plainly,
+  // under the quote — that absence is the most important thing on it.
   if (notes.length === 0) {
     return `<section class="place-section place-notes" aria-labelledby="place-notes-title">
       ${heading}
-      ${h.notesStatus || '<p class="place-empty">No member has attached a note to this place yet.</p>'}
+      ${guideBlocks}
+      ${
+        h.notesStatus ||
+        `<p class="place-empty">${
+          guideBlocks
+            ? 'Nobody on Detour has recommended this place yet.'
+            : 'No member has attached a note to this place yet.'
+        }</p>`
+      }
     </section>`;
   }
   return `<section class="place-section place-notes" aria-labelledby="place-notes-title">
@@ -234,6 +343,7 @@ function notesSection(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
           : ''
       }
     </div>
+    ${guideBlocks}
     ${h.notesStatus}
     <div class="place-note-carousel" data-place-note-carousel tabindex="0" aria-label="Member recommendations">
       ${notes
@@ -244,32 +354,105 @@ function notesSection(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
           const photoAlt = memberLabel
             ? `Photo by ${memberLabel}`
             : 'Photo from this recommendation';
-          return `<blockquote class="detail-network-note place-note${item.photoHref ? ' has-photo' : ''}">
+          // Date, founding mark and the edit link — the attribution itself moved
+          // up into the badge, so a note with none of these carries no footer
+          // rather than an empty rule across the bottom of the block.
+          const footer = [
+            item.founding_member
+              ? '<span class="place-founding-note"><span aria-hidden="true">★</span> Founding member</span>'
+              : '',
+            when ? `<time datetime="${h.esc(item.created || '')}">${h.esc(when)}</time>` : '',
+            item.is_own
+              ? `<a class="place-note-edit" href="${h.esc(chrome.editRecommendationHref(v))}" data-community-route="edit-recommendation" data-recommend-venue="${h.esc(v.id)}" aria-label="${h.esc(`Edit your recommendation for ${v.name}`)}">Edit</a>`
+              : '',
+          ].join('');
+          return `<blockquote class="detail-network-note place-note place-voice${item.photoHref ? ' has-photo' : ''}">
+            <p class="place-voice-source">
+              <span class="provenance-chip provenance-chip-feed">Member${
+                memberLabel ? ` · ${h.esc(memberLabel)}` : ''
+              }</span>
+              <span class="place-voice-context">recommended on Detour</span>
+            </p>
             ${
               item.photoHref
                 ? `<figure class="place-note-photo"><img src="${h.esc(item.photoHref)}" alt="${h.esc(photoAlt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-place-note-photo></figure>`
                 : ''
             }
             <p>${h.esc(item.note || '')}</p>
-            <footer>
-              <span class="place-note-author">Recommended by <strong class="network-pseudo">${h.esc(memberLabel)}</strong></span>${
-              item.founding_member
-                ? '<span class="place-founding-note"><span aria-hidden="true">★</span> Founding member</span>'
-                : ''
-            }${
-              when
-                ? `<time datetime="${h.esc(item.created || '')}">${h.esc(when)}</time>`
-                : ''
-            }${
-              item.is_own
-                ? `<a class="place-note-edit" href="${h.esc(chrome.editRecommendationHref(v))}" data-community-route="edit-recommendation" data-recommend-venue="${h.esc(v.id)}" aria-label="${h.esc(`Edit your recommendation for ${v.name}`)}">Edit</a>`
-                : ''
-            }</footer>
+            ${footer ? `<footer>${footer}</footer>` : ''}
           </blockquote>`;
         })
         .join('')}
     </div>
   </section>`;
+}
+
+/**
+ * One publication's line about this place.
+ *
+ * Deliberately built like a member's note and deliberately not mistakable for
+ * one: same block, same quote, and a badge saying GUIDE with the publication's
+ * name in it where the member's pseudonym would be. The link out is the last
+ * thing in it, because an excerpt is a fragment somebody else owns the rest of —
+ * offering the whole piece is the honest end of a quotation.
+ *
+ * Full width, above the members' carousel rather than inside it. A publication's
+ * line is context for the notes, not one of them, and a carousel is a set of
+ * peers.
+ */
+function guideVoiceBlock(voice: PlaceGuideVoice, h: PlaceHelpers): string {
+  const source = h.safeExternalHref(voice.sourceHref);
+  return `<blockquote class="detail-network-note place-note place-voice place-voice-guide">
+    <p class="place-voice-source">
+      <span class="provenance-chip provenance-chip-guide">Guide${
+        voice.publisher ? ` · ${h.esc(voice.publisher)}` : ''
+      }</span>
+      ${
+        voice.guideTitle
+          ? `<span class="place-voice-context">from “${h.esc(voice.guideTitle)}”</span>`
+          : ''
+      }
+    </p>
+    <p>${h.esc(voice.excerpt)}</p>
+    ${
+      source
+        ? `<footer><a class="place-note-edit" href="${h.esc(
+            source
+          )}" target="_blank" rel="noopener noreferrer">Read the full guide <span class="nav-arrow nav-arrow-external" aria-hidden="true">&#x2197;&#xFE0E;</span></a></footer>`
+        : ''
+    }
+  </blockquote>`;
+}
+
+/**
+ * How it got here — one line in the hero, above the buttons.
+ *
+ * Only ever rendered for a place the reader themselves kept off a published
+ * list, so it can say "imported" without naming who did it: it was them. It
+ * leads with the piece rather than the member's own name for the list, for the
+ * same reason the credit under a quotation names the publication — "NYC trip,
+ * October" wrote nothing.
+ *
+ * In the hero rather than down with the quote it belongs to, because it changes
+ * how everything below it reads: a reader who does not know this place came off
+ * a list will take the sentence under it for somebody's recommendation, and by
+ * then it is too late to tell them.
+ */
+function originBand(chrome: PlaceChrome, h: PlaceHelpers): string {
+  const origin = chrome.origin;
+  if (!origin || !origin.title) return '';
+  // `data-guide`, the same hook the cards' provenance chip uses — a real anchor
+  // carrying `?guide=<id>`, so a modified click still opens a tab and a cold load
+  // on that address resolves.
+  const title = origin.href
+    ? `<a href="${h.esc(origin.href)}" data-guide>${h.esc(origin.title)}</a>`
+    : `<strong>${h.esc(origin.title)}</strong>`;
+  const by = origin.publisher ? ` by ${h.esc(origin.publisher)}` : '';
+  const when = origin.importedOn ? ` · imported ${h.esc(origin.importedOn)}` : '';
+  return `<p class="place-origin-band">
+    <span class="place-origin-label">How it got here</span>
+    <span class="place-origin-line">From ${title}${by}${when}</span>
+  </p>`;
 }
 
 /**
@@ -562,6 +745,56 @@ function visitorInvitation(chrome: PlaceChrome, h: PlaceHelpers): string {
 }
 
 /**
+ * The trail above the title — exported, because the place page is not the only
+ * page that has one.
+ *
+ * A destination board and a guide page sit under the same root as the places
+ * they hold, and three surfaces hand-rolling the same `<nav>` is how one of them
+ * quietly ends up with a different separator, a different aria-label, or a last
+ * step that is still a link.
+ *
+ * The last step is never a link and always carries `aria-current`: it is the
+ * page the reader is on, and offering it as somewhere to go is a small lie that
+ * screen readers announce out loud.
+ */
+export function crumbTrailMarkup(
+  crumbs: PlaceCrumb[],
+  esc: (value: string) => string
+): string {
+  const steps = crumbs.filter((crumb) => crumb.label);
+  if (!steps.length) return '';
+  return `<nav class="place-back-row explore-breadcrumb" aria-label="Breadcrumb">
+    ${steps
+      .map((crumb, index) => {
+        const last = index === steps.length - 1;
+        const step =
+          crumb.href && !last
+            ? `<a href="${esc(crumb.href)}"${crumb.attrs ? ` ${crumb.attrs}` : ''}>${esc(
+                crumb.label
+              )}</a>`
+            : `<span aria-current="page">${esc(crumb.label)}</span>`;
+        return index === 0 ? step : `<span aria-hidden="true">/</span>${step}`;
+      })
+      .join('')}
+  </nav>`;
+}
+
+/**
+ * The slot above the title, which used to hold an eyebrow repeating the crumb.
+ *
+ * Standing only, and only what the crumb does not already state — a place under
+ * the WANNA GO root wearing a "Wanna go" chip would be the same fact twice, an
+ * inch apart. Most places have nothing to say here and the slot collapses.
+ */
+function statusChipsMarkup(chips: string[] | undefined, esc: (value: string) => string): string {
+  const marks = (chips ?? []).filter(Boolean);
+  if (!marks.length) return '';
+  return `<p class="place-status-chips">${marks
+    .map((chip) => `<span class="place-status-chip">${esc(chip)}</span>`)
+    .join('')}</p>`;
+}
+
+/**
  * Container the locator map mounts into. Shared with main.ts so the map is
  * always looked up by the id this markup actually renders.
  */
@@ -574,7 +807,12 @@ export function placeIsLocated(v: Venue): boolean {
 
 /** The full page, ready to assign to the app root. */
 export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
-  const meta = [v.category, v.neighborhood].filter(Boolean).join(' · ');
+  // The city joins the meta line now that the eyebrow above the title is gone.
+  // It reads there anyway — kind, quarter, city, narrowest first — and it must be
+  // stated somewhere above the fold: the crumb carries it only under the two
+  // member roots, and a place nobody has saved sits under EXPLORE with no city
+  // step at all.
+  const meta = [v.category, v.neighborhood, v.city].filter(Boolean).join(' · ');
   const occasions = h.occasionLabels(v);
   const alreadyRecommended = h.notes(v).some((item) => item.is_own && Boolean(item.note?.trim()));
   return `
@@ -588,27 +826,11 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
       }
       ${chrome.communityControl}
     </header>
-    <nav class="place-back-row explore-breadcrumb" aria-label="Breadcrumb">
-      <a href="${h.esc(chrome.exploreHref)}" data-explore>Explore</a>
-      ${
-        chrome.countryName
-          ? `<span aria-hidden="true">/</span><a href="${h.esc(chrome.countryHref)}" data-country="${h.esc(
-              chrome.countrySlug
-            )}">${h.esc(chrome.countryName)}</a>`
-          : ''
-      }
-      <span aria-hidden="true">/</span>
-      <a href="${h.esc(chrome.destinationHref)}" data-open-destination="${h.esc(chrome.destinationSlug)}">${h.esc(
-        chrome.destinationName
-      )}</a>
-      <span aria-hidden="true">/</span>
-      <span aria-current="page">${h.esc(v.name)}</span>
-    </nav>
+    ${crumbTrailMarkup(chrome.crumbs, h.esc)}
     <article class="place-page">
       <header class="place-hero">
         <div class="place-hero-copy">
-          ${chrome.heroStamp || ''}
-          <p class="place-overline">${h.esc(`${chrome.destinationName}`)}</p>
+          ${statusChipsMarkup(chrome.statusChips, h.esc)}
           <h1 id="place-title" tabindex="-1">${h.esc(v.name)}</h1>
           <div class="place-hero-details">
             ${meta ? `<p class="place-meta">${h.esc(meta)}</p>` : ''}
@@ -639,12 +861,12 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
               )}
             </div>`
             }
+            ${originBand(chrome, h)}
             ${placeActions(v, chrome, h, alreadyRecommended)}
           </div>
         </div>
         ${h.cover(v)}
       </header>
-      ${chrome.afterHero || ''}
       ${
         v.description
           ? `<section class="place-section place-about" aria-labelledby="place-about-title">
@@ -653,7 +875,7 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
             </section>`
           : ''
       }
-      ${notesSection(v, chrome, h)}
+      ${voicesSection(v, chrome, h)}
       ${whereSection(v, h)}
       ${visitorInvitation(chrome, h)}
     </article>
