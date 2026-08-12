@@ -214,10 +214,17 @@ npm run dev       # Vite on :5173
 `npm run build` type-checks (`tsc --noEmit`) and writes static assets into
 `public/`. Logins for the local database are in `LOCAL_DEV.md`.
 
-Image screening: when OpenAI screening succeeds, the member sees a
-safety-passed result. When OpenAI is unavailable the photo is marked
-`screening_failed` and the 15-minute retry sweep picks it up; images explicitly
-flagged remain excluded.
+Image screening decides most photos outright. Safety moderation runs first and
+a flagged image is `auto_rejected` and never seen again. What passes goes to the
+relevance classifier in `pb_hooks/image_curation.js`, and `relevant` is
+`approved` on the spot — published with the member's own recommendation,
+superseding whatever photo that recommendation had before. Only `uncertain` and
+`irrelevant` land in the founding circle's review queue, along with anything
+that could not be screened at all: when OpenAI is unavailable the photo is
+marked `screening_failed` and the 15-minute retry sweep picks it up, and a
+founder can approve it by hand in the meantime. Both paths apply the approval
+through `applyApproval`, so the one-photo-per-recommendation rule lives in one
+place.
 
 ## Deployment
 

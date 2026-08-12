@@ -4076,11 +4076,28 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 /* height: auto is load-bearing — .detail-locator-map fixes a height for the map
    preview, and an element with both dimensions set ignores aspect-ratio. Without
    it this map stayed 290px tall no matter how wide its column got. */
+/* THE INLINE SIZE IS THE TRACK'S, NEVER THE RATIO'S. An aspect-ratio box whose
+   only definite dimension is a min-height gets that height transferred back
+   through the ratio into a minimum *width* — 460px tall × 16/10 is a 736px
+   minimum — and a grid item's `min-width: auto` then honours it, so the map grew
+   straight through the column beside it and painted over the address and the
+   three visit links. `minmax(0, 2fr)` on the track cannot stop this: it bounds
+   the track, not the item standing in it.
+   It only showed on a tall two-column viewport — iPad held upright, where 40vh
+   of a 1180px-tall screen hit the 460px cap while the column was ~500px wide.
+   Wider screens gave the ratio more width than the transfer asked for, and below
+   780px the section is one column, so both ends of the range looked correct.
+   `width: 100%` makes the inline size definite so the ratio derives height from
+   it, and `min-width: 0` refuses the transferred minimum outright. */
 .place-map {
+  width: 100%;
+  min-width: 0;
   height: auto;
   margin-bottom: 0;
   aspect-ratio: 16 / 10;
-  min-height: clamp(260px, 40vh, 460px);
+  /* Capped well under what the ratio wants at any width this map is given, so it
+     stays a landscape map: at 40vh a tall tablet forced a nearly square box. */
+  min-height: clamp(260px, 30vh, 380px);
 }
 .place-where-facts { display: grid; gap: 0.7rem; align-content: start; }
 /* Narrower than the shared 7rem label column, because this one lives in a third

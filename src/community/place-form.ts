@@ -1,10 +1,11 @@
 /**
  * The recommendation form's shared machinery: the place-identity collision
  * lookup, the note rule, the map-link reader, and the field fragments (links,
- * photo, category) that the recommend form, the entry editor and the
+ * photo, category, Good for) that the recommend form, the entry editor and the
  * onboarding question all build from — one description of each, so the two
  * places a recommendation gets written cannot drift apart.
  */
+import { OCCASION_OPTIONS } from '../occasions';
 import { pb } from '../pocketbase';
 import { esc } from './store';
 
@@ -287,6 +288,34 @@ export function categoryField(selected = ''): string {
   }>Choose one</option>${options}</select></label>`;
 }
 
+/**
+ * The Good for tags, shared by the recommend form and the entry's own edit form.
+ *
+ * ASKED WHEN THE PLACE IS RECOMMENDED, not only when it is corrected afterwards.
+ * These used to live on the edit form alone, on the reasoning that the recommend
+ * form should hold nothing but a name, a city, a category and the note — and the
+ * consequence was that every place published since carried no tags at all. The
+ * place page prints them under its category, the city page filters on them, and
+ * both went quiet: a member would have had to go back into an entry they had just
+ * finished writing and tick them there, which nobody was ever going to do.
+ *
+ * Optional, like the category beside it, and union-only on the server — a second
+ * recommender can add a tag the first did not see and can never remove one. So
+ * asking every recommender is how a place accumulates an honest set.
+ */
+export function occasionField(selected: readonly string[] = []): string {
+  const boxes = OCCASION_OPTIONS.map(
+    ([value, label]) =>
+      `<label><input type="checkbox" name="occasions" value="${value}"${
+        selected.indexOf(value) !== -1 ? ' checked' : ''
+      }><span>${label}</span></label>`
+  ).join('');
+  return `<fieldset class="community-choice-fieldset">
+          <legend>Good for <span class="community-optional">Optional — choose any that fit</span></legend>
+          <div class="community-choice-grid">${boxes}</div>
+        </fieldset>`;
+}
+
 /** The chosen file from a form's photo picker, or null when none was chosen. */
 export function chosenPhoto(form: HTMLFormElement): File | null {
   const input = form.querySelector<HTMLInputElement>('input[name="photo"]');
@@ -335,12 +364,18 @@ export function photoFileName(prepared: Blob, original: File): string {
   return `recommendation.${extension}`;
 }
 /**
- * Queues the member's photo for screening and founder review. The server
- * attaches it to the caller's own recommendation for this place — it is never
- * applied to the place itself, and never touches another member's photo.
+ * Sends the member's photo through screening. The server attaches it to the
+ * caller's own recommendation for this place — it is never applied to the place
+ * itself, and never touches another member's photo.
+ *
+ * Screening is synchronous, so the returned status is the decision, not a
+ * receipt: `approved` when it passed safety and read as a photograph of a
+ * food-and-drink subject, `pending` when a founder still has to look. Callers
+ * tell the member which of the two happened. `''` when there was no photo to
+ * send, or when the server answered without one.
  */
-export async function submitImageForReview(entryId: string, photo: File): Promise<void> {
-  if (!entryId || !photo) return;
+export async function submitImageForReview(entryId: string, photo: File): Promise<string> {
+  if (!entryId || !photo) return '';
   const prepared = await preparePhoto(photo);
   if (prepared.size > PHOTO_MAX_BYTES) {
     throw new Error('That photo is larger than 8 MB even after resizing. Choose a smaller one.');
@@ -350,5 +385,10 @@ export async function submitImageForReview(entryId: string, photo: File): Promis
   const body = new FormData();
   body.set('entry', entryId);
   body.set('photo', prepared, photoFileName(prepared, photo));
-  await pb.send('/api/detour/curation/images', { method: 'POST', body, requestKey: null });
+  const submitted = await pb.send<{ status?: string }>('/api/detour/curation/images', {
+    method: 'POST',
+    body,
+    requestKey: null,
+  });
+  return String(submitted?.status || '');
 }

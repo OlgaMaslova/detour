@@ -193,8 +193,10 @@ async function classify(url, venue) {
 // Scoring.
 //
 // Errors here are not symmetric, so a single accuracy number would hide the one
-// that matters. The hook routes "uncertain" to founder review, which means
-// abstention is a safe outcome that costs attention rather than trust:
+// that matters. The hook publishes on "relevant" and routes both other answers to
+// founder review, so abstention is a safe outcome that costs attention rather
+// than trust — and a leak is not a bad annotation, it is a bad photograph on a
+// public place page:
 //
 //   leak        irrelevant or unsafe photo classified relevant  → gates the suite
 //   over_strict a good photo called irrelevant                  → annoys a member

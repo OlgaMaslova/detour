@@ -1,0 +1,147 @@
+{
+  "summary": {
+    "ran_at": "2026-08-12T06:02:43.378Z",
+    "model": "gpt-4o-mini",
+    "cases": 12,
+    "tally": {
+      "hit": 12
+    },
+    "leaks": 0,
+    "leak_budget": 0,
+    "total_tokens": 37428
+  },
+  "results": [
+    {
+      "id": "exterior-sign",
+      "image": "images/bar-outside.jpeg",
+      "venue_name": "Bar Trafalgar",
+      "city": "Madrid",
+      "country": "Spain",
+      "expected": "relevant",
+      "observed": "relevant",
+      "note": "The photograph shows an outdoor seating area of a food-and-drink establishment.",
+      "outcome": "hit"
+    },
+    {
+      "id": "bar-inside",
+      "image": "images/bar-inside.jpeg",
+      "venue_name": "Bar Trafalgar",
+      "city": "Madrid",
+      "country": "Spain",
+      "expected": "relevant",
+      "observed": "relevant",
+      "note": "The image depicts an interior of a bar with a pool table and bottles on display, indicating it is a food-and-drink establishment.",
+      "outcome": "hit"
+    },
+    {
+      "id": "tomato-soup",
+      "image": "images/gazpacho.jpeg",
+      "venue_name": "Sartoria Panatieri",
+      "city": "Barcelona",
+      "country": "Spain",
+      "expected": "relevant",
+      "observed": "relevant",
+      "note": "The image shows a dish, specifically a soup, which is food typically served in a food-and-drink establishment.",
+      "outcome": "hit"
+    },
+    {
+      "id": "menu-annecy",
+      "image": "images/menu-annecy.jpeg",
+      "venue_name": "Bar Roux",
+      "city": "Annecy",
+      "country": "France",
+      "expected": "relevant",
+      "observed": "relevant",
+      "note": "The image is of a menu, which is related to a food-and-drink establishment.",
+      "outcome": "hit"
+    },
+    {
+      "id": "barista",
+      "image": "images/barista.jpeg",
+      "venue_name": "Hola Coffee",
+      "city": "Madrid",
+      "country": "Spain",
+      "expected": "relevant",
+      "observed": "relevant",
+      "note": "The photograph shows a barista preparing coffee, which is directly related to a food-and-drink establishment.",
+      "outcome": "hit"
+    },
+    {
+      "id": "screenshot-of-map",
+      "image": "images/map-screenshot.png",
+      "venue_name": "Hola Coffee",
+      "city": "Madrid",
+      "country": "Spain",
+      "expected": "irrelevant",
+      "observed": "irrelevant",
+      "note": "The image is a map, which does not contain food-and-drink content.",
+      "outcome": "hit"
+    },
+    {
+      "id": "meme",
+      "image": "images/ducks_fish.jpeg",
+      "venue_name": "Hola Coffee",
+      "city": "Madrid",
+      "country": "Spain",
+      "expected": "irrelevant",
+      "observed": "irrelevant",
+      "note": "The image features cartoon ducks and fish, which have no connection to a food-and-drink establishment.",
+      "outcome": "hit"
+    },
+    {
+      "id": "puppy",
+      "image": "images/puppy.jpeg",
+      "venue_name": "Bar Trafalgar",
+      "city": "Madrid",
+      "country": "Spain",
+      "expected": "irrelevant",
+      "observed": "irrelevant",
+      "note": "The image features a dog, which is not related to a food-and-drink establishment.",
+      "outcome": "hit"
+    },
+    {
+      "id": "stock-coffee-cup",
+      "image": "images/stock-coffee-cup.jpeg",
+      "venue_name": "Hola Coffee",
+      "city": "Madrid",
+      "country": "Spain",
+      "expected": "relevant",
+      "observed": "relevant",
+      "note": "The image shows a cup of coffee, which is related to a food-and-drink establishment.",
+      "outcome": "hit"
+    },
+    {
+      "id": "random-room",
+      "image": "images/random-room.jpeg",
+      "venue_name": "Bar Trafalgar",
+      "city": "Madrid",
+      "country": "Spain",
+      "expected": "irrelevant",
+      "observed": "irrelevant",
+      "note": "The photograph depicts a living room interior, not a food-and-drink establishment.",
+      "outcome": "hit"
+    },
+    {
+      "id": "street",
+      "image": "images/street.jpeg",
+      "venue_name": "Bar Trafalgar",
+      "city": "Madrid",
+      "country": "Spain",
+      "expected": "irrelevant",
+      "observed": "irrelevant",
+      "note": "The image depicts a street scene with people and no visible food-and-drink content.",
+      "outcome": "hit"
+    },
+    {
+      "id": "bakery-stand",
+      "image": "images/bakery-stand.jpg",
+      "venue_name": "Boulangerie Ange",
+      "city": "Annecy",
+      "country": "France",
+      "expected": "relevant",
+      "observed": "relevant",
+      "note": "The photograph shows a display of bread loaves, which is pertinent to a food-and-drink destination.",
+      "outcome": "hit"
+    }
+  ]
+}

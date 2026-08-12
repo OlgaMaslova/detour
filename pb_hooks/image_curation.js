@@ -120,6 +120,38 @@ function snapshotDataUrl(app, image) {
   return "data:" + mimeForFileName(fileName) + ";base64," + encoded;
 }
 
+// Publishes an image with its recommendation, retiring the submitter's previous
+// approved photo for that same recommendation.
+//
+// Shared by the classifier below and the founder approve route in main.pb.js so
+// "one approved photo per recommendation" is enforced in one place rather than
+// twice. Scoped to the recommendation, not to the place: approving one member's
+// photo must never retire another member's. `reviewerId` is "" when the
+// classifier approved it, which is what distinguishes an automatic approval
+// from a founder's in the record.
+//
+// Takes `app` rather than reaching for $app so the route can pass its
+// transaction handle and get both saves under one commit.
+function applyApproval(app, image, recommendationId, reviewerId, curatorNote) {
+  const superseded = app.findRecordsByFilter(
+    "community_place_images",
+    "recommendation = {:recommendation} && status = 'approved' && id != {:id}",
+    "created",
+    20,
+    0,
+    { recommendation: recommendationId, id: image.id }
+  );
+  for (const previous of superseded) {
+    previous.set("status", "superseded");
+    app.save(previous);
+  }
+  image.set("status", "approved");
+  image.set("reviewed_by", reviewerId || "");
+  image.set("reviewed_at", new Date().toISOString());
+  image.set("curator_note", cleanText(curatorNote, 1200));
+  app.save(image);
+}
+
 function screenImageSubmission(app, imageId) {
   const apiKey = $os.getenv("OPENAI_API_KEY");
   let image;
@@ -290,11 +322,33 @@ function screenImageSubmission(app, imageId) {
       }
     }
   } catch {
-    // Safety already passed. Relevance is advisory; founders make the final call.
+    // Safety already passed, so the photo is not lost by this failing: relevance
+    // stays "uncertain" and it goes to the founders' queue like any other photo
+    // the classifier could not call.
   }
 
   image.set("relevance", relevance);
   image.set("ai_note", relevanceNote);
+
+  // Safety passed and the classifier read the photograph as a food-and-drink
+  // subject: that is the decision, so the photo goes live with its note rather
+  // than waiting for a founder to agree with the model.
+  //
+  // Only `relevant` auto-approves. Nothing is auto-rejected on relevance —
+  // `uncertain` is the model saying it could not tell, and `irrelevant` is the
+  // answer this deliberately generous prompt is most likely to be wrong about,
+  // so both go out to the founders' queue where a person turns them away or
+  // publishes them. Moderation remains the only automatic rejection.
+  //
+  // A row carrying no recommendation cannot be published: a photo reaches the
+  // public joined to the note it belongs to. It queues instead, and the approve
+  // route refuses it there with a reason.
+  const recommendationId = image.getString("recommendation");
+  if (relevance === "relevant" && recommendationId) {
+    applyApproval(app, image, recommendationId, "", "");
+    return true;
+  }
+
   image.set("status", "pending");
   app.save(image);
   return true;
@@ -324,6 +378,7 @@ function retryFailedScreens(app, limit) {
 }
 
 module.exports = {
+  applyApproval,
   retryFailedScreens,
   screenImageSubmission,
 };

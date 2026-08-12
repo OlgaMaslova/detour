@@ -2364,11 +2364,12 @@ onRecordAfterDeleteSuccess((e) => {
 }, "community_recommendations");
 
 // Member-supplied images never update a place directly. Public collection
-// creation is disabled; the custom route below accepts the candidate URL,
-// creates a stable PocketBase snapshot, and initializes every server-owned
-// moderation field. Only a founding-member approval route can make a snapshot
-// visible, and then only as the cover of the recommendation that submitted it —
-// never as the place's own image.
+// creation is disabled; the custom route below accepts the upload, creates a
+// stable PocketBase snapshot, and initializes every server-owned moderation
+// field. A snapshot becomes visible one of two ways — automatic screening
+// clearing it, or a founding member approving it — and either way only as the
+// cover of the recommendation that submitted it, never as the place's own
+// image. Nothing a request can set reaches `approved` on its own.
 onRecordCreateRequest((e) => {
   if (e.hasSuperuserAuth()) {
     return e.next();
@@ -2908,28 +2909,17 @@ routerAdd(
         recommendationId
       );
 
-      // One approved photo per recommendation: a member replacing their own
-      // photo supersedes their previous one. Scoped to the recommendation, not
-      // to the place — approving one member's photo must never retire another
-      // member's, which is exactly what the venue-scoped version did.
-      const superseded = txApp.findRecordsByFilter(
-        "community_place_images",
-        "recommendation = {:recommendation} && status = 'approved' && id != {:id}",
-        "created",
-        20,
-        0,
-        { recommendation: recommendation.id, id: image.id }
+      // One approved photo per recommendation, applied by the same helper the
+      // automatic path uses so the supersede rule cannot drift between the two
+      // ways an image reaches `approved`.
+      const curation = require(__hooks + "/image_curation.js");
+      curation.applyApproval(
+        txApp,
+        image,
+        recommendation.id,
+        e.auth.id,
+        curatorNote
       );
-      for (const previous of superseded) {
-        previous.set("status", "superseded");
-        txApp.save(previous);
-      }
-
-      image.set("status", "approved");
-      image.set("reviewed_by", e.auth.id);
-      image.set("reviewed_at", new Date().toISOString());
-      image.set("curator_note", curatorNote);
-      txApp.save(image);
       // Nothing is written to the venue. The place's own `image_url` stays
       // enrichment-sourced and remains the fallback for recommendations
       // without a photo.

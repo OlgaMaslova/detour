@@ -25,6 +25,7 @@ import {
   focusCollision,
   mapLinkField,
   meaningfulRecommendation,
+  occasionField,
   photoField,
   placeCollisionFor,
   placeLinkFields,
@@ -191,10 +192,7 @@ function entryEditMarkup(entry: PlaceEntry): string {
         </div>
         <label>Which one <span class="community-optional">Optional — only if another place shares this name and city</span><input name="disambiguator" value="${esc(entry.disambiguator || '')}" maxlength="120" placeholder="Street or neighbourhood"${lockedAttribute}></label>
         ${categoryField(selectedCategory)}
-        <fieldset class="community-choice-fieldset">
-          <legend>Good for <span class="community-optional">Optional — choose any that fit</span></legend>
-          <div class="community-choice-grid">${OCCASION_OPTIONS.map(([value, label]) => `<label><input type="checkbox" name="occasions" value="${value}"${selectedOccasions.indexOf(value) !== -1 ? ' checked' : ''}><span>${label}</span></label>`).join('')}</div>
-        </fieldset>
+        ${occasionField(selectedOccasions)}
         ${rec ? `<label>My recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?">${esc(rec.note || '')}</textarea></label>` : ''}
         ${placeLinkFields({
           officialUrl: entry.official_url,
@@ -452,6 +450,12 @@ export function recommendationPanel(): string {
              form never asks it again. -->
         <input type="hidden" name="place_intent" value="second">
         <label>My recommendation<textarea id="recommendation-note" name="note" rows="5" maxlength="2400" minlength="24" required autofocus placeholder="What should another Detourist know about this place?"></textarea></label>
+        <!-- Asked here too, on a place that already exists: the tags are
+             union-only on the server, so a second recommender can only add what
+             the first did not see. Nothing is preselected — the boxes would have
+             to be ticked from this member's own reading of the place, and
+             showing another member's answers already ticked invites a nod. -->
+        ${occasionField()}
         ${placeLinkFields({
           officialUrl: draft.officialUrl,
           instagramUrl: draft.instagramUrl,
@@ -468,11 +472,17 @@ export function recommendationPanel(): string {
         // coordinates, its website and its Instagram — is found by the
         // enrichment passes from the name and the city alone, so asking a member
         // to type any of it only asked them to do work the server was going to
-        // redo anyway. Category is the exception: it is one tap, the member
-        // standing in the place is the one who knows, and it is what the lists
-        // sort by. It stays optional, and what it is good for stays on the
-        // entry's own line, where correcting it is one click and does not stand
-        // between having something to say and saying it.
+        // redo anyway. Category and Good for are the exceptions: they are taps
+        // rather than typing, the member standing in the place is the one who
+        // knows, and they are what the lists sort and filter by. Both stay
+        // optional.
+        //
+        // GOOD FOR WAS ONCE LEFT TO THE EDIT FORM, on the reasoning that a
+        // shorter form gets more places written. What it actually got was places
+        // with no tags: the entry editor is a screen a member visits to correct
+        // something, not one they open after finishing a note they were happy
+        // with, so every place published in that period reached its own page
+        // with the Good for line blank and its city's filters unable to see it.
         `<form class="community-form" data-community-recommendation>
         ${mapLinkField()}
         <label>Food-and-drink destination name<input name="venue_name" maxlength="200" value="${esc(
@@ -482,6 +492,7 @@ export function recommendationPanel(): string {
           newPlacePrefill.city
         )}" required placeholder="City or locality"></label>
         ${categoryField()}
+        ${occasionField()}
         <label>My recommendation<textarea name="note" rows="5" maxlength="2400" minlength="24" required placeholder="What makes this food-and-drink destination worth a deliberate detour?"></textarea></label>
         ${photoField()}
         <div class="community-form-actions">
@@ -759,12 +770,11 @@ export function bindRecommendations(
         .collection('community_recommendations')
         .create<RecommendationRecord>(payload);
       pendingCollision = null;
-      let photoQueued = false;
+      let photoStatus = '';
       let photoError = '';
       if (photo && created.entry) {
         try {
-          await submitImageForReview(created.entry, photo);
-          photoQueued = true;
+          photoStatus = await submitImageForReview(created.entry, photo);
         } catch (error) {
           photoError = readableError(
             error,
@@ -799,8 +809,13 @@ export function bindRecommendations(
       if (store.notice && createdEntry) {
         store.notice.text += ' Open its line to say what it is good for.';
       }
-      if (store.notice && photoQueued) {
-        store.notice.text += ' Your photo is awaiting review and will appear with your note.';
+      if (store.notice && photoStatus) {
+        // Screening decides on the spot for most photos, so the member is told
+        // what happened to theirs rather than that it was received.
+        store.notice.text +=
+          photoStatus === 'approved'
+            ? ' Your photo passed screening and appears with your note.'
+            : ' Your photo is awaiting review and will appear with your note.';
       } else if (photoError) {
         store.notice = { kind: 'info', text: `${store.notice?.text || 'Recommendation saved.'} ${photoError}` };
       }
@@ -979,8 +994,11 @@ export function bindRecommendations(
         store.notice = { kind: 'success', text: 'Recommendation updated.' };
         if (proposedPhoto) {
           try {
-            await submitImageForReview(entryId, proposedPhoto);
-            store.notice.text += ' Your photo is awaiting review and will appear with your note.';
+            const photoStatus = await submitImageForReview(entryId, proposedPhoto);
+            store.notice.text +=
+              photoStatus === 'approved'
+                ? ' Your photo passed screening and appears with your note.'
+                : ' Your photo is awaiting review and will appear with your note.';
           } catch (error) {
             store.notice = {
               kind: 'info',

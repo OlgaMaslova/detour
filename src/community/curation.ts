@@ -65,7 +65,7 @@ export function curationPanel(): string {
   return `<section class="community-tab-panel community-curation-panel" id="member-panel-curation" role="tabpanel" aria-labelledby="member-tab-curation" tabindex="0">
     <div class="community-section-heading">
       <div><p class="community-kicker">Founding circle</p><h3>Photo review</h3></div>
-      <p class="community-form-note">Approving a photo publishes it with the member's own recommendation. It does not become the place's image, and it replaces no one else's photo.</p>
+      <p class="community-form-note">Screening publishes a photo it can read as a place, its food or its room. What reaches here is what it read as off-topic, what it could not call, and what it could not screen at all — the model turns nothing away by itself. Approving one publishes it with the member's own recommendation: it does not become the place's image, and it replaces no one else's photo.</p>
     </div>
     ${
       loadingCuration || !curationLoaded

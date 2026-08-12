@@ -14,11 +14,16 @@
 // classifier can see. Wording strong enough to catch a catalogue shot also rejected
 // the gazpacho above, because "no venue around it" describes both — so stock
 // detection is out of scope and this case is labelled for what the image is of.
-// Nothing auto-publishes on relevance; a founder sees every image.
+// This is the case with teeth now that `relevant` auto-publishes: a catalogue
+// shot goes onto a place page with nobody having looked at it. Accepted, because
+// the alternative wording rejected the gazpacho, and plates are most of what
+// members send. A founder can still retire it after the fact.
 {"id":"stock-coffee-cup","image":"images/stock-coffee-cup.jpeg","venue_name":"Hola Coffee","city":"Madrid","country":"Spain","expected":"relevant"}
 // Labelled irrelevant, not uncertain: gpt-4o-mini will not reach for uncertain on
 // a subject with no food-and-drink content in it, however the prompt words the
-// residual case — and since relevance only annotates the founder's review screen,
-// the distinction was never load-bearing. Revisit if the hook ever gates on it.
+// residual case. Still not load-bearing: the hook now gates on `relevant`, and
+// `uncertain` and `irrelevant` both go to the founders' queue, so which of the
+// two this lands on changes nothing about what the public sees.
 {"id":"random-room","image":"images/random-room.jpeg","venue_name":"Bar Trafalgar","city":"Madrid","country":"Spain","expected":"irrelevant"}
 {"id":"street","image":"images/street.jpeg","venue_name":"Bar Trafalgar","city":"Madrid","country":"Spain","expected":"irrelevant"}
+{"id":"bakery-stand","image":"images/bakery-stand.jpg","venue_name":"Boulangerie Ange","city":"Annecy","country":"France","expected":"relevant"}
