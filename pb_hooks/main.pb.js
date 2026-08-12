@@ -626,6 +626,7 @@ routerAdd(
         city: "",
         country: "",
         address: "",
+        venue_id: "",
         created: "",
       };
       const photoFields = photos.photoRowFields();
@@ -636,11 +637,26 @@ routerAdd(
     // The recommendation columns every branch below selects, photo included.
     // Written once so the anonymous sample and the member feed cannot drift
     // into showing a photo on one surface and not the other.
+    //
+    // Place facts come from the published venue when there is one, because the
+    // venue is the canonical record and a curator may correct it after
+    // publication; the copy stamped on the recommendation at submission time is
+    // only the fallback for places that have not published yet. Serving the
+    // stale copy is how a fixed city once silently detached every note from its
+    // place card. Both branches therefore LEFT JOIN the entry and its venue.
     const recommendationColumns =
       "r.id AS recommendation_id, m.pseudo AS recommender_pseudo, m.id AS member_id, " +
       "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
-      "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
+      "r.note, " +
+      "COALESCE(NULLIF(TRIM(v.name), ''), r.venue_name) AS venue_name, " +
+      "COALESCE(NULLIF(TRIM(v.city), ''), r.city) AS city, " +
+      "COALESCE(NULLIF(TRIM(v.country), ''), r.country) AS country, " +
+      "COALESCE(NULLIF(TRIM(v.address), ''), r.address) AS address, " +
+      "COALESCE(v.id, '') AS venue_id, r.created " +
       photos.photoColumns();
+    const venueJoin =
+      "LEFT JOIN community_place_entries w ON w.id = r.entry " +
+      "LEFT JOIN venues v ON v.id = w.published_venue ";
 
     function projectReply(row) {
       return {
@@ -693,6 +709,10 @@ routerAdd(
         city: row.city,
         country: row.country,
         address: row.address,
+        // The published venue this note belongs to, empty until publication.
+        // Clients attach a note to its place card by this id; the name-and-city
+        // fallback exists only for notes on places that have not published yet.
+        venue_id: row.venue_id,
         created: row.created,
         // Attached to this recommendation by its own author. Selected in the
         // same projection as the note, so it is visible to exactly the callers
@@ -718,7 +738,7 @@ routerAdd(
             "SELECT " + recommendationColumns +
               "FROM community_recommendations r " +
               "JOIN members m ON m.id = r.member " +
-              "JOIN community_place_entries w ON w.id = r.entry " +
+              venueJoin +
               photos.photoJoin("r") +
               "WHERE w.status = 'published' AND w.published_venue != '' " +
               "AND COALESCE(m.internal_member, FALSE) = FALSE " +
@@ -849,6 +869,7 @@ routerAdd(
           " THEN TRUE ELSE FALSE END AS in_graph " +
           "FROM community_recommendations r " +
           "JOIN members m ON m.id = r.member " +
+          venueJoin +
           photos.photoJoin("r") +
           "WHERE COALESCE(m.internal_member, FALSE) = FALSE " +
           "AND (m.id = {:caller} " +
@@ -1298,9 +1319,11 @@ routerAdd(
     e.app
       .db()
       .newQuery(
-        "SELECT r.member AS member_id, r.venue_name AS venue, MAX(r.created) AS created " +
+        "SELECT r.member AS member_id, " +
+          "COALESCE(NULLIF(TRIM(v.name), ''), r.venue_name) AS venue, MAX(r.created) AS created " +
           "FROM community_recommendations r " +
           "JOIN community_place_entries w ON w.id = r.entry " +
+          "JOIN venues v ON v.id = w.published_venue " +
           "WHERE w.status = 'published' AND w.published_venue != '' " +
           "GROUP BY r.member LIMIT 5000"
       )
@@ -1596,12 +1619,21 @@ routerAdd(
     e.app
       .db()
       .newQuery(
+        // Place facts come from the published venue, not the snapshot stamped
+        // on the recommendation at submission time — the venue is the record a
+        // curator corrects, and this panel must agree with the place card.
         "SELECT r.id AS recommendation_id, m.pseudo AS recommender_pseudo, " +
           "CASE WHEN " + founding.foundingMemberSql("m") + " THEN TRUE ELSE FALSE END AS founding_member, " +
-          "r.note, r.venue_name, r.city, r.country, r.address, r.created " +
+          "r.note, " +
+          "COALESCE(NULLIF(TRIM(v.name), ''), r.venue_name) AS venue_name, " +
+          "COALESCE(NULLIF(TRIM(v.city), ''), r.city) AS city, " +
+          "COALESCE(NULLIF(TRIM(v.country), ''), r.country) AS country, " +
+          "COALESCE(NULLIF(TRIM(v.address), ''), r.address) AS address, " +
+          "r.created " +
           photos.photoColumns() +
           "FROM community_recommendations r " +
           "JOIN community_place_entries w ON w.id = r.entry " +
+          "JOIN venues v ON v.id = w.published_venue " +
           "JOIN members m ON m.id = r.member " +
           photos.photoJoin("r") +
           "WHERE r.member = {:target} " +
