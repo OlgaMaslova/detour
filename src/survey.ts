@@ -104,7 +104,7 @@ interface SurveyState {
 }
 
 interface SurveyRenderOptions {
-  homeHref: string;
+  landingHref: string;
   /** Where a signed-out visitor goes to sign in, for member-only surveys. */
   signInHref: string;
   brandMark: string;
@@ -559,8 +559,8 @@ export function renderSurvey(root: HTMLElement, options: SurveyRenderOptions): v
   const form = forms[formId];
   const state = stateFor(formId);
   const masthead = `<header class="survey-masthead">
-      <a class="survey-brand" href="${esc(options.homeHref)}" data-home>${options.brandMark}<span class="brand-word">Detour</span></a>
-      <a class="secondary-button survey-home-link" href="${esc(options.homeHref)}" data-home>Back to Detour</a>
+      <a class="survey-brand" href="${esc(options.landingHref)}" data-landing>${options.brandMark}<span class="brand-word">Detour</span></a>
+      <a class="secondary-button survey-home-link" href="${esc(options.landingHref)}" data-landing>Back to Detour</a>
     </header>`;
 
   if (state.submitted) {
@@ -586,8 +586,8 @@ export function renderSurvey(root: HTMLElement, options: SurveyRenderOptions): v
         <div class="survey-success-actions">
           ${offerInvite && !claimed
             ? `<button type="button" class="survey-primary-link" data-claim-open>${esc(form.success.inviteCta || '')}</button>
-              <a class="secondary-button" href="${esc(options.homeHref)}" data-home>Return to Detour</a>`
-            : `<a class="survey-primary-link" href="${esc(options.homeHref)}" data-home>Return to Detour</a>`}
+              <a class="secondary-button" href="${esc(options.landingHref)}" data-landing>Return to Detour</a>`
+            : `<a class="survey-primary-link" href="${esc(options.landingHref)}" data-landing>Return to Detour</a>`}
         </div>
         ${offerInvite && !claimed ? claimDialogMarkup(form) : ''}
       </main>`;
@@ -601,7 +601,7 @@ export function renderSurvey(root: HTMLElement, options: SurveyRenderOptions): v
   const body = needsSignIn
     ? `<div class="survey-question">
         <p class="survey-question-note">${esc(form.signedOutNote || 'You need to be signed in to answer this one.')}</p>
-        <a class="survey-primary-link" href="${esc(options.signInHref)}" data-home>Sign in to Detour</a>
+        <a class="survey-primary-link" href="${esc(options.signInHref)}">Sign in to Detour</a>
       </div>`
     : `${questionsFor(form).map((question, index) => questionMarkup(question, index, form, state)).join('')}
         <div class="survey-submit-row">

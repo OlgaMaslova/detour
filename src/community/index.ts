@@ -98,14 +98,13 @@ function signedInPanel(): string {
   </section>`;
 }
 /**
- * My detours as the signed-in landing: the tabs and nothing else.
+ * My detours as its own page: the tabs and nothing else.
  *
- * The same panel the member area holds, mounted as the thing an invitation and a
- * return visit both land on. See docs/landing-spec.md — a feed promises something
- * new on every load, and at a few places a week that promise fails on most
- * visits, teaching the member not to come back. A member's own record is never
- * empty once they have done one thing, and the answer slot above this does not
- * depend on supply at all.
+ * The same panel the member area holds, mounted at `?view=detours` as the second
+ * item in the nav. See docs/landing-spec.md, which built this as the signed-in
+ * landing; the feed has that job back, and what the spec argued for still holds
+ * of this page — a member's own record is never empty once they have done one
+ * thing, and the answer slot above this does not depend on supply at all.
  *
  * The answer slot is main.ts's, not this module's: it holds the triage card and
  * the prompt ladder, which are not member-area furniture. Everything below it is.

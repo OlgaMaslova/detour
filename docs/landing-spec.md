@@ -3,6 +3,13 @@
 *Drafted 2026-08-02. What a member sees when they open Detour, and why it is not
 the feed.*
 
+> **Reversed on 2026-08-12: the feed is the landing again.** A member's bare `?`
+> opens the feed; My detours keeps every page below at an address of its own,
+> `?view=detours`, and the nav reads **Feed · My detours · Explore · My Circle**.
+> Read the rest of this document as the specification of the My detours *page* —
+> its answer slot, its tabs, its day-one band, its prohibitions — all of which
+> still stand. Only the claim about which surface a member arrives on does not.
+
 > **Shipped.** `renderLanding` in `src/main.ts`, `landingPanel` in
 > `src/community/index.ts`, the triage card in `pb_hooks/landing_triage.js`,
 > `pb_hooks/landing_triage.pb.js` and `src/triage.ts`, the *been yet?* follow-up

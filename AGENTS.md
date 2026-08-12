@@ -426,17 +426,21 @@ going back to → "got another?" up to three → My detours.
 
 ## The signed-in landing
 
-**My detours is what a member opens on.** Not the feed. `?` with a session
-renders `renderLanding` in `src/main.ts`; the feed lives at `?view=feed`, and the
-nav reads **My detours · Feed · Explore · My Circle**. Specified in
-`docs/landing-spec.md`.
+**The feed is what a member opens on.** `?` with a session renders the feed
+(`renderHome` in `src/main.ts`, which also serves `?view=feed`); **My detours**
+has an address of its own at `?view=detours` and renders `renderLanding`. The nav
+reads **Feed · My detours · Explore · My Circle**. A visitor's `?` is still the
+invitation page, and their nav is **Feed · Explore**.
 
-- **Why not the feed.** A feed promises something new every time it loads, and at
-  a few places a week that promise fails on most visits — each failure teaching
-  the member not to come back. The surface most likely to be empty is the worst
-  possible thing to open on. Two surfaces never fail that way and both are here:
-  the member's own record, which is never empty once they have done one thing,
-  and a question, which does not depend on supply at all.
+- **My detours was the landing and is not any more** (`docs/landing-spec.md`
+  argued for it; the decision was reversed). Everything the spec built stays —
+  the answer slot, the four tabs, the day-one community band, the rules below —
+  it is reached one click in rather than on arrival. What the spec was right
+  about still holds of that page: a member's own record is never empty once they
+  have done one thing, and a question does not depend on supply at all.
+- **The wordmark is the front door**, which differs by reader: the feed for a
+  member, the invitation page for a visitor (`landingHref`/`showLanding`). So is
+  signing in, and so is finishing onboarding.
 - **One thing to answer, or nothing.** The slot above the tabs takes the first
   that applies — an ask, else a triage card, else a "been yet?" follow-up, else
   the week's prompt, else nothing. **Never a stack.** The three that exist are

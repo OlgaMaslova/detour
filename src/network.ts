@@ -1333,14 +1333,14 @@ function memberFeedMarkup(
 }
 
 /**
- * From the community: three places other members put their names to, on the
- * signed-in landing, under the member's own empty lists. The caller owns the
- * day-one guard because the member's private recommendation list lives in the
- * community module, not in this feed module.
+ * From the community: three places other members put their names to, on My
+ * detours, under the member's own empty lists. The caller owns the day-one guard
+ * because the member's private recommendation list lives in the community
+ * module, not in this feed module.
  *
- * The one thing on that screen the member did not put there. My detours is the
- * landing because a member's own record is never empty — but on day one it is
- * exactly that, and a first visit that shows nothing but four empty tabs and a
+ * The one thing on that screen the member did not put there. My detours holds up
+ * because a member's own record is never empty — but on day one it is exactly
+ * that, and a first visit that shows nothing but four empty tabs and a
  * form teaches the same lesson the empty feed did. This band is the answer: not
  * a stat, not a comparison, not a count of what anyone else has achieved, but
  * three real places with somebody's sentence on each. It is content, and it is
@@ -1553,11 +1553,11 @@ function publicFeedMarkup(
 /**
  * The feed.
  *
- * IT NO LONGER ASKS THIS MEMBER FOR ANYTHING. The one-thing-to-answer slot moved
- * to the signed-in landing along with the landing itself (docs/landing-spec.md),
- * and a second ask down here would be the stack the spec rules out — the same
- * member, asked twice, on two surfaces one click apart. Everything below is what
- * is new in their circle, and nothing else.
+ * IT NO LONGER ASKS THIS MEMBER FOR ANYTHING. The one-thing-to-answer slot lives
+ * on My detours (docs/landing-spec.md), and a second ask down here would be the
+ * stack the spec rules out — the same member, asked twice, on two surfaces one
+ * click apart. That still holds now the feed is what a member lands on again:
+ * everything below is what is new in their circle, and nothing else.
  */
 export function networkDiscoveryMarkup(
   accountHref: string,

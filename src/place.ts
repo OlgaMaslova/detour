@@ -207,7 +207,7 @@ export interface PlaceChrome {
    * through to My Circle.
    */
   memberNav: string;
-  homeHref: string;
+  landingHref: string;
   accountHref: string;
   /** The founding-seat request page, for a reader who wants one of fifty. */
   foundingHref: string;
@@ -828,7 +828,7 @@ export function placePageMarkup(v: Venue, chrome: PlaceChrome, h: PlaceHelpers):
   return `
     <a class="skip-link" href="#place-title">Skip to this place</a>
     <header class="network-masthead">
-      <a class="network-brand" href="${h.esc(chrome.homeHref)}" data-home>${chrome.brandMark}<span class="brand-word">Detour</span></a>
+      <a class="network-brand" href="${h.esc(chrome.landingHref)}" data-landing>${chrome.brandMark}<span class="brand-word">Detour</span></a>
       ${
         chrome.memberNav
           ? `<nav class="network-primary-nav" aria-label="Primary navigation">${chrome.memberNav}</nav>`

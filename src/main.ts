@@ -126,15 +126,16 @@ import type { PlaceChrome, PlaceCrumb, PlaceHelpers } from './place';
 type DataMode = 'loading' | 'live' | 'error';
 type AppView =
   /**
-   * The signed-in landing: My detours, with one thing to answer above it. For a
-   * visitor with no session this is still the invitation page — the route is the
-   * same, what it renders is not.
+   * My detours, with one thing to answer above it — at `?view=detours`, since the
+   * bare route is the feed again. For a visitor with no session this is still the
+   * invitation page on the bare route: the view is the same, what it renders and
+   * what it is addressed by are not.
    */
   | 'home'
   /**
-   * The circle feed, which used to be what `home` rendered for a member. It is
-   * second place now: a feed promises something new on every load, and at a few
-   * places a week that promise fails on most visits. See docs/landing-spec.md.
+   * The circle feed: the signed-in landing, and what a bare `/` opens on for a
+   * member. It was demoted to second place once (see docs/landing-spec.md) and
+   * put back in front; My detours keeps everything it gained in the meantime.
    */
   | 'feed'
   | 'explore'
@@ -561,6 +562,13 @@ function routeHref(
     url.searchParams.set('view', 'feed');
     url.searchParams.delete('invite');
   }
+  // My detours needs an address of its own now that the bare route is the feed.
+  // Only for a member: for a visitor `home` is the invitation page, which is the
+  // bare route and has no detours behind it.
+  else if (view === 'home' && memberCanExplore()) {
+    url.searchParams.set('view', 'detours');
+    url.searchParams.delete('invite');
+  }
   else if (view === 'explore' || view === 'country') {
     url.searchParams.set('view', 'explore');
     url.searchParams.delete('invite');
@@ -595,6 +603,16 @@ function routeHref(
 
 function homeHref(): string {
   return routeHref('home', null);
+}
+
+/**
+ * The front door: what the wordmark leads to and what a bare `/` opens on.
+ *
+ * The feed for a member — that is the landing now — and the invitation page for a
+ * visitor, who has no feed of their own to land on.
+ */
+function landingHref(): string {
+  return memberCanExplore() ? feedHref() : homeHref();
 }
 
 function destinationHref(slug: string): string {
@@ -730,6 +748,11 @@ function openPlace(root: HTMLElement, v: Venue): void {
   });
 }
 
+/**
+ * My detours for a member, at an address of its own; the invitation page for a
+ * visitor, on the bare route. See `routeHref` — one view, two addresses, because
+ * it is two pages.
+ */
 function showHome(root: HTMLElement): void {
   if (state.destination !== null) resetDestinationState();
   state.view = 'home';
@@ -767,6 +790,15 @@ function showFeed(root: HTMLElement): void {
   updateRoute('feed', null, 'push');
   pendingFocus = '#network-home-title';
   render(root);
+}
+
+/**
+ * The front door, for whoever is knocking: the feed for a member, the invitation
+ * page for a visitor. What the wordmark opens, and where signing in lands.
+ */
+function showLanding(root: HTMLElement): void {
+  if (memberCanExplore()) showFeed(root);
+  else showHome(root);
 }
 
 function showExplore(root: HTMLElement): void {
@@ -873,7 +905,16 @@ function showWelcome(root: HTMLElement): void {
 }
 
 function returnToDiscovery(root: HTMLElement): void {
-  state.view = state.place && state.destination ? 'place' : state.destination ? 'destination' : 'home';
+  // Back to whatever was being read; with nothing behind the account page, back
+  // to the front door — the feed for a member, the invitation for a visitor.
+  state.view =
+    state.place && state.destination
+      ? 'place'
+      : state.destination
+        ? 'destination'
+        : memberCanExplore()
+          ? 'feed'
+          : 'home';
   updateRoute(state.view, state.destination, 'push', state.place);
   pendingFocus = '[data-community-route]';
   render(root);
@@ -902,6 +943,11 @@ function applyRouteFromUrl(root: HTMLElement): void {
         ? 'welcome'
       : url.searchParams.get('view') === 'feed'
         ? 'feed'
+      // My detours, which has its own address now that the bare route opens on
+      // the feed. A visitor asking for it gets the invitation page `home` always
+      // rendered for them at this route — not a locked door, just their landing.
+      : url.searchParams.get('view') === 'detours'
+        ? 'home'
       : url.searchParams.get('view') === 'explore'
         ? requestedCountry
           ? 'country'
@@ -912,7 +958,13 @@ function applyRouteFromUrl(root: HTMLElement): void {
             ? 'how'
           : url.searchParams.get('view') === 'founding'
             ? 'founding'
-      : 'home';
+      // The bare route is the front door, and the front door is the feed for a
+      // member. A visitor has no feed of their own, so for them it stays the
+      // invitation page. Both addresses of the feed keep working: `/` is where a
+      // member arrives, `?view=feed` is what the nav pushes.
+      : memberCanExplore()
+        ? 'feed'
+        : 'home';
   // Legacy ?city= links resolve to the same destination.
   const requested = isSurveyRoute
     ? null
@@ -1614,7 +1666,7 @@ function renderPlace(
     // together here too — and a visitor gets their two entries rather than a
     // page with no way onward but the wordmark.
     memberNav: navLinks('other'),
-    homeHref: homeHref(),
+    landingHref: landingHref(),
     accountHref: accountHref(),
     foundingHref: foundingHref(),
     recommendHref,
@@ -2814,7 +2866,7 @@ function renderPrivatePlace(root: HTMLElement, id: string): void {
     saving: false,
     saveError: '',
     memberNav: navLinks('other'),
-    homeHref: homeHref(),
+    landingHref: landingHref(),
     accountHref: accountHref(),
     foundingHref: foundingHref(),
     recommendHref,
@@ -3230,6 +3282,15 @@ function bindRouteLinks(root: HTMLElement): void {
       showHome(root);
     });
   });
+  // The wordmark and anything else that means "the front door" rather than "My
+  // detours": the feed for a member, the invitation page for a visitor.
+  root.querySelectorAll<HTMLAnchorElement>('[data-landing]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      showLanding(root);
+    });
+  });
   root.querySelectorAll<HTMLAnchorElement>('[data-founding]').forEach((link) => {
     link.addEventListener('click', (event) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -3385,7 +3446,7 @@ function renderAccount(root: HTMLElement): void {
     <a class="skip-link" href="#community-area">Skip to member area</a>
     <header class="account-masthead">
       <div class="account-nav-row">
-        <a class="account-brand" href="${esc(homeHref())}" data-return-discovery>${brandMark()}<span class="brand-word">Detour</span></a>
+        <a class="account-brand" href="${esc(landingHref())}" data-return-discovery>${brandMark()}<span class="brand-word">Detour</span></a>
         ${
           memberCanExplore()
             ? `<nav class="account-nav" aria-label="Member navigation">${navLinks('other')}</nav>`
@@ -3410,7 +3471,7 @@ function renderAccount(root: HTMLElement): void {
     root,
     state.venues,
     () => render(root),
-    () => showHome(root),
+    () => showLanding(root),
     noteFirstPlace,
     () => {
       openOnboarding();
@@ -3441,14 +3502,14 @@ function renderWelcome(root: HTMLElement): void {
   syncDocumentMeta(null, true);
   root.innerHTML = `
     <header class="welcome-masthead">
-      <a class="welcome-brand" href="${esc(homeHref())}" data-home>${brandMark()}<span class="brand-word">Detour</span></a>
+      <a class="welcome-brand" href="${esc(landingHref())}" data-landing>${brandMark()}<span class="brand-word">Detour</span></a>
     </header>
     ${onboardingMarkup(state.venues)}
   `;
 
   bindOnboarding(root, state.venues, {
     render: () => render(root),
-    onFinished: () => showHome(root),
+    onFinished: () => showLanding(root),
     onPlaceContributed: noteFirstPlace,
   });
   bindRouteLinks(root);
@@ -3481,10 +3542,13 @@ function resolveSearch(query: string): { slug: string; venueId?: string } | null
 type NavView = 'home' | 'feed' | 'explore' | 'circle' | 'other';
 
 function mastheadMarkup(active: NavView = 'other'): string {
-  const brand =
-    active === 'home'
-      ? `<p class="network-brand">${brandMark()}<span class="brand-word">Detour</span></p>`
-      : `<a class="network-brand" href="${esc(homeHref())}" data-home>${brandMark()}<span class="brand-word">Detour</span></a>`;
+  // The wordmark is the front door, and the front door differs by reader: the
+  // feed for a member, the invitation page for a visitor. It goes flat rather
+  // than linking to the page it is already on.
+  const onLanding = memberCanExplore() ? active === 'feed' : active === 'home';
+  const brand = onLanding
+    ? `<p class="network-brand">${brandMark()}<span class="brand-word">Detour</span></p>`
+    : `<a class="network-brand" href="${esc(landingHref())}" data-landing>${brandMark()}<span class="brand-word">Detour</span></a>`;
   // The member control is a sibling of the nav, not a child of it: on a phone the
   // four nav items need the whole row to themselves, and the control has to stay
   // up on the brand row rather than travel down with them.
@@ -3498,14 +3562,13 @@ function mastheadMarkup(active: NavView = 'other'): string {
 /**
  * The primary nav, for whoever is reading.
  *
- * **My detours · Feed · Explore · My Circle** for a member, most-likely-to-be-
- * useful first. My detours leads because it is the landing: their own record,
- * which is never empty once they have done one thing, and one thing to answer
- * above it. The feed follows rather than leads for the reason in
- * docs/landing-spec.md — it promises something new every time it loads, and at
- * this supply that promise mostly fails.
+ * **Feed · My detours · Explore · My Circle** for a member, in the order they are
+ * reached for. The feed leads because it is the landing again: what the circle
+ * has added since the last visit is the first thing a member opens Detour to see.
+ * My detours follows — their own record, and the one thing to answer above it —
+ * at `?view=detours` now that the bare route belongs to the feed.
  *
- * A visitor gets the middle two, **Feed · Explore** — the surfaces that hold
+ * A visitor gets the first and third, **Feed · Explore** — the surfaces that hold
  * places — with the wordmark home to the invitation. The two they do not get are
  * the two that are about them rather than about places: My detours is a record
  * they have not started, and My Circle is a graph they are not in. Neither would
@@ -3526,9 +3589,10 @@ function navLinks(active: NavView): string {
     `<a class="network-explore-link${active === view ? ' is-current' : ''}" href="${esc(href)}" data-${
       view === 'home' ? 'home' : view
     }${active === view ? ' aria-current="page"' : ''}>${label}</a>`;
-  const feedAndExplore = `${link('feed', feedHref(), 'Feed')}${link('explore', exploreHref(), 'Explore')}`;
-  if (!memberCanExplore()) return feedAndExplore;
-  return `${link('home', homeHref(), 'My detours')}${feedAndExplore}${link(
+  const feed = link('feed', feedHref(), 'Feed');
+  const explore = link('explore', exploreHref(), 'Explore');
+  if (!memberCanExplore()) return `${feed}${explore}`;
+  return `${feed}${link('home', homeHref(), 'My detours')}${explore}${link(
     'circle',
     circleHref(),
     'My Circle'
@@ -4022,7 +4086,7 @@ function renderFoundingRequest(root: HTMLElement): void {
         [
           // Not a geography page, so the one crumb the app has that is not a
           // city is the one here: membership hangs off the front door.
-          { label: 'Home', href: homeHref(), attrs: 'data-home' },
+          { label: 'Home', href: landingHref(), attrs: 'data-landing' },
           { label: 'Founding membership', href: '' },
         ],
         esc
@@ -4158,14 +4222,13 @@ function renderHowItWorks(root: HTMLElement): void {
 }
 
 /**
- * The signed-in landing: one thing to answer, then the member's own four lists.
+ * My detours: one thing to answer, then the member's own four lists.
  *
- * See docs/landing-spec.md. It replaces the feed as what an invitation and a
- * return visit both land on, for one reason: a feed promises something new every
- * time it loads, and at a few places a week that promise fails on most visits —
- * each failure teaching the member not to come back. Two surfaces never fail that
- * way, and both are here. A member's own record is never empty once they have
- * done one thing, and a question does not depend on supply at all.
+ * See docs/landing-spec.md, which built this page as the signed-in landing. The
+ * feed has that job back and this is the second item in the nav — but everything
+ * the spec argued for is still here and still true of this page: a member's own
+ * record is never empty once they have done one thing, and a question does not
+ * depend on supply at all.
  *
  * On day one, three places from the community, because that is the one visit where
  * "their own record is never empty" is false: a member who has just signed up
@@ -4216,7 +4279,7 @@ function renderLanding(root: HTMLElement): void {
     root,
     state.venues,
     () => render(root),
-    () => showHome(root),
+    () => showLanding(root),
     noteFirstPlace,
     () => {
       openOnboarding();
@@ -4272,11 +4335,10 @@ function answerSlotMarkup(): string {
 }
 
 /**
- * The circle feed — what home used to be for a member, now one step in.
+ * The circle feed — the signed-in landing, and first in the nav.
  *
- * Unchanged in every way but its address. It is honest about being second: what
- * is new is worth a look when there is something new, and the landing is what a
- * member opens on when there is not.
+ * Reached at `?view=feed` and at the bare route, which is where a member arrives:
+ * what the circle has added since the last visit is what they open Detour for.
  *
  * Also the visitor's two screens, which share this shell because they share its
  * one request: `?` is the invitation page with a three-card sample on it, and
@@ -4380,7 +4442,7 @@ function render(root: HTMLElement) {
     const meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     meta?.setAttribute('content', pageMeta.description);
     renderSurvey(root, {
-      homeHref: homeHref(),
+      landingHref: landingHref(),
       signInHref: accountHref(),
       brandMark: brandMark(),
       form: state.surveyForm || defaultSurveyForm,
