@@ -16,9 +16,6 @@ the place pages — scoped to the places the founding circle recommends.
   Worker `detour-web`.
 - **Live at** — https://takedetour.app, API at https://api.takedetour.app.
 
-Both halves live in this repository and run in Olga's own Fly and Cloudflare
-accounts.
-
 ## Running locally
 
 ```sh
