@@ -98,11 +98,41 @@
     var(--tape-orange) 50% 75%,
     var(--tape-rust) 75% 100%
   );
+  /* ---- the barcode strip ----
+     Two things make this read as print rather than as noise, and both are easy to
+     undo by "tidying" the numbers.
+
+     RHYTHM. Bars are 2, 5, 2 and 3px on an even ~2.4px gap. A barcode is legible
+     as one because its bars contrast in width — the eye reads thick-thin-thick.
+     The old pattern ran 2, 2, 3 on a 14px period: three near-identical bars,
+     packed tight, which at 22px tall is a hatch, not a code. Vary the bars, keep
+     the gaps regular.
+
+     EDGES. Every transition is a 0.4px ramp, not a hard stop: each colour's run
+     ends 0.2px short of the true boundary and the next begins 0.2px past it, so
+     the ramp straddles the edge and the bar keeps its nominal width. The strip is
+     only ever seen on a card rotated 3-4deg, and a hard vertical edge at that
+     angle has to be resolved by the rasteriser into a staircase. A sub-pixel ramp
+     (0.8 device px at 2x, under the threshold where it reads as blur) gives it
+     something to resolve the diagonal into instead.
+
+     SEAM. The period is 21.6px and carries a HALF gap at each end (1.2px), so the
+     two halves meet across the repeat boundary as one full 2.4px gap. This is why
+     the period is not a round number, and why the ends are not symmetrical with
+     the inner gaps — open and close it on a full gap instead and every repeat
+     seam becomes a 4.8px hole, which groups the bars into blocks. Both strips
+     that use this are sized to whole periods (108px = 5) so no bar is sliced. */
   --tape-barcode: repeating-linear-gradient(
     90deg,
-    var(--tape-chrome) 0 2px, transparent 2px 4px,
-    var(--tape-chrome) 4px 5px, transparent 5px 9px,
-    var(--tape-chrome) 9px 12px, transparent 12px 14px
+    transparent 0 1px,
+    var(--tape-chrome) 1.4px 3px,
+    transparent 3.4px 5.4px,
+    var(--tape-chrome) 5.8px 10.4px,
+    transparent 10.8px 12.8px,
+    var(--tape-chrome) 13.2px 14.8px,
+    transparent 15.2px 17.2px,
+    var(--tape-chrome) 17.6px 20.2px,
+    transparent 20.6px 21.6px
   );
 }
 
@@ -670,11 +700,13 @@ a.welcome-brand:hover,
   background: none;
   border-top: 2.5px solid var(--tape-chrome);
 }
+/* Same strip as the card's, and the same reason for the width: 108px is five
+   whole 21.6px periods of `--tape-barcode`, so it ends on a gap. */
 .footer::before {
   content: '';
   flex: none;
   height: 22px;
-  width: 100px;
+  width: 108px;
   background: var(--tape-barcode);
 }
 .footer p {
@@ -2012,16 +2044,21 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
   overflow: hidden;
 }
 .network-entry-thumb-placeholder span { font-size: 4.2rem; opacity: 0.72; }
-/* barcode footer strip on recommendation cards, public and signed-in alike */
+/* barcode footer strip on recommendation cards, public and signed-in alike.
+   108px is five whole 21.6px periods, so the strip ends on a gap rather than
+   slicing a bar down the middle. No `opacity` here any more: it was 0.85, which
+   greyed bars that want to read as ink, and — on the rotated deck card — an
+   opacity below 1 is itself a compositing trigger, so it was buying the exact
+   rasterise-then-rotate resampling the strip looks worst under. Full strength
+   also matches the 3px card border, which is the same `--tape-chrome`. */
 .network-recommendation::after {
   content: '';
   order: 3;
   display: block;
   height: 22px;
-  width: 110px;
+  width: 108px;
   margin: 14px 0 2px;
   background: var(--tape-barcode);
-  opacity: 0.85;
 }
 
 /* ---- de-verbosed: helper copy the mixtape doesn't need ---- */
@@ -2208,9 +2245,18 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
      turns a flat row into an overlapping hand as the screen narrows. */
   --deck-card: clamp(15rem, 30vw, 22rem);
   --deck-spread: clamp(7.5rem, 21vw, 18.5rem);
-  /* Tall enough for a cover, a title, four clamped lines and a byline even at the
-     narrowest card, where the width-derived figure would come up short. */
-  --deck-height: max(24rem, calc(var(--deck-card) * 1.36));
+  /* Additive, not a ratio — and this is load-bearing. Only ONE thing in the card
+     scales with its width: the 16/8 cover, which is what `--deck-card * 0.5`
+     stands for. Everything else is a constant stack — the 14px tape stripe and
+     its 14px margin, three 0.85rem row gaps, the title, the city line, the fixed
+     four-line note box, the byline, the 22px barcode and the foot padding —
+     about 19.5rem of it, whatever the card is wide.
+     A ratio (this was `* 1.36`) is only correct at one width. It was tuned at the
+     22rem ceiling, so it fit on a laptop and came up ~50px short on a tablet: the
+     content row is `minmax(0, 1fr)`, so the shortfall did not push the card
+     taller, it spilled `.network-entry-main` past its row and painted the byline
+     across the barcode below it. Keep this additive. */
+  --deck-height: max(26rem, calc(var(--deck-card) * 0.5 + 19.5rem));
   isolation: isolate;
   display: grid;
   gap: 1rem;
@@ -2220,7 +2266,12 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
   min-height: calc(var(--deck-height) + 3.5rem);
   place-items: start center;
   padding: 1.6rem clamp(0.75rem, 2vw, 1.5rem) 2.5rem;
-  perspective: 1200px;
+  /* No `perspective` here. It was inert — every card below transforms in 2D only
+     (translate + rotate), and perspective does nothing without a Z component — but
+     it still put the deck in a 3D rendering context, which is not free: WebKit
+     rasterises a 3D context's layers into textures and resamples them under the
+     rotation. On iPad that is what shredded the barcode's 1-3px bars into
+     stair-stepped mush. Do not add it back unless a card actually moves in Z. */
 }
 .network-public-list .network-entry {
   grid-area: 1 / 1;
@@ -2258,6 +2309,32 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 /* The deck's title hover is the app-wide invariant near `.network-entry h3` —
    no deck-specific copy of it here, deliberately. */
 .network-public-list .network-entry-thumb { width: 100%; height: auto; aspect-ratio: 16 / 8; }
+/* ---- INVARIANT: nothing paints over the barcode ----
+   The deck card is the one place with a FIXED height, so its content row can be
+   asked to hold more than it has room for — an unusually long venue name, a city
+   that wraps to two lines. `--deck-height` above is sized so that does not
+   happen, but that sizing is an estimate over member-supplied text, and this is
+   the guarantee behind it.
+   Two things are needed, and neither works alone. The track has to become
+   `minmax(0, 1fr)`: a plain `1fr` is `minmax(auto, 1fr)`, whose automatic minimum
+   is the note's own fixed height, so the rows refuse to compress and the byline
+   is pushed straight out of the bottom of the card and across the barcode — that
+   is the reported bug, not a hypothetical. And the note has to be able to take
+   the squeeze: `height: auto` + `stretch` + `max-height` means it is exactly the
+   four-line box it has always been when there is room, and only ever shorter than
+   that. The note is the right row to give — it is already an ellipsised excerpt,
+   so the clip costs a line the reader was never going to be shown. */
+.network-public-list .network-recommendation .network-entry-main {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+}
+.network-public-list .network-recommendation blockquote {
+  align-self: stretch;
+  height: auto;
+  min-height: 0;
+  max-height: calc(4 * 1.38em + 14px);
+  overflow: hidden;
+}
 
 .network-public-state {
   display: flex;
@@ -6334,6 +6411,29 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
    ============================================================ */
 @media (max-width: 1040px) {
   .trusted-card-list.network-recommendation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ---- the deck's tablet band ----
+   Below about 1040px `--deck-card` is running down to its 15rem floor, and a card
+   that narrow is a different typographic problem from the 22rem one the deck was
+   drawn at: the note's 13.5px runs about 25 characters to the line, which is not
+   a paragraph, it is a column of two-word lines. Scaled to the card — the title
+   takes the same 21px the three-up grids already use for a narrow column, and the
+   note drops a step and clamps to three lines, because at this measure the fourth
+   was mostly hyphen-less overflow anyway.
+   The floor is 621px, not 0: the phone stack below that gets a card the full width
+   of the screen at 31rem tall, which has room for the full-size type and should
+   keep it. Same reason the fan itself stops there. */
+@media (max-width: 1040px) and (min-width: 621px) {
+  .network-public-list .network-entry h3 { font-size: 21px; }
+  .network-public-list .network-recommendation blockquote {
+    font-size: 12px;
+    max-height: calc(3 * 1.38em + 14px);
+  }
+  .network-public-list .network-recommendation blockquote p {
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+  }
 }
 
 @media (max-width: 920px) {
