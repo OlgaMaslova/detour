@@ -3059,8 +3059,14 @@ onRecordUpdateRequest((e) => {
   // recommendation create path does and recompute the normalized dedup keys, so
   // a rename keeps the entry findable and de-duplicated.
   const venueName = community.cleanText(e.record.getString("venue_name"), 200);
-  const city = community.cleanText(e.record.getString("city"), 120);
-  const country = community.cleanText(e.record.getString("country"), 120);
+  // Corrected the same way it is read on create: a state written into the city
+  // box comes off it and pays for the country. See place_locality.js.
+  const corrected = require(__hooks + "/place_locality.js").splitLocality(
+    community.cleanText(e.record.getString("city"), 120),
+    community.cleanText(e.record.getString("country"), 120)
+  );
+  const city = community.cleanText(corrected.city, 120);
+  const country = community.cleanText(corrected.country, 120);
   const address = community.cleanText(e.record.getString("address"), 300);
   const disambiguator = community.cleanText(e.record.getString("disambiguator"), 120);
   const normalizedName = community.normalizePlacePart(venueName);
@@ -3460,7 +3466,16 @@ routerAdd(
       const status = submission.getString("status");
       const member = txApp.findRecordById("members", submission.getString("member"));
       const venueName = submission.getString("venue_name").trim();
-      const city = submission.getString("city").trim();
+      // A submitted "San Francisco, CA" would create a venue whose city forks
+      // the catalogue's own San Francisco. Read the same way every other
+      // publication path reads it — see place_locality.js. The curator's own
+      // country answer wins; the state only fills a blank one.
+      const locality = require(__hooks + "/place_locality.js").splitLocality(
+        submission.getString("city").trim(),
+        country
+      );
+      const city = locality.city;
+      const publishedCountry = locality.country;
 
       if (
         member.getString("email") === "community-proof@detour.invalid" ||
@@ -3532,7 +3547,7 @@ routerAdd(
         venue = new Record(venues);
         venue.set("name", venueName);
         venue.set("city", city);
-        venue.set("country", country);
+        venue.set("country", publishedCountry);
         venue.set("address", address);
         venue.set("official_url", officialUrl);
         venue.set("category", category);
@@ -3685,8 +3700,15 @@ onRecordCreateRequest((e) => {
   const privateInput = new DynamicModel({ recommendation_note: "" });
   e.bindBody(privateInput);
   const placeName = cleanText(e.record.getString("place_name"), 200, "Place name");
-  const city = cleanText(e.record.getString("city"), 120, "City");
-  const country = cleanText(e.record.getString("country"), 120, "Country");
+  // A state in the city box is read off it and spent on the country, which is
+  // also how a contribution that carries no country of its own gets one. See
+  // place_locality.js.
+  const locality = require(__hooks + "/place_locality.js").splitLocality(
+    cleanText(e.record.getString("city"), 120, "City"),
+    cleanText(e.record.getString("country"), 120, "Country")
+  );
+  const city = locality.city;
+  const country = locality.country;
   const address = cleanText(e.record.getString("address"), 300, "Address");
   // Hidden fields are not hydrated from the public record input, so read the
   // private recommendation directly from this create request and then set it

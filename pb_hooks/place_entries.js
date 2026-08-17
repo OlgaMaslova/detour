@@ -239,9 +239,15 @@ function findCanonicalVenue(app, normalizedName, normalizedCity, normalizedDisam
 }
 
 function sanitizePlaceInput(app, input) {
+  const { splitLocality } = require(__hooks + "/place_locality.js");
   let venueName = cleanText(input.venueName, 200);
-  let city = cleanText(input.city, 120);
-  let country = cleanText(input.country, 120);
+  // "San Francisco, CA" is one box holding two facts. The state comes off the
+  // city — left on, it forks the city route and makes every Nominatim match
+  // fail the claimed-city guard — and is spent on the country, which is the
+  // field that was going to carry it anyway. See place_locality.js.
+  const locality = splitLocality(cleanText(input.city, 120), cleanText(input.country, 120));
+  let city = cleanText(locality.city, 120);
+  let country = cleanText(locality.country, 120);
   let address = cleanText(input.address, 300);
   let disambiguator = cleanText(input.disambiguator, 120);
   const normalizedName = normalizePlacePart(venueName);
@@ -303,9 +309,17 @@ function sanitizePlaceInput(app, input) {
 }
 
 function validateEntryMatchesInput(entry, input) {
+  const { splitLocality } = require(__hooks + "/place_locality.js");
   const suppliedName = cleanText(input.venueName, 200);
-  const suppliedCity = cleanText(input.city, 120);
-  const suppliedCountry = cleanText(input.country, 120);
+  // Read the same way the entry's own city was read on the way in, or a member
+  // re-sending "San Francisco, CA" would be told it contradicts the
+  // "San Francisco" that string became.
+  const suppliedLocality = splitLocality(
+    cleanText(input.city, 120),
+    cleanText(input.country, 120)
+  );
+  const suppliedCity = cleanText(suppliedLocality.city, 120);
+  const suppliedCountry = cleanText(suppliedLocality.country, 120);
   const entryCountry = cleanText(entry.getString("country"), 120);
 
   if (

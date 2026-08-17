@@ -32,6 +32,12 @@ function normalizeHomeCity(raw) {
     .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+  // "San Francisco, CA" is the honest American answer to "where do you live",
+  // and this field is not only a profile line: it prefills the city on the
+  // recommend form, so a state left on here rides into every place the member
+  // adds and forks that city's page. Read it off once, here. See
+  // place_locality.js.
+  city = require(__hooks + "/place_locality.js").splitLocality(city, "").city;
   if (city.length < 2) {
     throw new BadRequestError("Tell us where you live — the city you live in.");
   }
