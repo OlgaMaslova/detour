@@ -1561,7 +1561,8 @@ legend { color: var(--tape-text); }
 
 .detail h3,
 .detail-network h4,
-.place-section h2 {
+.place-section h2,
+.place-notes-more-title {
   margin: 0;
   color: var(--tape-accent);
   font-family: var(--tape-mono);
@@ -4027,7 +4028,17 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 .place-visitor-cta,
 .place-visitor-cta-secondary { text-decoration: none; }
 
-.place-notes-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+/* The followers' own header — their label and, when there is a rail, its
+   arrows. It sits directly above them rather than up beside WHAT PEOPLE SAY,
+   because the lead note now stands between the two and a control that far from
+   what it moves is not a control anybody finds. */
+.place-notes-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.35rem;
+}
 .place-note-controls { display: flex; gap: 0.45rem; }
 .place-note-control {
   width: 42px;
@@ -4036,13 +4047,23 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
   justify-content: center;
 }
 .place-note-control:disabled { opacity: 0.38; cursor: default; box-shadow: none; }
+/* One or two followers are laid out as a plain grid that stretches them across
+   the row. The track used to cut two half-width columns unconditionally, so a
+   place with a single follower showed one narrow block with an empty half of the
+   section beside it — the same dead column the lead note was rescued from. */
 .place-note-carousel {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: calc((100% - 0.7rem) / 2);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr));
   align-items: start;
   gap: 0.7rem;
   width: 100%;
+}
+/* Three or more overflow the row, and only then is any of this earned: the snap
+   points, the scroll container, and the arrows that come with them. */
+.place-note-carousel.is-rail {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 0.7rem) / 2);
   overflow-x: auto;
   padding: 0 0 0.45rem;
   scroll-behavior: smooth;
@@ -4057,6 +4078,29 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
   margin: 0;
   scroll-snap-align: start;
 }
+/* The photo and the words share a wrapper, so the lead can set them side by
+   side while the chip above and the footer below keep the full width of the
+   block. The gap here plus the figure's own bottom margin is what used to
+   separate a stacked photo from the text under it, and still does. */
+.place-note-body { display: grid; gap: 0.55rem; align-items: start; }
+/* THE LEAD NOTE IS THE SECTION, not a card in a rail: the whole review at full
+   width with its photo beside it. Nothing is clamped or withheld — a member
+   arguing for a deliberate detour at four hundred words is the most useful thing
+   on this page, and it was being served through a half-width carousel column at
+   46 characters to the line with the other half of the section empty.
+   The measure is capped, not the block. This section is over a thousand pixels
+   wide on a laptop, and prose set that wide is unreadable however much room the
+   page has to give it — so the words take 68 characters and the photo takes the
+   column beside them. */
+.place-note-lead { padding: 1rem 1.15rem; }
+.place-note-lead .place-note-body { column-gap: 1.15rem; }
+.place-note-lead.has-photo .place-note-body {
+  grid-template-columns: clamp(9rem, 20%, 13rem) minmax(0, 1fr);
+}
+/* The figure's own cap steps aside — the track decides its width here, and it
+   has the words beside it rather than a wall of text below. */
+.place-note-lead .place-note-photo { margin: 0; max-width: none; }
+.place-note-lead .place-note-body p { max-width: 68ch; font-size: 1.05rem; }
 /* The one paragraph on the page set in the reading face — see --tape-prose. The
    attribution footer below it stays mono, because that is chrome. */
 .place-note p {
@@ -6490,7 +6534,7 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 
 @media (max-width: 720px) {
   .trusted-card-list.network-recommendation-grid { grid-template-columns: 1fr; }
-  .place-note-carousel { grid-auto-columns: min(88%, 32rem); }
+  .place-note-carousel.is-rail { grid-auto-columns: min(88%, 32rem); }
 }
 
 @media (max-width: 700px) {
@@ -6508,6 +6552,11 @@ a.provenance-chip-guide:hover { color: var(--tape-orange); border-color: var(--t
 
 @media (max-width: 620px) {
   #app { padding-inline: 0.75rem; }
+  /* No row holds a photo and a readable measure at this width, so the lead note
+     stacks like a follower — and its photo takes back the small size it wears
+     there rather than running the width of the phone. */
+  .place-note-lead.has-photo .place-note-body { grid-template-columns: minmax(0, 1fr); }
+  .place-note-lead .place-note-photo { max-width: 11rem; margin-bottom: 0.05rem; }
   /* Every headline wraps at this width, and Anton at line-height 0.95 drops the
      3px print ghost of one line into the caps of the next. Loosen the leading
      just enough to keep the two apart; the desktop ramp is untouched. */

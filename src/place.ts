@@ -340,60 +340,103 @@ function voicesSection(v: Venue, chrome: PlaceChrome, h: PlaceHelpers): string {
       }
     </section>`;
   }
-  return `<section class="place-section place-notes" aria-labelledby="place-notes-title">
-    <div class="place-notes-heading">
-      ${heading}
-      ${
-        notes.length > 2
-          ? `<div class="place-note-controls" aria-label="Recommendation carousel controls">
-              <button type="button" class="secondary-button place-note-control" data-place-notes-prev aria-label="Previous recommendations">←</button>
-              <button type="button" class="secondary-button place-note-control" data-place-notes-next aria-label="Next recommendations">→</button>
-            </div>`
+  // THE FIRST NOTE IS THE SECTION. Full width, its photo beside the words, and
+  // not a line of it withheld — somebody's case for a deliberate detour, argued
+  // at length, was being read through a half-width carousel column: 46
+  // characters to the line, a thousand pixels down, and the other half of the
+  // section empty beside it. The rest ride behind it, because a reader takes the
+  // lead note whole and then decides whether they want a second opinion.
+  const [lead, ...rest] = notes;
+  // Three or more followers overflow the row, and that is the only condition
+  // under which this becomes a rail — arrows, snap points, a scroll container.
+  // One or two are laid out as a plain grid that stretches them to fill the row,
+  // because a lone follower in a two-column track sat in half a row with nothing
+  // beside it, which is the thing this section is being fixed for.
+  const rail = rest.length > 2;
+  const followers = rest.length
+    ? `<div class="place-notes-more">
+        <h3 class="place-notes-more-title">More recommendations</h3>
+        ${
+          rail
+            ? `<div class="place-note-controls" aria-label="Recommendation carousel controls">
+                <button type="button" class="secondary-button place-note-control" data-place-notes-prev aria-label="Previous recommendations">←</button>
+                <button type="button" class="secondary-button place-note-control" data-place-notes-next aria-label="Next recommendations">→</button>
+              </div>`
+            : ''
+        }
+      </div>
+      <div class="place-note-carousel${rail ? ' is-rail' : ''}"${
+        // Only a rail is scrolled, so only a rail is focusable and only a rail
+        // is handed to the carousel binding. A static grid with a tabindex is a
+        // stop on the keyboard path that goes nowhere.
+        rail
+          ? ' data-place-note-carousel tabindex="0" aria-label="More member recommendations"'
           : ''
-      }
-    </div>
+      }>
+        ${rest.map((item) => memberNoteBlock(item, v, chrome, h, false)).join('')}
+      </div>`
+    : '';
+  return `<section class="place-section place-notes" aria-labelledby="place-notes-title">
+    ${heading}
     ${guideBlocks}
     ${h.notesStatus}
-    <div class="place-note-carousel" data-place-note-carousel tabindex="0" aria-label="Member recommendations">
-      ${notes
-        .map((item) => {
-          const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
-          const memberLabel = item.is_own ? 'You' : recommender || '';
-          const when = h.shortDate(item.created);
-          const photoAlt = memberLabel
-            ? `Photo by ${memberLabel}`
-            : 'Photo from this recommendation';
-          // Date, founding mark and the edit link — the attribution itself moved
-          // up into the badge, so a note with none of these carries no footer
-          // rather than an empty rule across the bottom of the block.
-          const footer = [
-            item.founding_member
-              ? '<span class="place-founding-note"><span aria-hidden="true">★</span> Founding member</span>'
-              : '',
-            when ? `<time datetime="${h.esc(item.created || '')}">${h.esc(when)}</time>` : '',
-            item.is_own
-              ? `<a class="place-note-edit" href="${h.esc(chrome.editRecommendationHref(v))}" data-community-route="edit-recommendation" data-recommend-venue="${h.esc(v.id)}" aria-label="${h.esc(`Edit your recommendation for ${v.name}`)}">Edit</a>`
-              : '',
-          ].join('');
-          return `<blockquote class="detail-network-note place-note place-voice${item.photoHref ? ' has-photo' : ''}">
-            <p class="place-voice-source">
-              <span class="provenance-chip provenance-chip-feed">Member${
-                memberLabel ? ` · ${h.esc(memberLabel)}` : ''
-              }</span>
-              <span class="place-voice-context">recommended on Detour</span>
-            </p>
-            ${
-              item.photoHref
-                ? `<figure class="place-note-photo"><img src="${h.esc(item.photoHref)}" alt="${h.esc(photoAlt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-place-note-photo></figure>`
-                : ''
-            }
-            <p>${h.esc(item.note || '')}</p>
-            ${footer ? `<footer>${footer}</footer>` : ''}
-          </blockquote>`;
-        })
-        .join('')}
-    </div>
+    ${memberNoteBlock(lead, v, chrome, h, true)}
+    ${followers}
   </section>`;
+}
+
+/**
+ * One member's note, in either of the two housings this section has.
+ *
+ * `lead` changes the layout and nothing else: same chip, same words, same
+ * footer. A follower is not a lesser recommendation — it is the same kind of
+ * thing further along the row — so the only difference is that the lead is
+ * given the width to be read at a sensible measure with its photo beside it,
+ * and a follower is given a column.
+ */
+function memberNoteBlock(
+  item: PlaceNote,
+  v: Venue,
+  chrome: PlaceChrome,
+  h: PlaceHelpers,
+  lead: boolean,
+): string {
+  const recommender = item.recommender_pseudo?.trim().replace(/^@+/, '');
+  const memberLabel = item.is_own ? 'You' : recommender || '';
+  const when = h.shortDate(item.created);
+  const photoAlt = memberLabel ? `Photo by ${memberLabel}` : 'Photo from this recommendation';
+  // Date, founding mark and the edit link — the attribution itself sits up in
+  // the badge, so a note with none of these carries no footer rather than an
+  // empty rule across the bottom of the block.
+  const footer = [
+    item.founding_member
+      ? '<span class="place-founding-note"><span aria-hidden="true">★</span> Founding member</span>'
+      : '',
+    when ? `<time datetime="${h.esc(item.created || '')}">${h.esc(when)}</time>` : '',
+    item.is_own
+      ? `<a class="place-note-edit" href="${h.esc(chrome.editRecommendationHref(v))}" data-community-route="edit-recommendation" data-recommend-venue="${h.esc(v.id)}" aria-label="${h.esc(`Edit your recommendation for ${v.name}`)}">Edit</a>`
+      : '',
+  ].join('');
+  // The photo and the words share a wrapper so the lead can set them side by
+  // side. The blockquote itself cannot: the chip above and the footer below run
+  // the full width of the block in both housings.
+  return `<blockquote class="detail-network-note place-note place-voice${lead ? ' place-note-lead' : ''}${item.photoHref ? ' has-photo' : ''}">
+    <p class="place-voice-source">
+      <span class="provenance-chip provenance-chip-feed">Member${
+        memberLabel ? ` · ${h.esc(memberLabel)}` : ''
+      }</span>
+      <span class="place-voice-context">recommended on Detour</span>
+    </p>
+    <div class="place-note-body">
+      ${
+        item.photoHref
+          ? `<figure class="place-note-photo"><img src="${h.esc(item.photoHref)}" alt="${h.esc(photoAlt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-place-note-photo></figure>`
+          : ''
+      }
+      <p>${h.esc(item.note || '')}</p>
+    </div>
+    ${footer ? `<footer>${footer}</footer>` : ''}
+  </blockquote>`;
 }
 
 /**
